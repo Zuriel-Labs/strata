@@ -1,5 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import { useAppState, useDispatch } from '../store';
+import { useAuth } from '../lib/auth-context';
 import type { Card as CardType, List as ListType } from '../types';
 
 /* ───── helpers ───── */
@@ -225,8 +226,10 @@ function ListColumn({ list }: { list: ListType }) {
 export function BoardView() {
   const state = useAppState();
   const dispatch = useDispatch();
+  const auth = useAuth();
   const [addingList, setAddingList] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
+  const canManageBoard = auth.canManageBoard(state.currentBoardId);
 
   const lists = state.lists
     .filter(l => l.boardId === state.currentBoardId && !l.archived)
@@ -236,7 +239,7 @@ export function BoardView() {
     <div className="flex gap-4 p-4 overflow-x-auto flex-1 items-start" style={{ height: 'calc(100% - 0px)' }}>
       {lists.map(l => <ListColumn key={l.id} list={l} />)}
       {/* Add list */}
-      <div className="w-72 shrink-0">
+      {canManageBoard && <div className="w-72 shrink-0">
         {addingList ? (
           <div className="rounded-xl p-3" style={{ background: 'var(--list-bg)' }}>
             <input
@@ -279,7 +282,7 @@ export function BoardView() {
             + Add another list
           </button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

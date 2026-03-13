@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppState, useDispatch } from '../store';
+import { useAuth } from '../lib/auth-context';
 
 export function Header() {
   const state = useAppState();
   const dispatch = useDispatch();
+  const auth = useAuth();
   const [notifOpen, setNotifOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -210,9 +212,29 @@ export function Header() {
           )}
         </div>
 
+        {auth.session?.permissions.isSystemAdmin && (
+          <button
+            aria-label="Open admin panel"
+            onClick={() => auth.setAdminOpen(true)}
+            className="px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: '#0f1820', background: '#e2a56a' }}
+          >
+            Admin
+          </button>
+        )}
+
+        <button
+          aria-label="Sign out"
+          onClick={() => void auth.logout()}
+          className="px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wide"
+          style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}
+        >
+          Sign out
+        </button>
+
         {/* User avatar */}
-        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style={{ background: '#6366f1' }}>
-          YO
+        <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white" style={{ background: auth.session?.user.color ?? '#6366f1' }} title={auth.session?.user.email}>
+          {auth.session?.user.initials ?? 'SA'}
         </div>
       </div>
     </header>

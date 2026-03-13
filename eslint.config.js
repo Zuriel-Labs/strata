@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'coverage', 'playwright-report', 'test-results', 'server/data']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -17,13 +17,17 @@ export default defineConfig([
     ],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
     },
   },
   {
-    files: ['src/components/ui/**/*.{ts,tsx}', 'src/store.tsx', 'src/hooks/use-toast.ts'],
+    files: ['src/components/ui/**/*.{ts,tsx}', 'src/store.tsx', 'src/hooks/use-toast.ts', 'src/lib/auth-context.tsx'],
     rules: {
       'react-refresh/only-export-components': 'off',
+      'react-hooks/set-state-in-effect': 'off',
     },
   },
 ])

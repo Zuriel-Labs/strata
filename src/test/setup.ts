@@ -1,5 +1,11 @@
 import '@testing-library/jest-dom/vitest';
 
 beforeEach(() => {
-  window.localStorage.clear();
+  if (typeof window !== 'undefined') {
+    window.localStorage.clear();
+  }
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });

@@ -1,6 +1,7 @@
 export type Visibility = 'private' | 'workspace' | 'public';
-export type WorkspaceRole = 'admin' | 'member' | 'guest';
-export type BoardRole = 'admin' | 'member' | 'observer';
+export type PlatformRole = 'system_admin' | 'user';
+export type WorkspaceRole = 'workspace_admin' | 'member' | 'guest';
+export type BoardRole = 'board_admin' | 'member' | 'observer' | 'guest';
 
 export interface User {
   id: string;
@@ -117,6 +118,72 @@ export interface Notification {
   message: string;
   read: boolean;
   createdAt: string;
+}
+
+export interface WorkspaceMembership {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  role: WorkspaceRole;
+  createdAt: string;
+}
+
+export interface BoardMembership {
+  id: string;
+  userId: string;
+  boardId: string;
+  role: BoardRole;
+  createdAt: string;
+}
+
+export interface SessionUser extends User {
+  platformRole: PlatformRole;
+  mustChangePassword: boolean;
+}
+
+export interface PermissionSnapshot {
+  isSystemAdmin: boolean;
+  workspaceMemberships: WorkspaceMembership[];
+  boardMemberships: BoardMembership[];
+}
+
+export interface SessionPayload {
+  status: 'authenticated';
+  user: SessionUser;
+  permissions: PermissionSnapshot;
+  appState: AppState;
+}
+
+export interface PasswordChangeRequiredPayload {
+  status: 'password-change-required';
+  user: SessionUser;
+}
+
+export type SessionResponse = SessionPayload | PasswordChangeRequiredPayload;
+
+export interface AdminUserRecord extends SessionUser {
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  workspaceMemberships: WorkspaceMembership[];
+  boardMemberships: BoardMembership[];
+}
+
+export interface AdminDirectoryResponse {
+  users: AdminUserRecord[];
+  workspaces: Array<{ id: string; name: string }>;
+  boards: Array<{ id: string; title: string; workspaceId: string }>;
+  auditEvents: Array<{
+    id: string;
+    actor_user_id: string | null;
+    target_user_id: string | null;
+    scope_type: string;
+    scope_id: string | null;
+    action: string;
+    outcome: string;
+    metadata_json: string;
+    created_at: string;
+  }>;
 }
 
 export type ViewMode = 'board' | 'table' | 'calendar';

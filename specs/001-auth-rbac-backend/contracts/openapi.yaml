@@ -1,0 +1,117 @@
+openapi: 3.1.0
+info:
+  title: Strata Auth and RBAC API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8787/api
+paths:
+  /auth/login:
+    post:
+      summary: Sign in with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Authenticated session created
+        '401':
+          description: Invalid credentials or inactive account
+  /auth/logout:
+    post:
+      summary: Sign out current session
+      responses:
+        '204':
+          description: Session removed
+  /auth/session:
+    get:
+      summary: Restore current authenticated session and authorized app snapshot
+      responses:
+        '200':
+          description: Session and authorized data returned
+        '401':
+          description: No active session
+  /auth/password/change:
+    post:
+      summary: Change current user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, nextPassword]
+              properties:
+                currentPassword:
+                  type: string
+                nextPassword:
+                  type: string
+      responses:
+        '204':
+          description: Password changed
+        '400':
+          description: Validation failed
+        '401':
+          description: Current password invalid
+  /admin/users:
+    get:
+      summary: List users for administration
+      responses:
+        '200':
+          description: Users returned
+        '403':
+          description: Forbidden
+    post:
+      summary: Create user and assign initial memberships
+      responses:
+        '201':
+          description: User created
+        '403':
+          description: Forbidden
+  /admin/users/{userId}:
+    patch:
+      summary: Update user profile, activation state, or roles
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User updated
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+  /admin/users/{userId}/reset-password:
+    post:
+      summary: Trigger an admin password reset and forced password change
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Temporary password issued
+        '403':
+          description: Forbidden
+  /workspaces/bootstrap:
+    get:
+      summary: Return current user's authorized workspace and board snapshot
+      responses:
+        '200':
+          description: Authorized application snapshot
+        '401':
+          description: Unauthenticated

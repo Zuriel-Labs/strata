@@ -7,6 +7,10 @@ import { BoardView, TableView, CalendarView } from './components/BoardView';
 import { CardModal } from './components/CardModal';
 import { SearchOverlay } from './components/SearchOverlay';
 import { AutomationPanel } from './components/AutomationPanel';
+import { AdminPanel } from './components/AdminPanel';
+import { AccessDenied } from './components/AccessDenied';
+import { AuthScreen } from './components/AuthScreen';
+import { AuthProvider, useAuth } from './lib/auth-context';
 
 const themeVars = {
   '--bg': '#0e0f13',
@@ -60,14 +64,58 @@ function AppInner() {
       </div>
       {state.activeCardId && <CardModal key={state.activeCardId} />}
       <SearchOverlay />
+      <AdminPanel />
+      <AccessDenied />
     </div>
+  );
+}
+
+function AppShell() {
+  const auth = useAuth();
+
+  if (auth.status === 'loading') {
+    return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: '#0e0f13', color: '#e8e9ed' }}>Loading Strata...</div>;
+  }
+
+  if (auth.status === 'anonymous') {
+    return (
+      <AuthScreen
+        mode="login"
+        title="Sign in to Strata"
+        subtitle="Server-backed sessions, scoped RBAC, and admin-managed access now protect every workspace."
+        error={auth.error}
+        onSubmit={async values => {
+          await auth.login(values.email ?? '', values.password ?? '');
+        }}
+      />
+    );
+  }
+
+  if (auth.status === 'password-change-required') {
+    return (
+      <AuthScreen
+        mode="password-change"
+        title="Rotate your temporary password"
+        subtitle="This account is in a forced password change state before platform access is granted."
+        error={auth.error}
+        onSubmit={async values => {
+          await auth.changePassword(values.currentPassword ?? '', values.nextPassword ?? '');
+        }}
+      />
+    );
+  }
+
+  return (
+    <AppProvider key={auth.appKey} initialAppState={auth.session?.appState}>
+      <AppInner />
+    </AppProvider>
   );
 }
 
 export default function App() {
   return (
-    <AppProvider>
-      <AppInner />
-    </AppProvider>
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

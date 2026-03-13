@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useAppState, useDispatch } from '../store';
+import { useAuth } from '../lib/auth-context';
 
 export function Sidebar() {
   const state = useAppState();
   const dispatch = useDispatch();
+  const auth = useAuth();
   const [newBoardName, setNewBoardName] = useState('');
   const [addingBoard, setAddingBoard] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -18,6 +20,8 @@ export function Sidebar() {
   const archivedCards = state.cards.filter(c => c.archived && c.boardId === state.currentBoardId);
 
   const boardColors = ['#6366f1', '#0891b2', '#059669', '#ea580c', '#dc2626', '#7c3aed', '#be185d'];
+
+  const canManageWorkspace = auth.canManageWorkspace(state.currentWorkspaceId);
 
   return (
     <aside className="w-64 h-full flex flex-col border-r" style={{ background: 'var(--sidebar-bg)', borderColor: 'var(--border)' }}>
@@ -70,13 +74,15 @@ export function Sidebar() {
           <h3 className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
             Boards
           </h3>
-          <button
-            onClick={() => setAddingBoard(true)}
-            className="text-xs w-5 h-5 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            +
-          </button>
+          {canManageWorkspace && (
+            <button
+              onClick={() => setAddingBoard(true)}
+              className="text-xs w-5 h-5 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              +
+            </button>
+          )}
         </div>
 
         {boards.map(b => (

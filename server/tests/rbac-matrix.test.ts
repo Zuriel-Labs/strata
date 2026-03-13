@@ -1,0 +1,37 @@
+// @vitest-environment node
+
+import { afterEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { createDatabase } from '../src/db/database';
+import { createApp } from '../src/app';
+import { closeDatabase } from '../src/db/database';
+
+describe('rbac matrix', () => {
+  afterEach(() => {
+    closeDatabase();
+  });
+
+  it('filters bootstrap data to the signed-in user scope', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = request.agent(app);
+
+    await agent.post('/api/auth/login').send({ email: 'alex@company.io', password: 'WorkspaceAdmin123!' });
+    const session = await agent.get('/api/auth/session');
+
+    expect(session.status).toBe(200);
+    expect(session.body.appState.workspaces.some((workspace: { id: string }) => workspace.id === 'w1')).toBe(true);
+    expect(session.body.appState.workspaces.some((workspace: { id: string }) => workspace.id === 'w2')).toBe(false);
+  });
+
+  it('blocks non-system-admin access to platform administration', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = request.agent(app);
+
+    await agent.post('/api/auth/login').send({ email: 'alex@company.io', password: 'WorkspaceAdmin123!' });
+    const response = await agent.get('/api/admin/users');
+
+    expect(response.status).toBe(403);
+  });
+});

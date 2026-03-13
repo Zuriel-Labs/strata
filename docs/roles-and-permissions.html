@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Strata RBAC Roles and Permissions</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #091018;
+        --bg-elevated: #111b25;
+        --bg-panel: #162331;
+        --bg-panel-soft: #1b2b3b;
+        --border: #2b4053;
+        --text: #eaf2f8;
+        --text-muted: #9ab0c2;
+        --accent: #5aa7ff;
+        --accent-soft: rgba(90, 167, 255, 0.14);
+        --warn: #f6c177;
+        --success: #7ce2b1;
+        --danger: #ff8f8f;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+        --radius: 18px;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "DM Sans", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(90, 167, 255, 0.14), transparent 30%),
+          radial-gradient(circle at top right, rgba(124, 226, 177, 0.12), transparent 24%),
+          linear-gradient(180deg, #0a121b 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+
+      .shell {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 48px 24px 80px;
+      }
+
+      .hero {
+        padding: 32px;
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        background: linear-gradient(135deg, rgba(22, 35, 49, 0.95), rgba(10, 18, 27, 0.95));
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 16px 0 12px;
+        font-size: clamp(2.2rem, 4vw, 3.8rem);
+        line-height: 1;
+      }
+
+      .lede {
+        max-width: 760px;
+        color: var(--text-muted);
+        font-size: 1.05rem;
+        line-height: 1.7;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 16px;
+        margin-top: 24px;
+      }
+
+      .card,
+      .matrix,
+      .notes {
+        margin-top: 24px;
+        padding: 24px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: rgba(17, 27, 37, 0.94);
+        box-shadow: var(--shadow);
+      }
+
+      .role-card {
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(27, 43, 59, 0.95), rgba(17, 27, 37, 0.95));
+      }
+
+      .role-card h3,
+      .section-title {
+        margin: 0 0 10px;
+        font-size: 1.1rem;
+      }
+
+      .pill {
+        display: inline-block;
+        margin-bottom: 12px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .platform { background: rgba(246, 193, 119, 0.14); color: var(--warn); }
+      .workspace { background: rgba(90, 167, 255, 0.14); color: var(--accent); }
+      .board { background: rgba(124, 226, 177, 0.14); color: var(--success); }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--text-muted);
+        line-height: 1.7;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border-radius: 14px;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--bg-panel-soft);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+      }
+
+      td { color: var(--text-muted); }
+      tr:last-child td { border-bottom: none; }
+      .yes { color: var(--success); font-weight: 700; }
+      .no { color: var(--danger); font-weight: 700; }
+      .inherit { color: var(--warn); font-weight: 700; }
+
+      .notes p,
+      .matrix p {
+        margin: 0 0 12px;
+        color: var(--text-muted);
+        line-height: 1.7;
+      }
+
+      code {
+        padding: 2px 6px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.92em;
+      }
+
+      @media (max-width: 720px) {
+        .shell { padding: 24px 16px 48px; }
+        .hero, .card, .matrix, .notes { padding: 18px; }
+        table, thead, tbody, th, td, tr { display: block; }
+        thead { display: none; }
+        tr {
+          margin-bottom: 12px;
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          overflow: hidden;
+        }
+        td { border-bottom: 1px solid var(--border); }
+        td:last-child { border-bottom: none; }
+        td::before {
+          content: attr(data-label);
+          display: block;
+          margin-bottom: 6px;
+          color: var(--text);
+          font-size: 12px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <span class="eyebrow">Strata Access Model</span>
+        <h1>Roles and Permissions</h1>
+        <p class="lede">
+          Strata uses platform, workspace, and board roles together. The current implementation enforces access scope and management boundaries server-side through RBAC, with the admin area currently reserved for <code>system_admin</code> users.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Role Definitions</h2>
+        <div class="grid">
+          <article class="role-card">
+            <span class="pill platform">Platform</span>
+            <h3><code>system_admin</code></h3>
+            <ul>
+              <li>Full platform access across all workspaces and boards</li>
+              <li>Open admin panel and manage users, memberships, and roles</li>
+              <li>Create accounts and reset passwords</li>
+              <li>View recent audit activity</li>
+            </ul>
+          </article>
+          <article class="role-card">
+            <span class="pill platform">Platform</span>
+            <h3><code>user</code></h3>
+            <ul>
+              <li>Base platform role for all non-system administrators</li>
+              <li>No global admin powers on its own</li>
+              <li>Effective access comes from workspace and board memberships</li>
+            </ul>
+          </article>
+          <article class="role-card">
+            <span class="pill workspace">Workspace</span>
+            <h3><code>workspace_admin</code></h3>
+            <ul>
+              <li>Access that workspace and its boards</li>
+              <li>Manage the workspace scope</li>
+              <li>Effectively manage boards inside the same workspace</li>
+            </ul>
+          </article>
+          <article class="role-card">
+            <span class="pill workspace">Workspace</span>
+            <h3><code>member</code> / <code>guest</code></h3>
+            <ul>
+              <li>Access the assigned workspace</li>
+              <li>No workspace management permissions</li>
+              <li>Board-level behavior depends on specific board memberships</li>
+            </ul>
+          </article>
+          <article class="role-card">
+            <span class="pill board">Board</span>
+            <h3><code>board_admin</code></h3>
+            <ul>
+              <li>Access and manage the assigned board</li>
+              <li>Can be outranked by a workspace admin or system admin</li>
+            </ul>
+          </article>
+          <article class="role-card">
+            <span class="pill board">Board</span>
+            <h3><code>member</code> / <code>observer</code> / <code>guest</code></h3>
+            <ul>
+              <li>Can access the assigned board</li>
+              <li>Cannot manage the board</li>
+              <li>Fine-grained action differences are not fully expanded yet</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="matrix">
+        <h2 class="section-title">Permission Matrix</h2>
+        <p>This reflects the permissions currently enforced in the application.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Platform Admin</th>
+              <th>Access Workspace</th>
+              <th>Manage Workspace</th>
+              <th>Access Board</th>
+              <th>Manage Board</th>
+              <th>User Management UI</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="Role"><code>system_admin</code></td>
+              <td data-label="Platform Admin" class="yes">Yes</td>
+              <td data-label="Access Workspace" class="yes">All</td>
+              <td data-label="Manage Workspace" class="yes">All</td>
+              <td data-label="Access Board" class="yes">All</td>
+              <td data-label="Manage Board" class="yes">All</td>
+              <td data-label="User Management UI" class="yes">Yes</td>
+            </tr>
+            <tr>
+              <td data-label="Role"><code>user</code></td>
+              <td data-label="Platform Admin" class="no">No</td>
+              <td data-label="Access Workspace" class="inherit">By membership</td>
+              <td data-label="Manage Workspace" class="inherit">By membership</td>
+              <td data-label="Access Board" class="inherit">By membership</td>
+              <td data-label="Manage Board" class="inherit">By membership</td>
+              <td data-label="User Management UI" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Role"><code>workspace_admin</code></td>
+              <td data-label="Platform Admin" class="no">No</td>
+              <td data-label="Access Workspace" class="yes">Assigned workspace</td>
+              <td data-label="Manage Workspace" class="yes">Assigned workspace</td>
+              <td data-label="Access Board" class="yes">Boards in workspace</td>
+              <td data-label="Manage Board" class="yes">Boards in workspace</td>
+              <td data-label="User Management UI" class="no">Not yet</td>
+            </tr>
+            <tr>
+              <td data-label="Role"><code>member</code> (workspace)</td>
+              <td data-label="Platform Admin" class="no">No</td>
+              <td data-label="Access Workspace" class="yes">Assigned workspace</td>
+              <td data-label="Manage Workspace" class="no">No</td>
+              <td data-label="Access Board" class="inherit">By board or workspace scope</td>
+              <td data-label="Manage Board" class="no">No</td>
+              <td data-label="User Management UI" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Role"><code>guest</code> (workspace)</td>
+              <td data-label="Platform Admin" class="no">No</td>
+              <td data-label="Access Workspace" class="yes">Assigned workspace</td>
+              <td data-label="Manage Workspace" class="no">No</td>
+              <td data-label="Access Board" class="inherit">By board or workspace scope</td>
+              <td data-label="Manage Board" class="no">No</td>
+              <td data-label="User Management UI" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Role"><code>board_admin</code></td>
+              <td data-label="Platform Admin" class="no">No</td>
+              <td data-label="Access Workspace" class="inherit">Via workspace or board parent</td>
+              <td data-label="Manage Workspace" class="no">No</td>
+              <td data-label="Access Board" class="yes">Assigned board</td>
+              <td data-label="Manage Board" class="yes">Assigned board</td>
+              <td data-label="User Management UI" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Role"><code>member</code> / <code>observer</code> / <code>guest</code> (board)</td>
+              <td data-label="Platform Admin" class="no">No</td>
+              <td data-label="Access Workspace" class="inherit">Only if also granted there</td>
+              <td data-label="Manage Workspace" class="no">No</td>
+              <td data-label="Access Board" class="yes">Assigned board</td>
+              <td data-label="Manage Board" class="no">No</td>
+              <td data-label="User Management UI" class="no">No</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="matrix">
+        <h2 class="section-title">Action-Level Read / Write Matrix</h2>
+        <p>
+          This section answers the practical questions: who can create, edit, delete, and manage work owned by other users.
+          Where the current MVP does not fully enforce the intended behavior yet, that is called out explicitly.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>system_admin</th>
+              <th>workspace_admin</th>
+              <th>board_admin</th>
+              <th>member</th>
+              <th>observer</th>
+              <th>guest</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td data-label="Action">View all workspaces and boards</td>
+              <td data-label="system_admin" class="yes">Yes</td>
+              <td data-label="workspace_admin" class="inherit">Only assigned workspace scope</td>
+              <td data-label="board_admin" class="inherit">Only assigned board scope</td>
+              <td data-label="member" class="inherit">Only assigned scope</td>
+              <td data-label="observer" class="inherit">Only assigned board scope</td>
+              <td data-label="guest" class="inherit">Only assigned scope</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Create users / reset passwords / manage memberships</td>
+              <td data-label="system_admin" class="yes">Yes</td>
+              <td data-label="workspace_admin" class="no">Not in current UI</td>
+              <td data-label="board_admin" class="no">No</td>
+              <td data-label="member" class="no">No</td>
+              <td data-label="observer" class="no">No</td>
+              <td data-label="guest" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Create workspace</td>
+              <td data-label="system_admin" class="no">Not implemented yet</td>
+              <td data-label="workspace_admin" class="no">Not implemented yet</td>
+              <td data-label="board_admin" class="no">No</td>
+              <td data-label="member" class="no">No</td>
+              <td data-label="observer" class="no">No</td>
+              <td data-label="guest" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Edit workspace settings</td>
+              <td data-label="system_admin" class="yes">By scope override</td>
+              <td data-label="workspace_admin" class="yes">Assigned workspace</td>
+              <td data-label="board_admin" class="no">No</td>
+              <td data-label="member" class="no">No</td>
+              <td data-label="observer" class="no">No</td>
+              <td data-label="guest" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Delete workspace</td>
+              <td data-label="system_admin" class="no">Not implemented yet</td>
+              <td data-label="workspace_admin" class="no">Not implemented yet</td>
+              <td data-label="board_admin" class="no">No</td>
+              <td data-label="member" class="no">No</td>
+              <td data-label="observer" class="no">No</td>
+              <td data-label="guest" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Create board</td>
+              <td data-label="system_admin" class="yes">Yes</td>
+              <td data-label="workspace_admin" class="yes">In assigned workspace</td>
+              <td data-label="board_admin" class="no">No</td>
+              <td data-label="member" class="no">No</td>
+              <td data-label="observer" class="no">No</td>
+              <td data-label="guest" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Edit board settings</td>
+              <td data-label="system_admin" class="yes">Yes</td>
+              <td data-label="workspace_admin" class="yes">Boards in assigned workspace</td>
+              <td data-label="board_admin" class="yes">Assigned board</td>
+              <td data-label="member" class="no">No</td>
+              <td data-label="observer" class="no">No</td>
+              <td data-label="guest" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Delete board</td>
+              <td data-label="system_admin" class="no">Not implemented yet</td>
+              <td data-label="workspace_admin" class="no">Not implemented yet</td>
+              <td data-label="board_admin" class="no">Not implemented yet</td>
+              <td data-label="member" class="no">No</td>
+              <td data-label="observer" class="no">No</td>
+              <td data-label="guest" class="no">No</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Create cards and lists</td>
+              <td data-label="system_admin" class="inherit">Currently available in UI</td>
+              <td data-label="workspace_admin" class="inherit">Currently available in UI</td>
+              <td data-label="board_admin" class="inherit">Currently available in UI</td>
+              <td data-label="member" class="inherit">Currently available in UI</td>
+              <td data-label="observer" class="inherit">MVP gap - not fully blocked yet</td>
+              <td data-label="guest" class="inherit">MVP gap - not fully blocked yet</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Edit cards, comments, checklists, attachments</td>
+              <td data-label="system_admin" class="inherit">Yes in visible scope</td>
+              <td data-label="workspace_admin" class="inherit">Yes in visible scope</td>
+              <td data-label="board_admin" class="inherit">Yes in visible scope</td>
+              <td data-label="member" class="inherit">Yes in visible scope</td>
+              <td data-label="observer" class="inherit">MVP gap - should likely be comment/read focused</td>
+              <td data-label="guest" class="inherit">MVP gap - should likely be narrower</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Delete cards</td>
+              <td data-label="system_admin" class="inherit">Currently via archive/delete flow</td>
+              <td data-label="workspace_admin" class="inherit">Currently via archive/delete flow</td>
+              <td data-label="board_admin" class="inherit">Currently via archive/delete flow</td>
+              <td data-label="member" class="inherit">Currently via archive/delete flow</td>
+              <td data-label="observer" class="inherit">MVP gap - not fully blocked yet</td>
+              <td data-label="guest" class="inherit">MVP gap - not fully blocked yet</td>
+            </tr>
+            <tr>
+              <td data-label="Action">Edit another user's card</td>
+              <td data-label="system_admin" class="inherit">Yes in visible scope</td>
+              <td data-label="workspace_admin" class="inherit">Yes in workspace scope</td>
+              <td data-label="board_admin" class="inherit">Yes in board scope</td>
+              <td data-label="member" class="inherit">Currently possible if they can access the card</td>
+              <td data-label="observer" class="inherit">MVP gap - should likely be restricted</td>
+              <td data-label="guest" class="inherit">MVP gap - should likely be restricted</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="notes">
+        <h2 class="section-title">Important Notes</h2>
+        <ul>
+          <li><strong>Inheritance:</strong> <code>system_admin</code> overrides all scope checks. <code>workspace_admin</code> also inherits management rights for boards inside that workspace.</li>
+          <li><strong>Current admin surface:</strong> user creation, editing, role assignment, workspace membership, board membership, password reset, and recent audit visibility are currently restricted to <code>system_admin</code>.</li>
+          <li><strong>Current limitation:</strong> board-level <code>member</code>, <code>observer</code>, and <code>guest</code> are mostly differentiated by access scope and management rights today, not yet by a fully separate action matrix like comment-only versus read-only.</li>
+          <li><strong>Important MVP caveat:</strong> server-enforced RBAC is strongest today for authentication, admin actions, workspace/board scope visibility, and board-management affordances. Card/list mutation permissions are still more permissive than the final intended model.</li>
+          <li><strong>Source of truth:</strong> server-side enforcement lives in <code>server/src/rbac/permissions.ts</code>, <code>server/src/rbac/policies.ts</code>, and protected routes under <code>server/src/routes/</code>.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

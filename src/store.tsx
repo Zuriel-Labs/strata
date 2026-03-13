@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useReducer, type Dispatch, type ReactNode } from 'react';
+import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { AppState, Action, Card, AutomationRule, User } from './types';
 import { USERS, WORKSPACES, BOARDS, LISTS, CARDS, AUTOMATION_RULES, NOTIFICATIONS, uid } from './data';
 
@@ -95,16 +95,7 @@ function moveCard(cards: Card[], cardId: string, toListId: string, toPosition: n
 }
 
 export function loadInitialState(): AppState {
-  if (typeof window === 'undefined') return initialState;
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return initialState;
-    const parsed = JSON.parse(raw) as Partial<AppState>;
-    return { ...initialState, ...parsed };
-  } catch {
-    return initialState;
-  }
+  return initialState;
 }
 
 function runAutomations(state: AppState, card: Card, trigger: AutomationRule['trigger'], extra?: Record<string, string>): AppState {
@@ -424,12 +415,8 @@ export function reducer(state: AppState, action: Action): AppState {
 const StateContext = createContext<AppState>(initialState);
 const DispatchContext = createContext<Dispatch<Action>>(() => {});
 
-export function AppProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, undefined, loadInitialState);
-
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+export function AppProvider({ children, initialAppState }: { children: ReactNode; initialAppState?: AppState }) {
+  const [state, dispatch] = useReducer(reducer, initialAppState ?? loadInitialState());
 
   return (
     <StateContext.Provider value={state}>

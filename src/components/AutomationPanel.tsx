@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAppState, useDispatch } from '../store';
 import type { AutomationRule } from '../types';
 

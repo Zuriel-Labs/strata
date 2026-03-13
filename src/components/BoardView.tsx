@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import { useState, useMemo, type DragEvent } from 'react';
 import { useAppState, useDispatch } from '../store';
 import type { Card as CardType, List as ListType } from '../types';
 
@@ -75,11 +75,11 @@ function CardItem({ card }: { card: CardType }) {
         <span className="flex-1" />
         <div className="flex -space-x-1.5">
           {members.slice(0, 3).map(m => (
-            <div key={m.id} className="w-5 h-5 rounded-full text-[8px] font-bold text-white flex items-center justify-center ring-1" style={{ background: m.color, ringColor: 'var(--card-bg)' }} title={m.name}>
+            <div key={m.id} className="w-5 h-5 rounded-full text-[8px] font-bold text-white flex items-center justify-center ring-1" style={{ background: m.color, borderColor: 'var(--card-bg)' }} title={m.name}>
               {m.initials}
             </div>
           ))}
-          {members.length > 3 && <div className="w-5 h-5 rounded-full text-[8px] font-bold flex items-center justify-center ring-1" style={{ background: 'var(--active-bg)', color: 'var(--text-muted)', ringColor: 'var(--card-bg)' }}>+{members.length - 3}</div>}
+          {members.length > 3 && <div className="w-5 h-5 rounded-full text-[8px] font-bold flex items-center justify-center ring-1" style={{ background: 'var(--active-bg)', color: 'var(--text-muted)', borderColor: 'var(--card-bg)' }}>+{members.length - 3}</div>}
         </div>
       </div>
     </div>
@@ -101,7 +101,7 @@ function ListColumn({ list }: { list: ListType }) {
     [state.cards, state.filterLabelIds, state.filterMemberIds, state.filterDue, list.id]
   );
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.style.background = 'var(--list-bg)';
     const cardId = e.dataTransfer.getData('cardId');

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAppState, useDispatch } from '../store';
 
 export function CardModal() {
@@ -24,7 +24,6 @@ export function CardModal() {
   const board = state.boards.find(b => b.id === card.boardId);
   const list = state.lists.find(l => l.id === card.listId);
   const labels = board?.labels || [];
-  const cardLabels = labels.filter(l => card.labelIds.includes(l.id));
   const members = state.users.filter(u => card.memberIds.includes(u.id));
   const availableMembers = state.users.filter(u => !card.memberIds.includes(u.id));
   const lists = state.lists.filter(l => l.boardId === card.boardId && !l.archived).sort((a, b) => a.position - b.position);

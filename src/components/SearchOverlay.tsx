@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import { useAppState, useDispatch } from '../store';
 
 export function SearchOverlay() {

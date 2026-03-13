@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
+import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { AppState, Action, Card, AutomationRule } from './types';
 import { USERS, WORKSPACES, BOARDS, LISTS, CARDS, AUTOMATION_RULES, NOTIFICATIONS, uid } from './data';
 

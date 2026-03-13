@@ -58,7 +58,7 @@ function AppInner() {
           <AutomationPanel />
         </div>
       </div>
-      {state.activeCardId && <CardModal />}
+      {state.activeCardId && <CardModal key={state.activeCardId} />}
       <SearchOverlay />
     </div>
   );

@@ -35,6 +35,16 @@ export interface Comment {
   createdAt: string;
 }
 
+export interface Attachment {
+  id: string;
+  name: string;
+  kind: 'file' | 'link';
+  url?: string;
+  size?: number;
+  mimeType?: string;
+  createdAt: string;
+}
+
 export interface ActivityEntry {
   id: string;
   userId: string;
@@ -56,7 +66,7 @@ export interface Card {
   dueDateComplete: boolean;
   comments: Comment[];
   activity: ActivityEntry[];
-  attachments: string[];
+  attachments: Attachment[];
   watching: boolean;
   archived: boolean;
   createdAt: string;
@@ -125,6 +135,7 @@ export interface AppState {
   activeCardId: string | null;
   searchQuery: string;
   searchOpen: boolean;
+  searchTimestamp: number;
   filterLabelIds: string[];
   filterMemberIds: string[];
   filterDue: 'all' | 'overdue' | 'week' | 'month' | 'none';
@@ -162,6 +173,8 @@ export type Action =
   | { type: 'TOGGLE_CHECKLIST_ITEM'; payload: { cardId: string; checklistId: string; itemId: string } }
   | { type: 'ADD_CHECKLIST_ITEM'; payload: { cardId: string; checklistId: string; text: string } }
   | { type: 'DELETE_CHECKLIST_ITEM'; payload: { cardId: string; checklistId: string; itemId: string } }
+  | { type: 'ADD_ATTACHMENT'; payload: { cardId: string; attachment: Attachment } }
+  | { type: 'REMOVE_ATTACHMENT'; payload: { cardId: string; attachmentId: string } }
   | { type: 'ADD_BOARD'; payload: { workspaceId: string; title: string; color: string } }
   | { type: 'TOGGLE_BOARD_STAR'; payload: string }
   | { type: 'ADD_AUTOMATION_RULE'; payload: Omit<AutomationRule, 'id'> }

@@ -9,3 +9,6 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+coverage/
+playwright-report/
+test-results/

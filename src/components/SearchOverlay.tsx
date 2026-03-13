@@ -18,7 +18,7 @@ export function SearchOverlay() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [state.searchOpen]);
+  }, [dispatch, state.searchOpen]);
 
   const results = useMemo(() => {
     const q = state.searchQuery.toLowerCase().trim();
@@ -28,7 +28,7 @@ export function SearchOverlay() {
 
     // Parse operators
     const tokens = q.split(/\s+/);
-    let textParts: string[] = [];
+    const textParts: string[] = [];
 
     for (const token of tokens) {
       if (token.startsWith('@')) {
@@ -41,7 +41,7 @@ export function SearchOverlay() {
         const label = boardLabels.find(l => l.name.toLowerCase().includes(labelName));
         if (label) cards = cards.filter(c => c.labelIds.includes(label.id));
       } else if (token === 'is:overdue') {
-        cards = cards.filter(c => c.dueDate && new Date(c.dueDate).getTime() < Date.now() && !c.dueDateComplete);
+        cards = cards.filter(c => c.dueDate && new Date(c.dueDate).getTime() < state.searchTimestamp && !c.dueDateComplete);
       } else if (token === 'is:open') {
         cards = cards.filter(c => !c.archived);
       } else if (token === 'is:watching') {
@@ -57,7 +57,7 @@ export function SearchOverlay() {
     }
 
     return cards.slice(0, 20);
-  }, [state.searchQuery, state.cards, state.users, state.boards]);
+  }, [state.searchQuery, state.searchTimestamp, state.cards, state.users, state.boards]);
 
   if (!state.searchOpen) return null;
 

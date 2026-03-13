@@ -1,4 +1,4 @@
-import { useState, useMemo, type DragEvent } from 'react';
+import { useState, type DragEvent } from 'react';
 import { useAppState, useDispatch } from '../store';
 import type { Card as CardType, List as ListType } from '../types';
 
@@ -96,10 +96,9 @@ function ListColumn({ list }: { list: ListType }) {
   const [listTitle, setListTitle] = useState(list.title);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const cards = useMemo(() =>
-    state.cards.filter(c => c.listId === list.id && passesFilter(c, state)).sort((a, b) => a.position - b.position),
-    [state.cards, state.filterLabelIds, state.filterMemberIds, state.filterDue, list.id]
-  );
+  const cards = state.cards
+    .filter(c => c.listId === list.id && passesFilter(c, state))
+    .sort((a, b) => a.position - b.position);
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -291,7 +290,9 @@ export function TableView() {
   const dispatch = useDispatch();
   const lists = state.lists.filter(l => l.boardId === state.currentBoardId && !l.archived).sort((a, b) => a.position - b.position);
   const board = state.boards.find(b => b.id === state.currentBoardId);
-  const allCards = state.cards.filter(c => c.boardId === state.currentBoardId && !c.archived).sort((a, b) => a.position - b.position);
+  const allCards = state.cards
+    .filter(c => c.boardId === state.currentBoardId && passesFilter(c, state))
+    .sort((a, b) => a.position - b.position);
 
   return (
     <div className="flex-1 overflow-auto p-4">
@@ -347,7 +348,7 @@ export function CalendarView() {
   const daysInMonth = new Date(month.y, month.m + 1, 0).getDate();
   const cells: (number | null)[] = Array(startDay).fill(null).concat(Array.from({ length: daysInMonth }, (_, i) => i + 1));
 
-  const cardsWithDue = state.cards.filter(c => c.boardId === state.currentBoardId && !c.archived && c.dueDate);
+  const cardsWithDue = state.cards.filter(c => c.boardId === state.currentBoardId && passesFilter(c, state) && c.dueDate);
 
   const prev = () => setMonth(p => p.m === 0 ? { y: p.y - 1, m: 11 } : { y: p.y, m: p.m - 1 });
   const next = () => setMonth(p => p.m === 11 ? { y: p.y + 1, m: 0 } : { y: p.y, m: p.m + 1 });

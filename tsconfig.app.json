@@ -10,7 +10,9 @@
     ],
     "module": "ESNext",
     "types": [
-      "vite/client"
+      "vite/client",
+      "vitest/globals",
+      "@testing-library/jest-dom"
     ],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
@@ -33,6 +35,8 @@
     }
   },
   "include": [
-    "src"
+    "src",
+    "tests",
+    "playwright.config.ts"
   ]
 }

@@ -1,6 +1,6 @@
 # Strata
 
-Strata is a React + Vite project management interface prototype with board, table, and calendar views. It ships with seeded demo data for workspaces, boards, cards, notifications, and automation rules.
+Strata is a React + Vite visual project management MVP with board, table, and calendar views. It ships with seeded demo data for workspaces, boards, cards, notifications, archive flows, and automation rules, then persists user changes in local storage.
 
 ## Stack
 
@@ -41,6 +41,24 @@ Run linting:
 npm run lint
 ```
 
+Run the unit and integration suite:
+
+```bash
+npm run test
+```
+
+Run the Playwright end-to-end flow:
+
+```bash
+npm run test:e2e
+```
+
+Run the full local CI pipeline:
+
+```bash
+npm run test:ci
+```
+
 Preview the production build:
 
 ```bash
@@ -59,10 +77,15 @@ npm run preview
 - Multi-board workspace navigation
 - Board, table, and calendar task views
 - Card detail modal with activity, checklist, and assignment data
-- Search overlay and automation side panel
-- Seeded team/project data for local exploration
+- Search overlay with operators such as `@member`, `#label`, and `is:overdue`
+- Archive restore/delete controls for cards and lists
+- Attachments for links and uploaded file metadata
+- Mention-aware comments and assignment notifications
+- Local persistence across reloads
+- Automation side panel with board-level rules
 
 ## Notes
 
-- This repository currently uses in-memory demo data and does not persist changes
-- Local logs, build output, dependencies, and environment files are ignored through `.gitignore`
+- Seed data initializes the app, and changes are then stored in browser local storage
+- GitHub Actions runs linting, Vitest, production build, and Playwright smoke coverage on every push and pull request
+- Local logs, build output, dependencies, coverage artifacts, and environment files are ignored through `.gitignore`

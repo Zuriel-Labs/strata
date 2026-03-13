@@ -1,4 +1,4 @@
-import type { User, Workspace, Board, List, Card, Label, AutomationRule, Notification } from './types';
+import type { User, Workspace, Board, List, Card, Label, AutomationRule, Notification, Attachment } from './types';
 
 let _id = 100;
 const uid = () => `id_${++_id}`;
@@ -47,6 +47,24 @@ export const LISTS: List[] = [
 ];
 
 const now = new Date().toISOString();
+
+const linkAttachment = (id: string, name: string, url: string): Attachment => ({
+  id,
+  name,
+  kind: 'link',
+  url,
+  createdAt: now,
+});
+
+const fileAttachment = (id: string, name: string, mimeType: string, size: number): Attachment => ({
+  id,
+  name,
+  kind: 'file',
+  mimeType,
+  size,
+  createdAt: now,
+});
+
 const daysFromNow = (d: number) => {
   const dt = new Date();
   dt.setDate(dt.getDate() + d);
@@ -63,7 +81,7 @@ export const CARDS: Card[] = [
   },
   {
     id: 'c2', title: 'Design new dashboard layout', description: 'Create wireframes and high-fidelity mockups for the analytics dashboard redesign.', listId: 'l3', boardId: 'b1', position: 1,
-    memberIds: ['u3'], labelIds: ['lb6', 'lb5'], dueDate: daysFromNow(5), dueDateComplete: false, watching: false, archived: false, createdAt: now, attachments: ['dashboard-v2.fig'],
+    memberIds: ['u3'], labelIds: ['lb6', 'lb5'], dueDate: daysFromNow(5), dueDateComplete: false, watching: false, archived: false, createdAt: now, attachments: [fileAttachment('at1', 'dashboard-v2.fig', 'application/octet-stream', 2488320)],
     checklists: [{ id: 'ck2', title: 'Deliverables', items: [{ id: 'ci5', text: 'Wireframes', completed: true }, { id: 'ci6', text: 'Component inventory', completed: false }, { id: 'ci7', text: 'Hi-fi mockups', completed: false }] }],
     comments: [], activity: [],
   },
@@ -94,7 +112,7 @@ export const CARDS: Card[] = [
   },
   {
     id: 'c8', title: 'Ship onboarding wizard v2', description: 'Released to 100% of users.', listId: 'l5', boardId: 'b1', position: 0,
-    memberIds: ['u1', 'u3'], labelIds: ['lb2', 'lb5'], dueDate: daysFromNow(-3), dueDateComplete: true, watching: false, archived: false, createdAt: now, attachments: [],
+    memberIds: ['u1', 'u3'], labelIds: ['lb2', 'lb5'], dueDate: daysFromNow(-3), dueDateComplete: true, watching: false, archived: false, createdAt: now, attachments: [linkAttachment('at2', 'Release notes', 'https://example.com/releases/onboarding-v2')],
     checklists: [], comments: [], activity: [],
   },
   // Bug Tracker board

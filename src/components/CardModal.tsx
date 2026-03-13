@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useAppState, useDispatch } from '../store';
+import { uid } from '../data';
 
 export function CardModal() {
   const state = useAppState();
@@ -12,12 +13,10 @@ export function CardModal() {
   const [addingChecklist, setAddingChecklist] = useState(false);
   const [addingItemTo, setAddingItemTo] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
+  const [attachmentLink, setAttachmentLink] = useState('');
   const [tab, setTab] = useState<'details' | 'activity'>('details');
   const overlayRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (card) { setDesc(card.description); setDescEditing(false); }
-  }, [card?.id]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!card) return null;
 
@@ -32,6 +31,51 @@ export function CardModal() {
   const progress = totalItems > 0 ? (checkedItems / totalItems) * 100 : 0;
 
   const close = () => dispatch({ type: 'SET_ACTIVE_CARD', payload: null });
+
+  const handleLinkAttachment = () => {
+    const value = attachmentLink.trim();
+    if (!value) return;
+
+    const url = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+    dispatch({
+      type: 'ADD_ATTACHMENT',
+      payload: {
+        cardId: card.id,
+        attachment: {
+          id: uid(),
+          name: value.replace(/^https?:\/\//i, ''),
+          kind: 'link',
+          url,
+          createdAt: new Date().toISOString(),
+        },
+      },
+    });
+    setAttachmentLink('');
+  };
+
+  const handleFileAttachment = (files: FileList | null) => {
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      dispatch({
+        type: 'ADD_ATTACHMENT',
+        payload: {
+          cardId: card.id,
+          attachment: {
+            id: uid(),
+            name: file.name,
+            kind: 'file',
+            size: file.size,
+            mimeType: file.type,
+            createdAt: new Date().toISOString(),
+          },
+        },
+      });
+    });
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   return (
     <div
@@ -55,7 +99,7 @@ export function CardModal() {
               {card.watching && <span className="ml-2">👁 Watching</span>}
             </p>
           </div>
-          <button onClick={close} className="text-lg shrink-0 w-8 h-8 rounded-lg flex items-center justify-center hover:opacity-70 transition-opacity" style={{ color: 'var(--text-muted)' }}>✕</button>
+          <button aria-label="Close card" onClick={close} className="text-lg shrink-0 w-8 h-8 rounded-lg flex items-center justify-center hover:opacity-70 transition-opacity" style={{ color: 'var(--text-muted)' }}>✕</button>
         </div>
 
         <div className="flex gap-5 px-5 pb-5">
@@ -170,13 +214,75 @@ export function CardModal() {
                 </div>
               ) : (
                 <div
-                  onClick={() => setDescEditing(true)}
+                  onClick={() => { setDesc(card.description); setDescEditing(true); }}
                   className="px-3 py-2 rounded-lg text-sm cursor-pointer min-h-[40px]"
                   style={{ background: 'var(--input-bg)', color: card.description ? 'var(--text-primary)' : 'var(--text-muted)' }}
                 >
                   {card.description || 'Add a description…'}
                 </div>
               )}
+            </div>
+
+            <div className="mb-4">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Attachments</h4>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={e => handleFileAttachment(e.target.files)}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-[10px] font-medium"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  + Upload files
+                </button>
+              </div>
+              <div className="flex gap-2 mb-2">
+                <input
+                  value={attachmentLink}
+                  onChange={e => setAttachmentLink(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleLinkAttachment();
+                    }
+                  }}
+                  placeholder="Paste link or cloud doc URL"
+                  className="flex-1 px-2 py-1 text-xs rounded border bg-transparent outline-none"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+                <button onClick={handleLinkAttachment} className="px-2 py-1 rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Attach</button>
+              </div>
+              <div className="space-y-1.5">
+                {card.attachments.length === 0 && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Add files or links to keep task context close to the work.</p>}
+                {card.attachments.map(attachment => (
+                  <div key={attachment.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg" style={{ background: 'var(--input-bg)' }}>
+                    <div className="min-w-0">
+                      {attachment.url ? (
+                        <a href={attachment.url} target="_blank" rel="noreferrer" className="text-xs font-medium block truncate" style={{ color: 'var(--text-primary)' }}>
+                          {attachment.name}
+                        </a>
+                      ) : (
+                        <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{attachment.name}</p>
+                      )}
+                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {attachment.kind === 'link' ? 'Link attachment' : `${attachment.mimeType || 'File'}${attachment.size ? ` • ${Math.max(1, Math.round(attachment.size / 1024))} KB` : ''}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => dispatch({ type: 'REMOVE_ATTACHMENT', payload: { cardId: card.id, attachmentId: attachment.id } })}
+                      className="text-[10px]"
+                      style={{ color: '#ef4444' }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Checklists */}
@@ -351,6 +457,7 @@ export function CardModal() {
           <div className="w-36 shrink-0 space-y-1.5">
             <h4 className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Actions</h4>
             <button
+              aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
               onClick={() => dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, watching: !card.watching } })}
               className="w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors"
               style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}
@@ -358,6 +465,7 @@ export function CardModal() {
               {card.watching ? '👁 Watching' : '👁 Watch'}
             </button>
             <button
+              aria-label="Archive card"
               onClick={() => { dispatch({ type: 'ARCHIVE_CARD', payload: card.id }); }}
               className="w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors"
               style={{ background: 'var(--active-bg)', color: '#ef4444' }}

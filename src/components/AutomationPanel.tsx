@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useAppState, useDispatch } from '../store';
 import type { AutomationRule } from '../types';
 
+const supportedTriggers: AutomationRule['trigger'][] = ['card_moved', 'card_created', 'checklist_complete'];
+const supportedActions: AutomationRule['action'][] = ['assign_member', 'add_label', 'move_to_list', 'mark_due_complete'];
+
 export function AutomationPanel() {
   const state = useAppState();
   const dispatch = useDispatch();
@@ -111,9 +114,9 @@ export function AutomationPanel() {
             />
             <div>
               <label className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Trigger</label>
-              <select value={form.trigger} onChange={e => setForm({ ...form, trigger: e.target.value as any })} className="w-full mt-0.5 px-2 py-1 text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-                {Object.entries(triggerLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
+               <select value={form.trigger} onChange={e => setForm({ ...form, trigger: e.target.value as AutomationRule['trigger'] })} className="w-full mt-0.5 px-2 py-1 text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                 {supportedTriggers.map(trigger => <option key={trigger} value={trigger}>{triggerLabels[trigger]}</option>)}
+               </select>
             </div>
             {form.trigger === 'card_moved' && (
               <select value={form.triggerListId} onChange={e => setForm({ ...form, triggerListId: e.target.value })} className="w-full px-2 py-1 text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
@@ -123,9 +126,9 @@ export function AutomationPanel() {
             )}
             <div>
               <label className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Action</label>
-              <select value={form.action} onChange={e => setForm({ ...form, action: e.target.value as any })} className="w-full mt-0.5 px-2 py-1 text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-                {Object.entries(actionLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
+               <select value={form.action} onChange={e => setForm({ ...form, action: e.target.value as AutomationRule['action'] })} className="w-full mt-0.5 px-2 py-1 text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                 {supportedActions.map(action => <option key={action} value={action}>{actionLabels[action]}</option>)}
+               </select>
             </div>
             {form.action === 'assign_member' && (
               <select value={form.actionMemberId} onChange={e => setForm({ ...form, actionMemberId: e.target.value })} className="w-full px-2 py-1 text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>

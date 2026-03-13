@@ -8,9 +8,11 @@ export function Header() {
   const [filterOpen, setFilterOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
+  const currentUserNotifications = state.notifications.filter(n => n.userId === state.currentUserId);
 
   const board = state.boards.find(b => b.id === state.currentBoardId);
-  const unreadCount = state.notifications.filter(n => !n.read).length;
+  const unreadCount = currentUserNotifications.filter(n => !n.read).length;
+  const dueFilterOptions: Array<[typeof state.filterDue, string]> = [['all', 'Any'], ['overdue', 'Overdue'], ['week', 'This Week'], ['month', 'This Month'], ['none', 'No Date']];
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -26,7 +28,7 @@ export function Header() {
   return (
     <header className="h-12 flex items-center justify-between px-4 border-b shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--header-bg)' }}>
       <div className="flex items-center gap-3">
-        <button onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: 'var(--text-secondary)' }}>
+        <button aria-label="Toggle sidebar" onClick={() => dispatch({ type: 'TOGGLE_SIDEBAR' })} className="p-1 rounded hover:opacity-70 transition-opacity" style={{ color: 'var(--text-secondary)' }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         </button>
         {board && (
@@ -107,12 +109,12 @@ export function Header() {
                 </div>
                 <h4 className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Due Date</h4>
                 <div className="flex flex-wrap gap-1 mb-2">
-                  {[['all', 'Any'], ['overdue', 'Overdue'], ['week', 'This Week'], ['month', 'This Month'], ['none', 'No Date']] .map(([val, label]) => (
-                    <button
-                      key={val}
-                      onClick={() => dispatch({ type: 'SET_FILTER_DUE', payload: val as any })}
-                      className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
-                      style={{
+                   {dueFilterOptions.map(([val, label]) => (
+                     <button
+                       key={val}
+                       onClick={() => dispatch({ type: 'SET_FILTER_DUE', payload: val })}
+                       className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
+                       style={{
                         background: state.filterDue === val ? 'var(--accent)' : 'var(--active-bg)',
                         color: state.filterDue === val ? '#fff' : 'var(--text-secondary)',
                       }}
@@ -138,6 +140,7 @@ export function Header() {
         {/* Automation */}
         {board && (
           <button
+            aria-label="Toggle automations panel"
             onClick={() => dispatch({ type: 'SET_AUTOMATION_PANEL', payload: !state.automationPanelOpen })}
             className="p-1.5 rounded transition-colors"
             style={{ color: state.automationPanelOpen ? 'var(--accent)' : 'var(--text-secondary)' }}
@@ -149,6 +152,7 @@ export function Header() {
 
         {/* Search */}
         <button
+          aria-label="Open search"
           onClick={() => dispatch({ type: 'SET_SEARCH_OPEN', payload: true })}
           className="p-1.5 rounded transition-colors"
           style={{ color: 'var(--text-secondary)' }}
@@ -160,6 +164,7 @@ export function Header() {
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
+            aria-label="Open notifications"
             onClick={() => setNotifOpen(!notifOpen)}
             className="p-1.5 rounded transition-colors relative"
             style={{ color: 'var(--text-secondary)' }}
@@ -178,8 +183,8 @@ export function Header() {
                 )}
               </div>
               <div className="max-h-64 overflow-y-auto">
-                {state.notifications.length === 0 && <p className="text-xs p-3" style={{ color: 'var(--text-muted)' }}>No notifications</p>}
-                {state.notifications.slice().reverse().map(n => (
+                 {currentUserNotifications.length === 0 && <p className="text-xs p-3" style={{ color: 'var(--text-muted)' }}>No notifications</p>}
+                 {currentUserNotifications.slice().reverse().map(n => (
                   <button
                     key={n.id}
                     onClick={() => {

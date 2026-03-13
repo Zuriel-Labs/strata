@@ -1,0 +1,58 @@
+import { initialState, reducer } from './store';
+import { uid } from './data';
+
+describe('store reducer', () => {
+  it('selects the first board when switching workspaces', () => {
+    const state = reducer(initialState, { type: 'SET_CURRENT_WORKSPACE', payload: 'w2' });
+
+    expect(state.currentWorkspaceId).toBe('w2');
+    expect(state.currentBoardId).toBe('b3');
+    expect(state.filterLabelIds).toEqual([]);
+  });
+
+  it('reorders cards and runs done-list automation', () => {
+    const moved = reducer(initialState, { type: 'MOVE_CARD', payload: { cardId: 'c3', toListId: 'l5', toPosition: 1 } });
+    const card = moved.cards.find(candidate => candidate.id === 'c3');
+    const doneCards = moved.cards.filter(candidate => candidate.listId === 'l5' && !candidate.archived).sort((a, b) => a.position - b.position);
+
+    expect(card?.listId).toBe('l5');
+    expect(card?.dueDateComplete).toBe(true);
+    expect(doneCards.map(candidate => candidate.id)).toEqual(['c8', 'c3']);
+  });
+
+  it('notifies mentioned teammates and makes comments watched', () => {
+    const state = reducer(initialState, { type: 'ADD_COMMENT', payload: { cardId: 'c1', text: 'Please take a look @Alex Chen' } });
+    const card = state.cards.find(candidate => candidate.id === 'c1');
+    const mention = state.notifications.find(notification => notification.userId === 'u2' && notification.message.includes('mentioned'));
+
+    expect(card?.watching).toBe(true);
+    expect(card?.comments.at(-1)?.text).toContain('@Alex Chen');
+    expect(mention).toBeTruthy();
+  });
+
+  it('adds notifications and watching when members are assigned', () => {
+    const state = reducer(initialState, { type: 'UPDATE_CARD', payload: { id: 'c5', memberIds: ['u3'] } });
+    const card = state.cards.find(candidate => candidate.id === 'c5');
+    const assignment = state.notifications.find(notification => notification.userId === 'u3' && notification.message.includes('assigned'));
+
+    expect(card?.memberIds).toContain('u3');
+    expect(card?.watching).toBe(true);
+    expect(assignment).toBeTruthy();
+  });
+
+  it('adds and removes attachments', () => {
+    const attachment = {
+      id: uid(),
+      name: 'https://figma.com/file/roadmap',
+      kind: 'link' as const,
+      url: 'https://figma.com/file/roadmap',
+      createdAt: new Date().toISOString(),
+    };
+
+    const withAttachment = reducer(initialState, { type: 'ADD_ATTACHMENT', payload: { cardId: 'c3', attachment } });
+    const withoutAttachment = reducer(withAttachment, { type: 'REMOVE_ATTACHMENT', payload: { cardId: 'c3', attachmentId: attachment.id } });
+
+    expect(withAttachment.cards.find(candidate => candidate.id === 'c3')?.attachments).toContainEqual(attachment);
+    expect(withoutAttachment.cards.find(candidate => candidate.id === 'c3')?.attachments).not.toContainEqual(attachment);
+  });
+});

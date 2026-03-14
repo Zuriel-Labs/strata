@@ -1,6 +1,161 @@
-- Responsive UI Mobile-Friendly overhaul. Make use of overlay menus instead of side-panels for all device types.
-- Touchscreen friendly
-- Ability to create a Workspace. It looks like right now, we can only interact with the sample workspaces that were already there.
-- Adjust Admin panel to display all the tools the admin can interact with so they are each in their own sub-menu
-- So far, these are the Admin tools I am seeing and they need to be organized into each their own sub-menu: Edit Users, Create User, Audit
-- Currently, Create user is broken. It auto-populates with current Edit User in view and when changing the fields in "Create User", it also alters the content in the Edit User panel. Separating these into their own sub-menus will most likely fix this issue.
+# Strata Change Plan: Optimized, Organized, Prioritized
+
+## Priority Legend
+- P0 = Blocker / security / data integrity / first-run viability
+- P1 = Core product capability and admin usability
+- P2 = UX enhancement and polish
+
+## Recommended Execution Order (High to Low)
+
+1. **P0 - Fresh install + auth foundation**
+2. **P0 - Permission model correction**
+3. **P0 - User lifecycle security (password recovery/reset)**
+4. **P1 - Admin IA (information architecture) and broken form isolation**
+5. **P1 - Workspace creation capability**
+6. **P2 - Mobile/touch overhaul using overlays**
+
+---
+
+## P0: First-Run Viability and Security (Do First)
+
+### P0.1 Fresh startup with no seeded user data
+- Source: Item 1
+- Requirement:
+	- Remove demo/sample user data from default startup state.
+	- First launch must begin with zero users and zero sample workspace records unless explicitly seeded in dev/test mode.
+- Why first: Prevents data contamination and enables real onboarding.
+- Done when:
+	- New install starts with empty user table.
+	- Existing non-dev app startup does not auto-insert demo users/workspaces.
+
+### P0.2 First-run System Admin bootstrap flow
+- Source: Item 10 (+ Item 12 confirm password rule)
+- Requirement:
+	- If no System Admin exists, force setup wizard at startup/login:
+		- Username (currently using email field as username)
+		- Password
+		- Confirm password
+	- If at least one System Admin exists, show normal login instead.
+- Why first: Platform must be administrable from first launch.
+- Dependencies: P0.1
+- Done when:
+	- Admin bootstrap screen only appears when system has zero System Admin accounts.
+	- Password and confirm password must match.
+
+### P0.3 Username model update (no outbound email system)
+- Source: Item 9
+- Requirement:
+	- Treat account "email" as the username identifier.
+	- Remove assumptions that email delivery exists (no verification or email reset dependency).
+- Why first: Required for consistent login/reset logic.
+- Done when:
+	- Login, user creation, and recovery flows use username (stored in existing email field or renamed field).
+	- No feature path requires sending an actual email.
+
+### P0.4 Permissions parity with desired matrix; remove Guest role
+- Source: Item 8
+- Requirement:
+	- Remove Guest role.
+	- Rebuild role-permission mappings to match desired_permissions.png exactly.
+- Why first: Authorization correctness is security-critical.
+- Dependencies: None (but validate against latest RBAC tests)
+- Done when:
+	- Guest role no longer exists in DB, UI, and permission checks.
+	- RBAC matrix is aligned to desired_permissions.png.
+	- Automated tests verify permission boundaries.
+
+### P0.5 Account recovery and password reset with recovery key
+- Source: Item 11 + Item 12
+- Requirement:
+	- Authenticated users can generate/regenerate a recovery key from account settings.
+	- Login screen includes "Forgot Password?" flow:
+		- Username
+		- Recovery key
+		- New password
+		- Confirm new password
+	- Logged-in users can reset password in settings with confirm password.
+- Why first: Critical account recovery and lockout prevention.
+- Dependencies: P0.3
+- Done when:
+	- Recovery key flow works end-to-end without email.
+	- All password change flows enforce confirm-password match.
+	- Recovery key can be rotated and old key invalidates.
+
+---
+
+## P1: Core Capability and Admin UX
+
+### P1.1 Admin panel sub-menu architecture
+- Source: Items 5 and 6
+- Requirement:
+	- Admin tools must be split into distinct sub-menus/views:
+		- Edit Users
+		- Create User
+		- Audit
+	- Each tool has isolated local state and clear navigation.
+- Why now: Reduces operator errors and supports scaling admin features.
+- Dependencies: P0.4 recommended first (permissions affect visible tools)
+- Done when:
+	- Admin sees discrete sub-menu entries for each tool.
+	- Tool content does not overlap in a shared conflicting form state.
+
+### P1.2 Fix Create User/Edit User state coupling bug
+- Source: Item 7
+- Requirement:
+	- Creating a user must use a separate form model from edit user.
+	- Edits in Create User cannot mutate Edit User in-memory state.
+- Why now: Current behavior risks incorrect account changes.
+- Dependencies: P1.1 (or fix in parallel by splitting state stores)
+- Done when:
+	- Repro no longer occurs.
+	- Unit/integration tests protect against cross-form state bleed.
+
+### P1.3 Workspace creation support
+- Source: Item 4
+- Requirement:
+	- Add ability to create a new workspace from UI.
+	- Newly created workspace is persisted and selectable immediately.
+	- Sample workspaces are optional, not required for operation.
+- Why now: Core product functionality currently missing.
+- Dependencies: P0.1 (fresh data baseline), P0.4 (permissions for who can create)
+- Done when:
+	- User with proper permission can create, view, and interact with a new workspace.
+
+---
+
+## P2: Mobile + Touch UX Overhaul
+
+### P2.1 Overlay menu system across all form factors
+- Source: Item 2
+- Requirement:
+	- Replace side-panels with overlay/drawer patterns for desktop and mobile.
+	- Use consistent open/close interactions and focus management.
+- Why later: Important usability improvement, but not platform blocker.
+- Dependencies: P1 IA decisions recommended first
+- Done when:
+	- No primary workflow depends on fixed side-panels.
+	- Overlay navigation is keyboard and touch accessible.
+
+### P2.2 Touchscreen-friendly interaction pass
+- Source: Item 3
+- Requirement:
+	- Increase touch target sizes.
+	- Ensure spacing, scroll behavior, and gestures are touch-usable.
+	- Validate core flows on mobile and tablet.
+- Why later: UX optimization after functional correctness.
+- Dependencies: P2.1
+- Done when:
+	- Core flows pass touch usability checks (login, admin nav, create user, create workspace).
+
+---
+
+## Consolidated Notes (Deduplication and Clarifications)
+- Items 5 and 6 are merged into P1.1 (same requirement family).
+- Item 12 is applied globally to all password set/reset flows (P0.2 and P0.5).
+- Item 7 likely resolves via P1.1 + explicit state isolation in P1.2.
+- Item 8 requires desired_permissions.png as source of truth; treat any mismatch as a defect.
+
+## Suggested Delivery Milestones
+- Milestone A (Security + First Run): P0.1-P0.5
+- Milestone B (Admin + Workspaces): P1.1-P1.3
+- Milestone C (Responsive + Touch): P2.1-P2.2

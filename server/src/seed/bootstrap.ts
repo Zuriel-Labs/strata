@@ -11,7 +11,7 @@ type UserSeed = {
   name: string;
   initials: string;
   color: string;
-  email: string;
+  username: string;
   platformRole: PlatformRole;
   password: string;
   active: boolean;
@@ -21,7 +21,7 @@ type UserSeed = {
 const seededUsers: UserSeed[] = [
   {
     ...USERS[0],
-    email: 'admin@strata.local',
+    username: 'admin',
     name: 'System Admin',
     initials: 'SA',
     platformRole: 'system_admin',
@@ -29,9 +29,9 @@ const seededUsers: UserSeed[] = [
     active: true,
     mustChangePassword: true,
   },
-  { ...USERS[1], platformRole: 'user', password: 'WorkspaceAdmin123!', active: true, mustChangePassword: false },
-  { ...USERS[2], platformRole: 'user', password: 'Member12345!', active: true, mustChangePassword: false },
-  { ...USERS[3], platformRole: 'user', password: 'BoardAdmin123!', active: true, mustChangePassword: false },
+  { ...USERS[1], username: 'alex', platformRole: 'user', password: 'WorkspaceAdmin123!', active: true, mustChangePassword: false },
+  { ...USERS[2], username: 'priya', platformRole: 'user', password: 'Member12345!', active: true, mustChangePassword: false },
+  { ...USERS[3], username: 'marcus', platformRole: 'user', password: 'BoardAdmin123!', active: true, mustChangePassword: false },
 ];
 
 const workspaceMemberships: Array<{ userId: string; workspaceId: string; role: WorkspaceRole }> = [
@@ -56,12 +56,14 @@ const boardMemberships: Array<{ userId: string; boardId: string; role: BoardRole
 ];
 
 export async function seedIfNeeded(db: Database.Database) {
+  if (process.env.SEED_DATA !== 'true') return;
+
   const existing = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
   if (existing.count > 0) return;
 
   const insertUser = db.prepare(`
-    INSERT INTO users (id, name, initials, color, email, platform_role, password_hash, active, must_change_password, created_at, updated_at)
-    VALUES (@id, @name, @initials, @color, @email, @platformRole, @passwordHash, @active, @mustChangePassword, @createdAt, @updatedAt)
+    INSERT INTO users (id, name, initials, color, username, platform_role, password_hash, active, must_change_password, created_at, updated_at)
+    VALUES (@id, @name, @initials, @color, @username, @platformRole, @passwordHash, @active, @mustChangePassword, @createdAt, @updatedAt)
   `);
 
   for (const user of seededUsers) {

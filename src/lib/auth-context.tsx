@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { SessionPayload, SessionResponse } from '../types';
 import { ApiError } from '../services/api';
-import { changePassword, fetchSession, isAuthenticatedSession, isPasswordChangeRequired, login as loginRequest, logout as logoutRequest } from '../services/session';
+import { changePassword, checkBootstrap, fetchSession, isAuthenticatedSession, isPasswordChangeRequired, login as loginRequest, logout as logoutRequest, submitBootstrap as submitBootstrapRequest } from '../services/session';
 
-type AuthStatus = 'loading' | 'anonymous' | 'password-change-required' | 'authenticated';
+type AuthStatus = 'loading' | 'needs-bootstrap' | 'anonymous' | 'password-change-required' | 'authenticated';
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -13,10 +13,11 @@ interface AuthContextValue {
   adminOpen: boolean;
   accessDenied: string | null;
   appKey: number;
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
-  changePassword: (currentPassword: string, nextPassword: string) => Promise<void>;
+  changePassword: (currentPassword: string, nextPassword: string, confirmPassword: string) => Promise<void>;
+  bootstrap: (username: string, password: string, confirmPassword: string) => Promise<void>;
   setAdminOpen: (open: boolean) => void;
   setAccessDenied: (message: string | null) => void;
   canManageWorkspace: (workspaceId: string | null) => boolean;
@@ -58,6 +59,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 401) {
         setError(null);
+        try {
+          const bootstrapCheck = await checkBootstrap();
+          if (bootstrapCheck.needsBootstrap) {
+            setStatus('needs-bootstrap');
+            return;
+          }
+        } catch {
+          // If bootstrap check fails, fall through to anonymous
+        }
         handleSession(null);
         return;
       }
@@ -70,8 +80,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const payload = await loginRequest(email, password);
+  const login = useCallback(async (username: string, password: string) => {
+    const payload = await loginRequest(username, password);
+    setError(null);
+    handleSession(payload);
+  }, [handleSession]);
+
+  const bootstrapFn = useCallback(async (username: string, password: string, confirmPassword: string) => {
+    const payload = await submitBootstrapRequest(username, password, confirmPassword);
     setError(null);
     handleSession(payload);
   }, [handleSession]);
@@ -82,8 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     handleSession(null);
   }, [handleSession]);
 
-  const updatePassword = useCallback(async (currentPassword: string, nextPassword: string) => {
-    await changePassword(currentPassword, nextPassword);
+  const updatePassword = useCallback(async (currentPassword: string, nextPassword: string, confirmPassword: string) => {
+    await changePassword(currentPassword, nextPassword, confirmPassword);
     await refresh();
   }, [refresh]);
 
@@ -99,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     logout,
     refresh,
     changePassword: updatePassword,
+    bootstrap: bootstrapFn,
     setAdminOpen,
     setAccessDenied,
     canManageWorkspace: workspaceId => {
@@ -113,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const board = session.appState.boards.find(candidate => candidate.id === boardId);
       return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
     },
-  }), [accessDenied, adminOpen, appKey, error, login, logout, pendingSession, refresh, session, status, updatePassword]);
+  }), [accessDenied, adminOpen, appKey, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

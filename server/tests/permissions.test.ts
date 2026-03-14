@@ -1,15 +1,19 @@
 // @vitest-environment node
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, closeDatabase } from '../src/db/database';
-import { getBoardMembershipsForUser, getUserByEmail, getWorkspaceMembershipsForUser } from '../src/db/repositories';
+import { getBoardMembershipsForUser, getUserByUsername, getWorkspaceMembershipsForUser } from '../src/db/repositories';
 import { canAccessBoard, canAccessWorkspace, canManageBoard, canManageWorkspace } from '../src/rbac/permissions';
 import { canManageUserBoard, canManageUserPlatform, canManageUserWorkspace } from '../src/rbac/policies';
 
-async function authContext(email: string) {
+beforeAll(() => {
+  process.env.SEED_DATA = 'true';
+});
+
+async function authContext(username: string) {
   const db = await createDatabase(':memory:');
-  const user = getUserByEmail(db, email);
-  if (!user) throw new Error(`Missing user ${email}`);
+  const user = getUserByUsername(db, username);
+  if (!user) throw new Error(`Missing user ${username}`);
   return {
     db,
     auth: {
@@ -27,7 +31,7 @@ describe('rbac permissions', () => {
   });
 
   it('grants platform and scoped management correctly', async () => {
-    const { db, auth } = await authContext('admin@strata.local');
+    const { db, auth } = await authContext('admin');
     expect(canManageUserPlatform(auth)).toBe(true);
     expect(canManageWorkspace(auth, 'w1')).toBe(true);
     expect(canManageBoard(db, auth, 'b1')).toBe(true);
@@ -36,7 +40,7 @@ describe('rbac permissions', () => {
   });
 
   it('lets workspace admins manage only their workspace scope', async () => {
-    const { db, auth } = await authContext('alex@company.io');
+    const { db, auth } = await authContext('alex');
     expect(canManageUserPlatform(auth)).toBe(false);
     expect(canAccessWorkspace(auth, 'w1')).toBe(true);
     expect(canManageWorkspace(auth, 'w1')).toBe(true);
@@ -46,7 +50,7 @@ describe('rbac permissions', () => {
   });
 
   it('lets board admins manage only their boards', async () => {
-    const { db, auth } = await authContext('marcus@company.io');
+    const { db, auth } = await authContext('marcus');
     expect(canManageUserPlatform(auth)).toBe(false);
     expect(canAccessBoard(db, auth, 'b1')).toBe(true);
     expect(canManageBoard(db, auth, 'b1')).toBe(true);

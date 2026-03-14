@@ -2,6 +2,7 @@ import { useState, type DragEvent } from 'react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import type { Card as CardType, List as ListType } from '../types';
+import { createCardApi, moveCardApi, createListApi, updateListApi, archiveListApi, moveListApi } from '../services/data';
 
 /* ───── helpers ───── */
 function passesFilter(card: CardType, state: ReturnType<typeof useAppState>) {
@@ -108,9 +109,10 @@ function ListColumn({ list }: { list: ListType }) {
     const listId = e.dataTransfer.getData('listId');
     if (cardId) {
       dispatch({ type: 'MOVE_CARD', payload: { cardId, toListId: list.id, toPosition: cards.length } });
+      moveCardApi(cardId, list.id, cards.length);
     } else if (listId && listId !== list.id) {
       const dragList = state.lists.find(l => l.id === listId);
-      if (dragList) dispatch({ type: 'MOVE_LIST', payload: { listId, toPosition: list.position } });
+      if (dragList) { dispatch({ type: 'MOVE_LIST', payload: { listId, toPosition: list.position } }); moveListApi(listId, list.position); }
     }
   };
 
@@ -131,8 +133,8 @@ function ListColumn({ list }: { list: ListType }) {
             autoFocus
             value={listTitle}
             onChange={e => setListTitle(e.target.value)}
-            onBlur={() => { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); setEditingTitle(false); }}
-            onKeyDown={e => { if (e.key === 'Enter') { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); setEditingTitle(false); } }}
+            onBlur={() => { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); }}
+            onKeyDown={e => { if (e.key === 'Enter') { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); } }}
             className="text-xs font-bold uppercase tracking-widest bg-transparent outline-none flex-1"
             style={{ color: 'var(--text-primary)' }}
           />
@@ -146,10 +148,10 @@ function ListColumn({ list }: { list: ListType }) {
           </h3>
         )}
         <div className="relative">
-          <button onClick={() => setMenuOpen(!menuOpen)} className="text-xs px-1 rounded hover:opacity-70" style={{ color: 'var(--text-muted)' }}>⋯</button>
+          <button onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>
           {menuOpen && (
             <div className="absolute right-0 top-full mt-1 w-36 rounded-lg shadow-xl border z-50 py-1" style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}>
-              <button onClick={() => { dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); setMenuOpen(false); }} className="w-full text-left px-3 py-1.5 text-xs hover:opacity-70" style={{ color: 'var(--text-secondary)' }}>Archive list</button>
+              <button onClick={() => { dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); archiveListApi(list.id); setMenuOpen(false); }} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70" style={{ color: 'var(--text-secondary)' }}>Archive list</button>
             </div>
           )}
         </div>
@@ -161,7 +163,7 @@ function ListColumn({ list }: { list: ListType }) {
         onDrop={e => {
           e.stopPropagation();
           const cardId = e.dataTransfer.getData('cardId');
-          if (cardId) dispatch({ type: 'MOVE_CARD', payload: { cardId, toListId: list.id, toPosition: cards.length } });
+          if (cardId) { dispatch({ type: 'MOVE_CARD', payload: { cardId, toListId: list.id, toPosition: cards.length } }); moveCardApi(cardId, list.id, cards.length); }
         }}
       >
         {cards.map(c => <CardItem key={c.id} card={c} />)}
@@ -179,7 +181,9 @@ function ListColumn({ list }: { list: ListType }) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   if (newTitle.trim()) {
-                    dispatch({ type: 'ADD_CARD', payload: { listId: list.id, boardId: list.boardId, title: newTitle.trim() } });
+                    createCardApi({ listId: list.id, boardId: list.boardId, title: newTitle.trim() }).then(card => {
+                      dispatch({ type: 'ADD_CARD_FROM_API', payload: card });
+                    });
                     setNewTitle('');
                   }
                 }
@@ -194,22 +198,24 @@ function ListColumn({ list }: { list: ListType }) {
               <button
                 onClick={() => {
                   if (newTitle.trim()) {
-                    dispatch({ type: 'ADD_CARD', payload: { listId: list.id, boardId: list.boardId, title: newTitle.trim() } });
+                    createCardApi({ listId: list.id, boardId: list.boardId, title: newTitle.trim() }).then(card => {
+                      dispatch({ type: 'ADD_CARD_FROM_API', payload: card });
+                    });
                     setNewTitle('');
                   }
                 }}
-                className="px-3 py-1 rounded text-xs font-medium text-white"
+                className="px-3 min-h-[44px] rounded text-xs font-medium text-white"
                 style={{ background: 'var(--accent)' }}
               >
                 Add
               </button>
-              <button onClick={() => { setAddingCard(false); setNewTitle(''); }} className="px-2 py-1 rounded text-xs" style={{ color: 'var(--text-muted)' }}>✕</button>
+              <button onClick={() => { setAddingCard(false); setNewTitle(''); }} className="w-8 h-8 rounded-md flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>✕</button>
             </div>
           </div>
         ) : (
           <button
             onClick={() => setAddingCard(true)}
-            className="w-full text-left px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            className="w-full text-left px-2 min-h-[44px] flex items-center rounded-lg text-xs font-medium transition-colors"
             style={{ color: 'var(--text-muted)' }}
             onMouseEnter={e => (e.currentTarget.style.background = 'var(--active-bg)')}
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
@@ -248,7 +254,9 @@ export function BoardView() {
               onChange={e => setNewListTitle(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && newListTitle.trim() && state.currentBoardId) {
-                  dispatch({ type: 'ADD_LIST', payload: { boardId: state.currentBoardId, title: newListTitle.trim() } });
+                  createListApi({ boardId: state.currentBoardId, title: newListTitle.trim() }).then(list => {
+                    dispatch({ type: 'ADD_LIST_FROM_API', payload: list });
+                  });
                   setNewListTitle('');
                 }
                 if (e.key === 'Escape') { setAddingList(false); setNewListTitle(''); }
@@ -261,22 +269,24 @@ export function BoardView() {
               <button
                 onClick={() => {
                   if (newListTitle.trim() && state.currentBoardId) {
-                    dispatch({ type: 'ADD_LIST', payload: { boardId: state.currentBoardId, title: newListTitle.trim() } });
+                    createListApi({ boardId: state.currentBoardId, title: newListTitle.trim() }).then(list => {
+                      dispatch({ type: 'ADD_LIST_FROM_API', payload: list });
+                    });
                     setNewListTitle('');
                   }
                 }}
-                className="px-3 py-1 rounded text-xs font-medium text-white"
+                className="px-3 min-h-[44px] rounded text-xs font-medium text-white"
                 style={{ background: 'var(--accent)' }}
               >
                 Add
               </button>
-              <button onClick={() => { setAddingList(false); setNewListTitle(''); }} className="px-2 py-1 text-xs" style={{ color: 'var(--text-muted)' }}>✕</button>
+              <button onClick={() => { setAddingList(false); setNewListTitle(''); }} className="w-8 h-8 rounded-md flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>✕</button>
             </div>
           </div>
         ) : (
           <button
             onClick={() => setAddingList(true)}
-            className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-medium transition-colors"
+            className="w-full text-left px-3 min-h-[44px] flex items-center rounded-xl text-xs font-medium transition-colors"
             style={{ color: 'var(--text-muted)', background: 'var(--list-bg)' }}
           >
             + Add another list

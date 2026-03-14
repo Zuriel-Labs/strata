@@ -5,7 +5,7 @@ export interface ManagedUserInput {
   name: string;
   initials: string;
   color: string;
-  email: string;
+  username: string;
   platformRole: 'system_admin' | 'user';
   active: boolean;
   workspaceMemberships: Array<{ workspaceId: string; role: string }>;
@@ -17,7 +17,7 @@ export function fetchAdminDirectory() {
 }
 
 export function createManagedUser(input: ManagedUserInput) {
-  return apiRequest<{ user: unknown; temporaryPassword: string }>('/api/admin/users', {
+  return apiRequest<{ user: { id: string; username: string }; inviteToken: string }>('/api/admin/users', {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -30,8 +30,15 @@ export function updateManagedUser(userId: string, input: Partial<ManagedUserInpu
   });
 }
 
-export function resetManagedUserPassword(userId: string) {
-  return apiRequest<{ temporaryPassword: string }>(`/api/admin/users/${userId}/reset-password`, {
+export function generateRecoveryKeyForUser(userId: string) {
+  return apiRequest<{ recoveryKey: string }>(`/api/admin/users/${userId}/generate-recovery-key`, {
     method: 'POST',
+  });
+}
+
+export function createWorkspace(input: { name: string; description: string; visibility: string }) {
+  return apiRequest<{ id: string; name: string; description: string; visibility: string }>('/api/workspaces', {
+    method: 'POST',
+    body: JSON.stringify(input),
   });
 }

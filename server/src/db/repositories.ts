@@ -19,7 +19,7 @@ function mapUser(row: Record<string, unknown>): UserRecord {
     name: String(row.name),
     initials: String(row.initials),
     color: String(row.color),
-    email: String(row.email),
+    username: String(row.username),
     platformRole: row.platform_role === 'system_admin' ? 'system_admin' : 'user',
     passwordHash: String(row.password_hash),
     active: asBool(Number(row.active)),
@@ -59,8 +59,8 @@ function mapBoardMembership(row: Record<string, unknown>): BoardMembershipRecord
   };
 }
 
-export function getUserByEmail(db: Database.Database, email: string) {
-  const row = db.prepare('SELECT * FROM users WHERE lower(email) = lower(?)').get(email) as Record<string, unknown> | undefined;
+export function getUserByUsername(db: Database.Database, username: string) {
+  const row = db.prepare('SELECT * FROM users WHERE lower(username) = lower(?)').get(username) as Record<string, unknown> | undefined;
   return row ? mapUser(row) : null;
 }
 
@@ -259,7 +259,7 @@ function selectScopedUsers(db: Database.Database, user: UserRecord, workspaceIds
       name: safeUser.name,
       initials: safeUser.initials,
       color: safeUser.color,
-      email: safeUser.email,
+      username: safeUser.username,
     }));
   }
 
@@ -275,7 +275,7 @@ function selectScopedUsers(db: Database.Database, user: UserRecord, workspaceIds
     rows.forEach(row => userIds.add(row.userId));
   }
   const placeholders = [...userIds].map(() => '?').join(', ');
-  const rows = db.prepare(`SELECT id, name, initials, color, email FROM users WHERE id IN (${placeholders}) ORDER BY name ASC`).all(...userIds) as User[];
+  const rows = db.prepare(`SELECT id, name, initials, color, username FROM users WHERE id IN (${placeholders}) ORDER BY name ASC`).all(...userIds) as User[];
   return rows;
 }
 
@@ -330,7 +330,7 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     name: user.name,
     initials: user.initials,
     color: user.color,
-    email: user.email,
+    username: user.username,
     platformRole: user.platformRole,
     mustChangePassword: user.mustChangePassword,
   };
@@ -345,6 +345,185 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     },
     appState,
   };
+}
+
+// ── Board mutations ──────────────────────────────────────────────────
+export function createBoard(db: Database.Database, id: string, title: string, workspaceId: string, visibility: string, color: string, labelsJson: string) {
+  const timestamp = new Date().toISOString();
+  db.prepare('INSERT INTO boards (id, title, workspace_id, visibility, color, starred, labels_json, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)').run(id, title, workspaceId, visibility, color, labelsJson, timestamp);
+}
+
+export function updateBoardStarred(db: Database.Database, boardId: string, starred: boolean) {
+  db.prepare('UPDATE boards SET starred = ? WHERE id = ?').run(starred ? 1 : 0, boardId);
+}
+
+export function getBoardById(db: Database.Database, boardId: string): Board | null {
+  const row = db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    workspaceId: String(row.workspace_id),
+    visibility: row.visibility as Board['visibility'],
+    color: String(row.color),
+    starred: asBool(Number(row.starred)),
+    labels: parseJson<Board['labels']>(String(row.labels_json)),
+  };
+}
+
+// ── List mutations ───────────────────────────────────────────────────
+export function createList(db: Database.Database, id: string, title: string, boardId: string, position: number) {
+  const timestamp = new Date().toISOString();
+  db.prepare('INSERT INTO lists (id, title, board_id, position, archived, created_at) VALUES (?, ?, ?, ?, 0, ?)').run(id, title, boardId, position, timestamp);
+}
+
+export function updateList(db: Database.Database, listId: string, title: string) {
+  db.prepare('UPDATE lists SET title = ? WHERE id = ?').run(title, listId);
+}
+
+export function archiveList(db: Database.Database, listId: string) {
+  db.prepare('UPDATE lists SET archived = 1 WHERE id = ?').run(listId);
+  db.prepare('UPDATE cards SET archived = 1 WHERE list_id = ?').run(listId);
+}
+
+export function restoreList(db: Database.Database, listId: string) {
+  db.prepare('UPDATE lists SET archived = 0 WHERE id = ?').run(listId);
+  db.prepare('UPDATE cards SET archived = 0 WHERE list_id = ?').run(listId);
+}
+
+export function moveList(db: Database.Database, listId: string, boardId: string, toPosition: number) {
+  const lists = db.prepare('SELECT id FROM lists WHERE board_id = ? AND archived = 0 ORDER BY position ASC').all(boardId) as Array<{ id: string }>;
+  const reordered = lists.filter(l => l.id !== listId);
+  reordered.splice(toPosition, 0, { id: listId });
+  for (let i = 0; i < reordered.length; i++) {
+    db.prepare('UPDATE lists SET position = ? WHERE id = ?').run(i, reordered[i].id);
+  }
+}
+
+export function getListById(db: Database.Database, listId: string) {
+  const row = db.prepare('SELECT * FROM lists WHERE id = ?').get(listId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return { id: String(row.id), title: String(row.title), boardId: String(row.board_id), position: Number(row.position), archived: asBool(Number(row.archived)) };
+}
+
+// ── Card mutations ───────────────────────────────────────────────────
+export function createCard(db: Database.Database, id: string, title: string, listId: string, boardId: string, position: number, createdByUserId: string) {
+  const timestamp = new Date().toISOString();
+  const activity = JSON.stringify([{ id: randomUUID(), userId: createdByUserId, action: 'created this card', createdAt: timestamp }]);
+  db.prepare(`INSERT INTO cards (id, title, description, list_id, board_id, position, member_ids_json, label_ids_json, checklists_json, due_date, due_date_complete, comments_json, activity_json, attachments_json, watching, archived, created_at)
+    VALUES (?, ?, '', ?, ?, ?, '[]', '[]', '[]', NULL, 0, '[]', ?, '[]', 0, 0, ?)`).run(id, title, listId, boardId, position, activity, timestamp);
+}
+
+export function updateCard(db: Database.Database, cardId: string, updates: Record<string, unknown>) {
+  const allowedColumns: Record<string, string> = {
+    title: 'title', description: 'description', listId: 'list_id', position: 'position',
+    dueDate: 'due_date', dueDateComplete: 'due_date_complete', watching: 'watching', archived: 'archived',
+    memberIds: 'member_ids_json', labelIds: 'label_ids_json', checklists: 'checklists_json',
+    comments: 'comments_json', activity: 'activity_json', attachments: 'attachments_json',
+  };
+  const setClauses: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, column] of Object.entries(allowedColumns)) {
+    if (key in updates) {
+      setClauses.push(`${column} = ?`);
+      const val = updates[key];
+      if (column.endsWith('_json')) {
+        values.push(JSON.stringify(val));
+      } else if (typeof val === 'boolean') {
+        values.push(val ? 1 : 0);
+      } else {
+        values.push(val ?? null);
+      }
+    }
+  }
+  if (setClauses.length === 0) return;
+  values.push(cardId);
+  db.prepare(`UPDATE cards SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+}
+
+export function deleteCard(db: Database.Database, cardId: string) {
+  db.prepare('DELETE FROM cards WHERE id = ?').run(cardId);
+}
+
+export function getCardById(db: Database.Database, cardId: string): Card | null {
+  const row = db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: String(row.id), title: String(row.title), description: String(row.description),
+    listId: String(row.list_id), boardId: String(row.board_id), position: Number(row.position),
+    memberIds: parseJson<Card['memberIds']>(String(row.member_ids_json)),
+    labelIds: parseJson<Card['labelIds']>(String(row.label_ids_json)),
+    checklists: parseJson<Card['checklists']>(String(row.checklists_json)),
+    dueDate: row.due_date ? String(row.due_date) : null,
+    dueDateComplete: asBool(Number(row.due_date_complete)),
+    comments: parseJson<Card['comments']>(String(row.comments_json)),
+    activity: parseJson<Card['activity']>(String(row.activity_json)),
+    attachments: parseJson<Card['attachments']>(String(row.attachments_json)),
+    watching: asBool(Number(row.watching)), archived: asBool(Number(row.archived)),
+    createdAt: String(row.created_at),
+  };
+}
+
+export function getMaxCardPosition(db: Database.Database, listId: string) {
+  const row = db.prepare('SELECT MAX(position) as maxPos FROM cards WHERE list_id = ? AND archived = 0').get(listId) as { maxPos: number | null };
+  return row.maxPos ?? -1;
+}
+
+export function getMaxListPosition(db: Database.Database, boardId: string) {
+  const row = db.prepare('SELECT MAX(position) as maxPos FROM lists WHERE board_id = ? AND archived = 0').get(boardId) as { maxPos: number | null };
+  return row.maxPos ?? -1;
+}
+
+// ── Automation rule mutations ────────────────────────────────────────
+export function createAutomationRule(db: Database.Database, id: string, boardId: string, name: string, trigger: string, triggerConfig: Record<string, string>, action: string, actionConfig: Record<string, string>, enabled: boolean) {
+  db.prepare('INSERT INTO automation_rules (id, board_id, name, trigger, trigger_config_json, action, action_config_json, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, boardId, name, trigger, JSON.stringify(triggerConfig), action, JSON.stringify(actionConfig), enabled ? 1 : 0,
+  );
+}
+
+export function updateAutomationRule(db: Database.Database, ruleId: string, updates: { name?: string; trigger?: string; triggerConfig?: Record<string, string>; action?: string; actionConfig?: Record<string, string>; enabled?: boolean }) {
+  const setClauses: string[] = [];
+  const values: unknown[] = [];
+  if (updates.name !== undefined) { setClauses.push('name = ?'); values.push(updates.name); }
+  if (updates.trigger !== undefined) { setClauses.push('trigger = ?'); values.push(updates.trigger); }
+  if (updates.triggerConfig !== undefined) { setClauses.push('trigger_config_json = ?'); values.push(JSON.stringify(updates.triggerConfig)); }
+  if (updates.action !== undefined) { setClauses.push('action = ?'); values.push(updates.action); }
+  if (updates.actionConfig !== undefined) { setClauses.push('action_config_json = ?'); values.push(JSON.stringify(updates.actionConfig)); }
+  if (updates.enabled !== undefined) { setClauses.push('enabled = ?'); values.push(updates.enabled ? 1 : 0); }
+  if (setClauses.length === 0) return;
+  values.push(ruleId);
+  db.prepare(`UPDATE automation_rules SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+}
+
+export function deleteAutomationRule(db: Database.Database, ruleId: string) {
+  db.prepare('DELETE FROM automation_rules WHERE id = ?').run(ruleId);
+}
+
+export function getAutomationRuleById(db: Database.Database, ruleId: string) {
+  const row = db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(ruleId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: String(row.id), boardId: String(row.board_id), name: String(row.name),
+    trigger: row.trigger as AutomationRule['trigger'],
+    triggerConfig: parseJson<AutomationRule['triggerConfig']>(String(row.trigger_config_json)),
+    action: row.action as AutomationRule['action'],
+    actionConfig: parseJson<AutomationRule['actionConfig']>(String(row.action_config_json)),
+    enabled: asBool(Number(row.enabled)),
+  };
+}
+
+// ── Notification mutations ───────────────────────────────────────────
+export function createNotification(db: Database.Database, id: string, userId: string, cardId: string, boardId: string, message: string) {
+  const timestamp = new Date().toISOString();
+  db.prepare('INSERT INTO notifications (id, user_id, card_id, board_id, message, read, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)').run(id, userId, cardId, boardId, message, timestamp);
+}
+
+export function markNotificationRead(db: Database.Database, notificationId: string) {
+  db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(notificationId);
+}
+
+export function markAllNotificationsRead(db: Database.Database, userId: string) {
+  db.prepare('UPDATE notifications SET read = 1 WHERE user_id = ?').run(userId);
 }
 
 export function createAuditEvent(db: Database.Database, input: AuditEventInput) {
@@ -366,4 +545,30 @@ export function createAuditEvent(db: Database.Database, input: AuditEventInput) 
 
 export function listAuditEvents(db: Database.Database) {
   return db.prepare('SELECT * FROM audit_events ORDER BY created_at DESC').all() as JsonRow<Record<string, unknown>>[];
+}
+
+export function upsertRecoveryKey(db: Database.Database, userId: string, keyHash: string) {
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO recovery_keys (id, user_id, key_hash, created_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      key_hash = excluded.key_hash,
+      created_at = excluded.created_at
+  `).run(id, userId, keyHash, new Date().toISOString());
+}
+
+export function getRecoveryKeyByUserId(db: Database.Database, userId: string) {
+  const row = db.prepare('SELECT * FROM recovery_keys WHERE user_id = ?').get(userId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    keyHash: String(row.key_hash),
+    createdAt: String(row.created_at),
+  };
+}
+
+export function deleteRecoveryKey(db: Database.Database, userId: string) {
+  db.prepare('DELETE FROM recovery_keys WHERE user_id = ?').run(userId);
 }

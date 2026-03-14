@@ -1,0 +1,71 @@
+import type { Board, List, Card, AutomationRule } from '../types';
+import { apiRequest } from './api';
+
+// ── Board API ────────────────────────────────────────────────────────
+export function createBoardApi(input: { workspaceId: string; title: string; color: string }) {
+  return apiRequest<Board>('/api/boards', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function toggleBoardStarApi(boardId: string) {
+  return apiRequest<{ starred: boolean }>(`/api/boards/${boardId}/star`, { method: 'PATCH' });
+}
+
+// ── List API ─────────────────────────────────────────────────────────
+export function createListApi(input: { boardId: string; title: string }) {
+  return apiRequest<List>('/api/lists', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateListApi(listId: string, input: { title: string }) {
+  return apiRequest<List>(`/api/lists/${listId}`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export function archiveListApi(listId: string) {
+  return apiRequest<{ success: boolean }>(`/api/lists/${listId}/archive`, { method: 'POST' });
+}
+
+export function restoreListApi(listId: string) {
+  return apiRequest<{ success: boolean }>(`/api/lists/${listId}/restore`, { method: 'POST' });
+}
+
+export function moveListApi(listId: string, toPosition: number) {
+  return apiRequest<{ success: boolean }>(`/api/lists/${listId}/move`, { method: 'POST', body: JSON.stringify({ toPosition }) });
+}
+
+// ── Card API ─────────────────────────────────────────────────────────
+export function createCardApi(input: { boardId: string; listId: string; title: string }) {
+  return apiRequest<Card>('/api/cards', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateCardApi(cardId: string, updates: Record<string, unknown>) {
+  return apiRequest<Card>(`/api/cards/${cardId}`, { method: 'PATCH', body: JSON.stringify(updates) });
+}
+
+export function moveCardApi(cardId: string, toListId: string, toPosition: number) {
+  return apiRequest<Card>(`/api/cards/${cardId}/move`, { method: 'POST', body: JSON.stringify({ toListId, toPosition }) });
+}
+
+export function deleteCardApi(cardId: string) {
+  return apiRequest<void>(`/api/cards/${cardId}`, { method: 'DELETE' });
+}
+
+// ── Automation Rule API ──────────────────────────────────────────────
+export function createAutomationRuleApi(input: Omit<AutomationRule, 'id'>) {
+  return apiRequest<AutomationRule>('/api/automation-rules', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateAutomationRuleApi(ruleId: string, updates: Partial<AutomationRule>) {
+  return apiRequest<AutomationRule>(`/api/automation-rules/${ruleId}`, { method: 'PATCH', body: JSON.stringify(updates) });
+}
+
+export function deleteAutomationRuleApi(ruleId: string) {
+  return apiRequest<void>(`/api/automation-rules/${ruleId}`, { method: 'DELETE' });
+}
+
+// ── Notification API ─────────────────────────────────────────────────
+export function markNotificationReadApi(notificationId: string) {
+  return apiRequest<{ success: boolean }>(`/api/notifications/${notificationId}/read`, { method: 'POST' });
+}
+
+export function markAllNotificationsReadApi() {
+  return apiRequest<{ success: boolean }>('/api/notifications/read-all', { method: 'POST' });
+}

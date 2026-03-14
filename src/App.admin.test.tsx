@@ -15,7 +15,7 @@ describe('App admin flows', () => {
             name: 'System Admin',
             initials: 'SA',
             color: '#6366f1',
-            email: 'admin@strata.local',
+            username: 'admin',
             platformRole: 'system_admin',
             mustChangePassword: false,
           },
@@ -47,8 +47,10 @@ describe('App admin flows', () => {
     await user.click(await screen.findByRole('button', { name: 'Open admin panel' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Recent audit events')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'User Management' })).toBeInTheDocument();
     });
-    expect(screen.getByRole('heading', { name: 'Create user' })).toBeInTheDocument();
+    expect(screen.getByText('Edit Users')).toBeInTheDocument();
+    expect(screen.getByText('Create User')).toBeInTheDocument();
+    expect(screen.getByText('Audit Log')).toBeInTheDocument();
   });
 });

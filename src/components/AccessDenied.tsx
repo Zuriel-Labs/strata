@@ -11,7 +11,7 @@ export function AccessDenied() {
           <p className="text-xs font-bold uppercase tracking-[0.2em] mb-1">Access denied</p>
           <p className="text-sm">{accessDenied}</p>
         </div>
-        <button className="text-xs underline" onClick={() => setAccessDenied(null)}>
+        <button className="text-xs underline min-h-[44px] flex items-center" onClick={() => setAccessDenied(null)}>
           Dismiss
         </button>
       </div>

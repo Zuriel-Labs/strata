@@ -1,14 +1,14 @@
 export type Visibility = 'private' | 'workspace' | 'public';
 export type PlatformRole = 'system_admin' | 'user';
-export type WorkspaceRole = 'workspace_admin' | 'member' | 'guest';
-export type BoardRole = 'board_admin' | 'member' | 'observer' | 'guest';
+export type WorkspaceRole = 'workspace_admin' | 'member';
+export type BoardRole = 'board_admin' | 'member' | 'observer';
 
 export interface User {
   id: string;
   name: string;
   initials: string;
   color: string;
-  email: string;
+  username: string;
 }
 
 export interface Label {
@@ -243,11 +243,16 @@ export type Action =
   | { type: 'ADD_ATTACHMENT'; payload: { cardId: string; attachment: Attachment } }
   | { type: 'REMOVE_ATTACHMENT'; payload: { cardId: string; attachmentId: string } }
   | { type: 'ADD_BOARD'; payload: { workspaceId: string; title: string; color: string } }
+  | { type: 'ADD_BOARD_FROM_API'; payload: Board }
+  | { type: 'ADD_WORKSPACE'; payload: Workspace }
   | { type: 'TOGGLE_BOARD_STAR'; payload: string }
   | { type: 'ADD_AUTOMATION_RULE'; payload: Omit<AutomationRule, 'id'> }
+  | { type: 'ADD_AUTOMATION_RULE_FROM_API'; payload: AutomationRule }
   | { type: 'UPDATE_AUTOMATION_RULE'; payload: Partial<AutomationRule> & { id: string } }
   | { type: 'DELETE_AUTOMATION_RULE'; payload: string }
   | { type: 'MARK_NOTIFICATION_READ'; payload: string }
   | { type: 'MARK_ALL_NOTIFICATIONS_READ' }
   | { type: 'ADD_NOTIFICATION'; payload: Omit<Notification, 'id' | 'createdAt'> }
-  | { type: 'MOVE_LIST'; payload: { listId: string; toPosition: number } };
+  | { type: 'MOVE_LIST'; payload: { listId: string; toPosition: number } }
+  | { type: 'ADD_LIST_FROM_API'; payload: List }
+  | { type: 'ADD_CARD_FROM_API'; payload: Card };

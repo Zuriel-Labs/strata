@@ -1,10 +1,14 @@
 // @vitest-environment node
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createDatabase } from '../src/db/database';
 import { createApp } from '../src/app';
 import { closeDatabase } from '../src/db/database';
+
+beforeAll(() => {
+  process.env.SEED_DATA = 'true';
+});
 
 describe('rbac matrix', () => {
   afterEach(() => {
@@ -16,7 +20,7 @@ describe('rbac matrix', () => {
     const app = createApp(db);
     const agent = request.agent(app);
 
-    await agent.post('/api/auth/login').send({ email: 'alex@company.io', password: 'WorkspaceAdmin123!' });
+    await agent.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' });
     const session = await agent.get('/api/auth/session');
 
     expect(session.status).toBe(200);
@@ -29,7 +33,7 @@ describe('rbac matrix', () => {
     const app = createApp(db);
     const agent = request.agent(app);
 
-    await agent.post('/api/auth/login').send({ email: 'alex@company.io', password: 'WorkspaceAdmin123!' });
+    await agent.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' });
     const response = await agent.get('/api/admin/users');
 
     expect(response.status).toBe(403);

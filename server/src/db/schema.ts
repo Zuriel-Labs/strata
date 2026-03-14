@@ -9,7 +9,7 @@ export function createSchema(db: Database.Database) {
       name TEXT NOT NULL,
       initials TEXT NOT NULL,
       color TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
+      username TEXT NOT NULL UNIQUE,
       platform_role TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 1,
@@ -145,6 +145,14 @@ export function createSchema(db: Database.Database) {
       outcome TEXT NOT NULL,
       metadata_json TEXT NOT NULL,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS recovery_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      key_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
 }

@@ -1,15 +1,15 @@
 import type { AppState } from '../../src/types';
 
 export type PlatformRole = 'system_admin' | 'user';
-export type WorkspaceRole = 'workspace_admin' | 'member' | 'guest';
-export type BoardRole = 'board_admin' | 'member' | 'observer' | 'guest';
+export type WorkspaceRole = 'workspace_admin' | 'member';
+export type BoardRole = 'board_admin' | 'member' | 'observer';
 
 export interface UserRecord {
   id: string;
   name: string;
   initials: string;
   color: string;
-  email: string;
+  username: string;
   platformRole: PlatformRole;
   passwordHash: string;
   active: boolean;
@@ -64,9 +64,16 @@ export interface SessionUser {
   name: string;
   initials: string;
   color: string;
-  email: string;
+  username: string;
   platformRole: PlatformRole;
   mustChangePassword: boolean;
+}
+
+export interface RecoveryKeyRecord {
+  id: string;
+  userId: string;
+  keyHash: string;
+  createdAt: string;
 }
 
 export interface PermissionSnapshot {

@@ -4,10 +4,10 @@ let _id = 100;
 const uid = () => `id_${++_id}`;
 
 export const USERS: User[] = [
-  { id: 'u1', name: 'You', initials: 'YO', color: '#6366f1', email: 'you@company.io' },
-  { id: 'u2', name: 'Alex Chen', initials: 'AC', color: '#0891b2', email: 'alex@company.io' },
-  { id: 'u3', name: 'Priya Sharma', initials: 'PS', color: '#c026d3', email: 'priya@company.io' },
-  { id: 'u4', name: 'Marcus Johnson', initials: 'MJ', color: '#ea580c', email: 'marcus@company.io' },
+  { id: 'u1', name: 'You', initials: 'YO', color: '#6366f1', username: 'you' },
+  { id: 'u2', name: 'Alex Chen', initials: 'AC', color: '#0891b2', username: 'alex' },
+  { id: 'u3', name: 'Priya Sharma', initials: 'PS', color: '#c026d3', username: 'priya' },
+  { id: 'u4', name: 'Marcus Johnson', initials: 'MJ', color: '#ea580c', username: 'marcus' },
 ];
 
 const defaultLabels: Label[] = [

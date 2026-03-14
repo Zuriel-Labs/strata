@@ -14,7 +14,7 @@ describe('App RBAC views', () => {
             name: 'Priya Sharma',
             initials: 'PS',
             color: '#c026d3',
-            email: 'priya@company.io',
+            username: 'priya',
             platformRole: 'user',
             mustChangePassword: false,
           },
@@ -35,7 +35,7 @@ describe('App RBAC views', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Platform Sprint 24' })).toBeInTheDocument();
+      expect(screen.getByText('Platform Sprint 24')).toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: 'Open admin panel' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add another list/i })).not.toBeInTheDocument();

@@ -371,11 +371,20 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, boards: [...state.boards, board], currentWorkspaceId: board.workspaceId, currentBoardId: board.id };
     }
 
+    case 'ADD_BOARD_FROM_API':
+      return { ...state, boards: [...state.boards, action.payload], currentWorkspaceId: action.payload.workspaceId, currentBoardId: action.payload.id };
+
+    case 'ADD_WORKSPACE':
+      return { ...state, workspaces: [...state.workspaces, action.payload], currentWorkspaceId: action.payload.id };
+
     case 'TOGGLE_BOARD_STAR':
       return { ...state, boards: state.boards.map(board => board.id === action.payload ? { ...board, starred: !board.starred } : board) };
 
     case 'ADD_AUTOMATION_RULE':
       return { ...state, automationRules: [...state.automationRules, { ...action.payload, id: uid() }] };
+
+    case 'ADD_AUTOMATION_RULE_FROM_API':
+      return { ...state, automationRules: [...state.automationRules, action.payload] };
 
     case 'UPDATE_AUTOMATION_RULE':
       return { ...state, automationRules: state.automationRules.map(rule => rule.id === action.payload.id ? { ...rule, ...action.payload } : rule) };
@@ -406,6 +415,12 @@ export function reducer(state: AppState, action: Action): AppState {
         }),
       };
     }
+
+    case 'ADD_LIST_FROM_API':
+      return { ...state, lists: [...state.lists, action.payload] };
+
+    case 'ADD_CARD_FROM_API':
+      return { ...state, cards: [...state.cards, action.payload] };
 
     default:
       return state;

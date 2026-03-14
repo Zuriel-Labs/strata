@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import App from './App';
 import { initialState } from './store';
 
@@ -32,6 +33,7 @@ describe('App RBAC views', () => {
   });
 
   it('hides admin and board-management affordances for non-admin roles', async () => {
+    const user = userEvent.setup();
     render(<App />);
 
     await waitFor(() => {
@@ -39,5 +41,10 @@ describe('App RBAC views', () => {
     });
     expect(screen.queryByRole('button', { name: 'Open admin panel' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add another list/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage board labels' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(screen.queryByRole('button', { name: 'Automations' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
   });
 });

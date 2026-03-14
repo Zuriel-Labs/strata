@@ -98,9 +98,11 @@ export function createSchema(db: Database.Database) {
       name TEXT NOT NULL,
       trigger TEXT NOT NULL,
       trigger_config_json TEXT NOT NULL,
+      conditions_json TEXT NOT NULL DEFAULT '{"listId":null,"labelId":null}',
       action TEXT NOT NULL,
       action_config_json TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at TEXT,
       FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
     );
 
@@ -155,4 +157,16 @@ export function createSchema(db: Database.Database) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  const automationRuleColumns = new Set(
+    (db.prepare('PRAGMA table_info(automation_rules)').all() as Array<{ name: string }>).map(column => column.name),
+  );
+
+  if (!automationRuleColumns.has('conditions_json')) {
+    db.exec("ALTER TABLE automation_rules ADD COLUMN conditions_json TEXT NOT NULL DEFAULT '{\"listId\":null,\"labelId\":null}'");
+  }
+
+  if (!automationRuleColumns.has('last_run_at')) {
+    db.exec('ALTER TABLE automation_rules ADD COLUMN last_run_at TEXT');
+  }
 }

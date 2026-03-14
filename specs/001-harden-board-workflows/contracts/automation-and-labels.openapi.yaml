@@ -1,0 +1,305 @@
+openapi: 3.1.0
+info:
+  title: Strata Board Labels and Automation Contracts
+  version: 1.0.0
+paths:
+  /api/boards/{boardId}/labels:
+    put:
+      summary: Replace the active board label set
+      tags: [Board Labels]
+      parameters:
+        - in: path
+          name: boardId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [labels]
+              properties:
+                labels:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/BoardLabel'
+      responses:
+        '200':
+          description: Updated board label set
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [boardId, labels]
+                properties:
+                  boardId:
+                    type: string
+                  labels:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BoardLabel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/cards/{cardId}:
+    patch:
+      summary: Update a card including label assignments and archive state
+      tags: [Cards]
+      parameters:
+        - in: path
+          name: cardId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                memberIds:
+                  type: array
+                  items:
+                    type: string
+                labelIds:
+                  type: array
+                  items:
+                    type: string
+                archived:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated card
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/automation-rules:
+    post:
+      summary: Create an automation rule
+      tags: [Automation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutomationRuleCreate'
+      responses:
+        '201':
+          description: Created automation rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/automation-rules/{ruleId}:
+    patch:
+      summary: Update an automation rule
+      tags: [Automation]
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutomationRuleUpdate'
+      responses:
+        '200':
+          description: Updated automation rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutomationRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  schemas:
+    BoardLabel:
+      type: object
+      required: [id, name, color]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+    AutomationConditions:
+      type: object
+      required: [listId, labelId]
+      properties:
+        listId:
+          type:
+            - string
+            - 'null'
+        labelId:
+          type:
+            - string
+            - 'null'
+    AutomationRule:
+      type: object
+      required: [id, boardId, name, trigger, triggerConfig, conditions, action, actionConfig, enabled, lastRunAt]
+      properties:
+        id:
+          type: string
+        boardId:
+          type: string
+        name:
+          type: string
+        trigger:
+          type: string
+          enum: [card_moved, card_created, checklist_complete, date_time, weekday, monthly, heartbeat]
+        triggerConfig:
+          $ref: '#/components/schemas/AutomationTriggerConfig'
+        conditions:
+          $ref: '#/components/schemas/AutomationConditions'
+        action:
+          type: string
+          enum: [assign_member, add_label, move_to_list, mark_due_complete]
+        actionConfig:
+          type: object
+          additionalProperties:
+            type: string
+        enabled:
+          type: boolean
+        lastRunAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    AutomationRuleCreate:
+      allOf:
+        - $ref: '#/components/schemas/AutomationRuleBase'
+        - type: object
+          required: [boardId]
+          properties:
+            boardId:
+              type: string
+    AutomationRuleUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        trigger:
+          type: string
+          enum: [card_moved, card_created, checklist_complete, date_time, weekday, monthly, heartbeat]
+        triggerConfig:
+          $ref: '#/components/schemas/AutomationTriggerConfig'
+        conditions:
+          $ref: '#/components/schemas/AutomationConditions'
+        action:
+          type: string
+          enum: [assign_member, add_label, move_to_list, mark_due_complete]
+        actionConfig:
+          type: object
+          additionalProperties:
+            type: string
+        enabled:
+          type: boolean
+    AutomationRuleBase:
+      type: object
+      required: [name, trigger, triggerConfig, conditions, action, actionConfig, enabled]
+      properties:
+        name:
+          type: string
+        trigger:
+          type: string
+          enum: [card_moved, card_created, checklist_complete, date_time, weekday, monthly, heartbeat]
+        triggerConfig:
+          $ref: '#/components/schemas/AutomationTriggerConfig'
+        conditions:
+          $ref: '#/components/schemas/AutomationConditions'
+        action:
+          type: string
+          enum: [assign_member, add_label, move_to_list, mark_due_complete]
+        actionConfig:
+          type: object
+          additionalProperties:
+            type: string
+        enabled:
+          type: boolean
+    AutomationTriggerConfig:
+      type: object
+      properties:
+        toListId:
+          type:
+            - string
+            - 'null'
+        runAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        weekdays:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+        time:
+          type:
+            - string
+            - 'null'
+        dayOfMonth:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          maximum: 31
+        intervalValue:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+        intervalUnit:
+          type:
+            - string
+            - 'null'
+          enum: [minutes, hours, null]
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: Invalid request payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Access denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

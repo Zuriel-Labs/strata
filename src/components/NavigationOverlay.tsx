@@ -8,14 +8,18 @@ import { createAutomationRuleApi, updateAutomationRuleApi, deleteAutomationRuleA
 
 type NavTab = 'workspaces' | 'boards' | 'automations' | 'archive';
 
-const supportedTriggers: AutomationRule['trigger'][] = ['card_moved', 'card_created', 'checklist_complete'];
+const supportedTriggers: AutomationRule['trigger'][] = ['card_moved', 'card_created', 'checklist_complete', 'date_time', 'weekday', 'monthly', 'heartbeat'];
 const supportedActions: AutomationRule['action'][] = ['assign_member', 'add_label', 'move_to_list', 'mark_due_complete'];
 
 const triggerLabels: Record<AutomationRule['trigger'], string> = {
   card_moved: 'When a card is moved to a list',
   card_created: 'When a card is created',
-  due_date_reached: 'When a due date is reached',
   checklist_complete: 'When all checklist items are done',
+  due_date_reached: 'When a due date is reached',
+  date_time: 'At a specific date and time',
+  weekday: 'On selected weekdays',
+  monthly: 'On a day of the month',
+  heartbeat: 'Every interval',
 };
 const actionLabels: Record<AutomationRule['action'], string> = {
   assign_member: 'Assign a member',
@@ -39,13 +43,14 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
   const currentWs = state.workspaces.find(w => w.id === state.currentWorkspaceId);
   const boards = state.boards.filter(b => b.workspaceId === state.currentWorkspaceId);
   const canManageWorkspace = auth.canManageWorkspace(state.currentWorkspaceId);
+  const canManageBoard = auth.canManageBoard(state.currentBoardId);
   const boardColors = ['#6366f1', '#0891b2', '#059669', '#ea580c', '#dc2626', '#7c3aed', '#be185d'];
 
   const tabs: { key: NavTab; label: string; icon: React.ReactNode }[] = [
     { key: 'workspaces', label: 'Workspaces', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> },
     { key: 'boards', label: 'Boards', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> },
-    { key: 'automations', label: 'Automations', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> },
-    { key: 'archive', label: 'Archive', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg> },
+    ...(canManageBoard ? [{ key: 'automations' as const, label: 'Automations', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> }] : []),
+    ...(canManageBoard ? [{ key: 'archive' as const, label: 'Archive', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg> }] : []),
   ];
 
   return (
@@ -293,10 +298,28 @@ function BoardRow({ board, isActive, onSelect, onToggleStar }: { board: ReturnTy
 function AutomationsContent() {
   const state = useAppState();
   const dispatch = useDispatch();
+  const auth = useAuth();
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: '', trigger: 'card_moved' as AutomationRule['trigger'], triggerListId: '', action: 'assign_member' as AutomationRule['action'], actionMemberId: '', actionLabelId: '', actionListId: '' });
+  const [form, setForm] = useState({
+    name: '',
+    trigger: 'card_moved' as AutomationRule['trigger'],
+    triggerListId: '',
+    conditionListId: '',
+    conditionLabelId: '',
+    scheduleDateTime: '',
+    scheduleWeekdays: [] as number[],
+    scheduleTime: '09:00',
+    scheduleDayOfMonth: '1',
+    scheduleIntervalValue: '1',
+    scheduleIntervalUnit: 'hours' as 'minutes' | 'hours',
+    action: 'assign_member' as AutomationRule['action'],
+    actionMemberId: '',
+    actionLabelId: '',
+    actionListId: '',
+  });
 
   if (!state.currentBoardId) return <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Select a board to manage automations.</p>;
+  if (!auth.canManageAutomation(state.currentBoardId)) return null;
 
   const rules = state.automationRules.filter(r => r.boardId === state.currentBoardId);
   const lists = state.lists.filter(l => l.boardId === state.currentBoardId && !l.archived).sort((a, b) => a.position - b.position);
@@ -304,16 +327,53 @@ function AutomationsContent() {
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
-    const triggerConfig: Record<string, string> = {};
+    const triggerConfig: AutomationRule['triggerConfig'] = {};
     if (form.trigger === 'card_moved' && form.triggerListId) triggerConfig.toListId = form.triggerListId;
+    if (form.trigger === 'date_time' && form.scheduleDateTime) triggerConfig.runAt = new Date(form.scheduleDateTime).toISOString();
+    if (form.trigger === 'weekday') {
+      triggerConfig.weekdays = form.scheduleWeekdays;
+      triggerConfig.time = form.scheduleTime;
+    }
+    if (form.trigger === 'monthly') {
+      triggerConfig.dayOfMonth = Number(form.scheduleDayOfMonth);
+      triggerConfig.time = form.scheduleTime;
+    }
+    if (form.trigger === 'heartbeat') {
+      triggerConfig.intervalValue = Number(form.scheduleIntervalValue);
+      triggerConfig.intervalUnit = form.scheduleIntervalUnit;
+    }
+
+    const conditions = {
+      listId: form.conditionListId || null,
+      labelId: form.conditionLabelId || null,
+    };
+
     const actionConfig: Record<string, string> = {};
     if (form.action === 'assign_member' && form.actionMemberId) actionConfig.memberId = form.actionMemberId;
     if (form.action === 'add_label' && form.actionLabelId) actionConfig.labelId = form.actionLabelId;
     if (form.action === 'move_to_list' && form.actionListId) actionConfig.listId = form.actionListId;
-    const rule = await createAutomationRuleApi({ boardId: state.currentBoardId!, name: form.name, trigger: form.trigger, triggerConfig, action: form.action, actionConfig, enabled: true });
+
+    const rule = await createAutomationRuleApi({ boardId: state.currentBoardId!, name: form.name, trigger: form.trigger, triggerConfig, conditions, action: form.action, actionConfig, enabled: true });
     dispatch({ type: 'ADD_AUTOMATION_RULE_FROM_API', payload: rule });
-    setForm({ name: '', trigger: 'card_moved', triggerListId: '', action: 'assign_member', actionMemberId: '', actionLabelId: '', actionListId: '' });
+    setForm({ name: '', trigger: 'card_moved', triggerListId: '', conditionListId: '', conditionLabelId: '', scheduleDateTime: '', scheduleWeekdays: [], scheduleTime: '09:00', scheduleDayOfMonth: '1', scheduleIntervalValue: '1', scheduleIntervalUnit: 'hours', action: 'assign_member', actionMemberId: '', actionLabelId: '', actionListId: '' });
     setAdding(false);
+  };
+
+  const describeConditions = (rule: AutomationRule) => {
+    const parts: string[] = [];
+    const list = lists.find(candidate => candidate.id === rule.conditions.listId);
+    const label = board?.labels.find(candidate => candidate.id === rule.conditions.labelId);
+    parts.push(`Lists: ${list ? list.title : 'Any list'}`);
+    parts.push(`Labels: ${label ? label.name : 'Any labels'}`);
+    return parts.join(' • ');
+  };
+
+  const describeSchedule = (rule: AutomationRule) => {
+    if (rule.trigger === 'date_time' && rule.triggerConfig.runAt) return new Date(rule.triggerConfig.runAt).toLocaleString();
+    if (rule.trigger === 'weekday') return `${(rule.triggerConfig.weekdays ?? []).join(', ')} @ ${rule.triggerConfig.time ?? '--:--'}`;
+    if (rule.trigger === 'monthly') return `Day ${rule.triggerConfig.dayOfMonth ?? '-'} @ ${rule.triggerConfig.time ?? '--:--'}`;
+    if (rule.trigger === 'heartbeat') return `Every ${rule.triggerConfig.intervalValue ?? '-'} ${rule.triggerConfig.intervalUnit ?? ''}`;
+    return '';
   };
 
   return (
@@ -337,6 +397,8 @@ function AutomationsContent() {
             </div>
             <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
               <strong>When:</strong> {triggerLabels[rule.trigger]}{triggerList ? ` → "${triggerList.title}"` : ''}<br />
+              {describeSchedule(rule) && <><strong>Schedule:</strong> {describeSchedule(rule)}<br /></>}
+              <strong>Conditions:</strong> {describeConditions(rule)}<br />
               <strong>Then:</strong> {actionLabels[rule.action]}
               {actionUser && ` → ${actionUser.name}`}
               {actionLabel && ` → ${actionLabel.name}`}
@@ -363,6 +425,61 @@ function AutomationsContent() {
               {lists.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
             </select>
           )}
+          {form.trigger === 'date_time' && (
+            <input type="datetime-local" value={form.scheduleDateTime} onChange={e => setForm({ ...form, scheduleDateTime: e.target.value })} className="w-full px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+          )}
+          {form.trigger === 'weekday' && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => setForm(current => ({
+                      ...current,
+                      scheduleWeekdays: current.scheduleWeekdays.includes(index)
+                        ? current.scheduleWeekdays.filter(value => value !== index)
+                        : [...current.scheduleWeekdays, index],
+                    }))}
+                    className="min-h-[44px] rounded-md px-3 text-xs font-medium"
+                    style={{ background: form.scheduleWeekdays.includes(index) ? 'var(--accent)' : 'var(--active-bg)', color: form.scheduleWeekdays.includes(index) ? '#fff' : 'var(--text-secondary)' }}
+                  >
+                    {day}
+                  </button>
+                ))}
+              </div>
+              <input type="time" value={form.scheduleTime} onChange={e => setForm({ ...form, scheduleTime: e.target.value })} className="w-full px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+            </div>
+          )}
+          {form.trigger === 'monthly' && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input type="number" min="1" max="31" value={form.scheduleDayOfMonth} onChange={e => setForm({ ...form, scheduleDayOfMonth: e.target.value })} className="w-full px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+              <input type="time" value={form.scheduleTime} onChange={e => setForm({ ...form, scheduleTime: e.target.value })} className="w-full px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+            </div>
+          )}
+          {form.trigger === 'heartbeat' && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input type="number" min="1" value={form.scheduleIntervalValue} onChange={e => setForm({ ...form, scheduleIntervalValue: e.target.value })} className="w-full px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+              <select value={form.scheduleIntervalUnit} onChange={e => setForm({ ...form, scheduleIntervalUnit: e.target.value as 'minutes' | 'hours' })} className="w-full px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+              </select>
+            </div>
+          )}
+          <div>
+            <label className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Lists</label>
+            <select value={form.conditionListId} onChange={e => setForm({ ...form, conditionListId: e.target.value })} className="w-full mt-0.5 px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <option value="">Any list</option>
+              {lists.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Labels</label>
+            <select value={form.conditionLabelId} onChange={e => setForm({ ...form, conditionLabelId: e.target.value })} className="w-full mt-0.5 px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <option value="">Any labels</option>
+              {board?.labels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
           <div>
             <label className="text-[10px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Action</label>
             <select value={form.action} onChange={e => setForm({ ...form, action: e.target.value as AutomationRule['action'] })} className="w-full mt-0.5 px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>

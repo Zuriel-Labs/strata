@@ -2,15 +2,25 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { createBoard, createAuditEvent, updateBoardStarred, getBoardById } from '../db/repositories';
+import { createBoard, createAuditEvent, updateBoardStarred, getBoardById, updateBoardLabels } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { canManageWorkspace, canAccessBoard } from '../rbac/permissions';
+import { canManageWorkspace, canAccessBoard, canManageBoardLabels } from '../rbac/permissions';
+
+const labelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().transform(value => value.trim()),
+  color: z.string().min(1),
+});
 
 const createBoardSchema = z.object({
   workspaceId: z.string().min(1),
   title: z.string().min(1),
   color: z.string().min(1),
-  labels: z.array(z.object({ id: z.string(), name: z.string(), color: z.string() })).optional(),
+  labels: z.array(labelSchema).optional(),
+});
+
+const updateBoardLabelsSchema = z.object({
+  labels: z.array(labelSchema),
 });
 
 export function createBoardRoutes(db: Database.Database) {
@@ -54,6 +64,28 @@ export function createBoardRoutes(db: Database.Database) {
     }
     updateBoardStarred(db, boardId as string, !board.starred);
     response.json({ starred: !board.starred });
+  });
+
+  router.put('/:boardId/labels', requireAuth, (request: AuthenticatedRequest, response) => {
+    const boardId = String(request.params.boardId);
+    const board = getBoardById(db, boardId);
+    if (!board) {
+      response.status(404).json({ message: 'Board not found.' });
+      return;
+    }
+    if (!canManageBoardLabels(db, request.auth!, boardId)) {
+      response.status(403).json({ message: 'Access denied.' });
+      return;
+    }
+    const parsed = updateBoardLabelsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Invalid label payload.' });
+      return;
+    }
+
+    updateBoardLabels(db, boardId, parsed.data.labels);
+    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.labels.update', outcome: 'success' });
+    response.json({ boardId, labels: parsed.data.labels });
   });
 
   return router;

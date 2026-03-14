@@ -1,4 +1,4 @@
-import type { Board, List, Card, AutomationRule } from '../types';
+import type { Board, List, Card, AutomationRule, Label } from '../types';
 import { apiRequest } from './api';
 
 // ── Board API ────────────────────────────────────────────────────────
@@ -8,6 +8,10 @@ export function createBoardApi(input: { workspaceId: string; title: string; colo
 
 export function toggleBoardStarApi(boardId: string) {
   return apiRequest<{ starred: boolean }>(`/api/boards/${boardId}/star`, { method: 'PATCH' });
+}
+
+export function updateBoardLabelsApi(boardId: string, labels: Label[]) {
+  return apiRequest<{ boardId: string; labels: Label[] }>(`/api/boards/${boardId}/labels`, { method: 'PUT', body: JSON.stringify({ labels }) });
 }
 
 // ── List API ─────────────────────────────────────────────────────────
@@ -49,7 +53,7 @@ export function deleteCardApi(cardId: string) {
 }
 
 // ── Automation Rule API ──────────────────────────────────────────────
-export function createAutomationRuleApi(input: Omit<AutomationRule, 'id'>) {
+export function createAutomationRuleApi(input: Omit<AutomationRule, 'id' | 'lastRunAt'>) {
   return apiRequest<AutomationRule>('/api/automation-rules', { method: 'POST', body: JSON.stringify(input) });
 }
 

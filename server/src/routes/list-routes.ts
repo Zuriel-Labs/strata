@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createList, updateList, archiveList, restoreList, moveList, getListById, getMaxListPosition, createAuditEvent } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { canManageBoard } from '../rbac/permissions';
+import { canArchiveBoardContent, canManageBoard } from '../rbac/permissions';
 
 const createListSchema = z.object({
   boardId: z.string().min(1),
@@ -57,8 +57,9 @@ export function createListRoutes(db: Database.Database) {
     const listId = String(request.params.listId);
     const list = getListById(db, listId);
     if (!list) { response.status(404).json({ message: 'List not found.' }); return; }
-    if (!canManageBoard(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    if (!canArchiveBoardContent(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     archiveList(db, listId);
+    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.archive', outcome: 'success' });
     response.json({ success: true });
   });
 
@@ -67,8 +68,9 @@ export function createListRoutes(db: Database.Database) {
     const listId = String(request.params.listId);
     const list = getListById(db, listId);
     if (!list) { response.status(404).json({ message: 'List not found.' }); return; }
-    if (!canManageBoard(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    if (!canArchiveBoardContent(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     restoreList(db, listId);
+    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.restore', outcome: 'success' });
     response.json({ success: true });
   });
 

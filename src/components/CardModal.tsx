@@ -3,12 +3,14 @@ import { AlignLeft, Circle, Clock3, Eye, EyeOff, MessageSquare, Paperclip, Plus,
 import { uid } from '../data';
 import { updateCardApi, moveCardApi } from '../services/data';
 import { useAppState, useDispatch } from '../store';
+import { useAuth } from '../lib/auth-context';
 
 type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
 
 export function CardModal() {
   const state = useAppState();
   const dispatch = useDispatch();
+  const auth = useAuth();
   const card = state.cards.find(candidate => candidate.id === state.activeCardId);
   const overlayRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -20,6 +22,8 @@ export function CardModal() {
   const [attachmentLink, setAttachmentLink] = useState('');
   const [titleEditing, setTitleEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const [labelQuery, setLabelQuery] = useState('');
   const [revealedSections, setRevealedSections] = useState<Record<OptionalSectionKey, boolean>>({
     members: false,
     labels: false,
@@ -39,20 +43,25 @@ export function CardModal() {
   const board = state.boards.find(candidate => candidate.id === card.boardId);
   const list = state.lists.find(candidate => candidate.id === card.listId);
   const labels = board?.labels ?? [];
+  const visiblePickerLabels = labels.filter(label => label.name.toLowerCase().includes(labelQuery.trim().toLowerCase()));
   const members = state.users.filter(user => card.memberIds.includes(user.id));
   const availableMembers = state.users.filter(user => !card.memberIds.includes(user.id));
   const lists = state.lists
     .filter(candidate => candidate.boardId === card.boardId && !candidate.archived)
     .sort((a, b) => a.position - b.position);
   const currentUser = state.users.find(user => user.id === state.currentUserId) ?? state.users[0] ?? null;
+  const canEditCard = auth.canEditBoardCards(card.boardId);
   const hiddenSectionButtons = [
     { key: 'members' as const, label: 'Members', icon: Users, visible: card.memberIds.length > 0 || revealedSections.members },
-    { key: 'labels' as const, label: 'Labels', icon: Tag, visible: card.labelIds.length > 0 || revealedSections.labels },
     { key: 'dueDate' as const, label: 'Dates', icon: Clock3, visible: Boolean(card.dueDate) || revealedSections.dueDate },
     { key: 'attachments' as const, label: 'Attachment', icon: Paperclip, visible: card.attachments.length > 0 || revealedSections.attachments },
   ].filter(section => !section.visible);
 
   const close = () => dispatch({ type: 'SET_ACTIVE_CARD', payload: null });
+  const closeLabelPicker = () => {
+    setLabelPickerOpen(false);
+    setLabelQuery('');
+  };
 
   const persistCard = (updates: Record<string, unknown>) => {
     dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, ...updates } });
@@ -174,7 +183,10 @@ export function CardModal() {
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-3 py-6 sm:px-6 sm:py-10"
       style={{ background: 'rgba(5, 7, 12, 0.72)', backdropFilter: 'blur(8px)' }}
     >
-      <div className="w-full max-w-3xl overflow-hidden rounded-[24px] border shadow-2xl" style={{ background: 'var(--modal-bg)', borderColor: 'rgba(255,255,255,0.06)' }}>
+      <div className="relative w-full max-w-3xl overflow-hidden rounded-[24px] border shadow-2xl" style={{ background: 'var(--modal-bg)', borderColor: 'rgba(255,255,255,0.06)' }}>
+        {labelPickerOpen && (
+          <div data-testid="labels-panel-backdrop" className="absolute inset-0 z-10" onClick={closeLabelPicker} aria-hidden="true" />
+        )}
         <div className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-5" style={{ borderColor: 'var(--border)' }}>
           <select
             aria-label="Card list"
@@ -242,8 +254,7 @@ export function CardModal() {
             </div>
           </div>
 
-          {hiddenSectionButtons.length > 0 && (
-            <div className="mb-6 flex flex-wrap gap-2">
+          <div className="mb-6 flex flex-wrap gap-2">
               {hiddenSectionButtons.map(section => {
                 const Icon = section.icon;
                 return (
@@ -260,6 +271,67 @@ export function CardModal() {
                   </button>
                 );
               })}
+              <button
+                type="button"
+                onClick={() => {
+                  revealSection('labels');
+                  setLabelPickerOpen(current => !current);
+                  setLabelQuery('');
+                }}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors"
+                style={{ background: labelPickerOpen ? 'var(--active-bg)' : 'transparent', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                <Tag size={15} />
+                Labels
+              </button>
+          </div>
+
+          {labelPickerOpen && (
+            <div
+              className="absolute right-4 top-32 z-20 w-[min(22rem,calc(100%-2rem))] rounded-2xl border p-3 shadow-2xl"
+              style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}
+              onClick={event => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <input
+                  value={labelQuery}
+                  onChange={event => setLabelQuery(event.target.value)}
+                  placeholder="Search labels"
+                  className="min-h-[44px] w-full rounded-md border px-3 text-sm outline-none"
+                  style={{ background: 'transparent', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+                <button
+                  type="button"
+                  aria-label="Close labels panel"
+                  onClick={closeLabelPicker}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+                  style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+                {visiblePickerLabels.map(label => {
+                  const active = card.labelIds.includes(label.id);
+                  return (
+                    <button
+                      key={label.id}
+                      type="button"
+                      disabled={!canEditCard || active}
+                      onClick={() => {
+                        revealSection('labels');
+                        persistCard({ labelIds: [...card.labelIds, label.id] });
+                      }}
+                      className="flex min-h-[44px] items-center justify-between rounded-md px-3 text-sm font-medium text-white disabled:cursor-default disabled:opacity-60"
+                      style={{ background: label.color }}
+                    >
+                      <span>{label.name}</span>
+                      <span>{active ? 'Added' : 'Add'}</span>
+                    </button>
+                  );
+                })}
+                {visiblePickerLabels.length === 0 && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No labels match your search.</p>}
+              </div>
             </div>
           )}
 
@@ -271,16 +343,16 @@ export function CardModal() {
                   <button
                     key={member.id}
                     type="button"
+                    disabled={!canEditCard}
                     onClick={() => handleMemberChange(card.memberIds.filter(id => id !== member.id))}
-                    className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-3 text-sm font-medium text-white transition-opacity hover:opacity-85"
+                    className="inline-flex min-h-[44px] items-center rounded-full px-3 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-100"
                     style={{ background: member.color }}
-                    title={`Remove ${member.name}`}
+                    title={canEditCard ? `Remove ${member.name}` : member.name}
                   >
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-[11px] font-bold">{member.initials}</span>
-                    {member.name}
                   </button>
                 ))}
-                {availableMembers.length > 0 && (
+                {canEditCard && availableMembers.length > 0 && (
                   <select
                     aria-label="Add member"
                     value=""
@@ -302,24 +374,27 @@ export function CardModal() {
 
           {(card.labelIds.length > 0 || revealedSections.labels) && (
             <section className="mb-5">
-              <SectionHeading icon={Tag} title="Labels" />
               <div className="flex flex-wrap gap-2">
-                {labels.map(label => {
-                  const active = card.labelIds.includes(label.id);
+                {labels.filter(label => card.labelIds.includes(label.id)).map(label => {
+                  const isColorOnly = label.name.trim().length === 0;
                   return (
-                    <button
-                      key={label.id}
-                      type="button"
-                      onClick={() => {
-                        const nextLabelIds = active ? card.labelIds.filter(id => id !== label.id) : [...card.labelIds, label.id];
-                        revealSection('labels');
-                        persistCard({ labelIds: nextLabelIds });
-                      }}
-                      className="inline-flex min-h-[44px] items-center rounded-md px-3 text-sm font-semibold text-white transition-all"
-                      style={{ background: label.color, opacity: active ? 1 : 0.42, boxShadow: active ? `0 0 0 2px ${label.color}` : 'none' }}
-                    >
-                      {label.name}
-                    </button>
+                  <button
+                    key={label.id}
+                    type="button"
+                    aria-label={isColorOnly ? 'Color-only label' : label.name}
+                    disabled={!canEditCard}
+                    onClick={() => {
+                      revealSection('labels');
+                      persistCard({ labelIds: card.labelIds.filter(id => id !== label.id) });
+                    }}
+                    className={isColorOnly
+                      ? 'inline-flex h-11 w-11 items-center justify-center rounded-md disabled:cursor-default'
+                      : 'inline-flex min-h-[44px] items-center rounded-md px-3 text-sm font-semibold text-white disabled:cursor-default'}
+                    style={{ background: label.color }}
+                    title={isColorOnly ? (canEditCard ? 'Remove color-only label' : 'Color-only label') : (canEditCard ? `Remove ${label.name}` : label.name)}
+                  >
+                    {!isColorOnly ? label.name : null}
+                  </button>
                   );
                 })}
               </div>

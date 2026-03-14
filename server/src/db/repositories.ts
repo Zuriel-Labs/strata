@@ -4,6 +4,7 @@ import type { AppState, AutomationRule, Board, Card, List, Notification, User, W
 import type { AuditEventInput, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, UserRecord, WorkspaceMembershipRecord } from '../types';
 
 type JsonRow<T> = T & { [key: string]: unknown };
+const DEFAULT_AUTOMATION_CONDITIONS: AutomationRule['conditions'] = { listId: null, labelId: null };
 
 function asBool(value: number) {
   return Boolean(value);
@@ -246,9 +247,11 @@ function selectAutomationRules(db: Database.Database, boardIds: string[]) {
     name: String(row.name),
     trigger: row.trigger as AutomationRule['trigger'],
     triggerConfig: parseJson<AutomationRule['triggerConfig']>(String(row.trigger_config_json)),
+    conditions: row.conditions_json ? parseJson<AutomationRule['conditions']>(String(row.conditions_json)) : DEFAULT_AUTOMATION_CONDITIONS,
     action: row.action as AutomationRule['action'],
     actionConfig: parseJson<AutomationRule['actionConfig']>(String(row.action_config_json)),
     enabled: asBool(Number(row.enabled)),
+    lastRunAt: row.last_run_at ? String(row.last_run_at) : null,
   }));
 }
 
@@ -355,6 +358,49 @@ export function createBoard(db: Database.Database, id: string, title: string, wo
 
 export function updateBoardStarred(db: Database.Database, boardId: string, starred: boolean) {
   db.prepare('UPDATE boards SET starred = ? WHERE id = ?').run(starred ? 1 : 0, boardId);
+}
+
+export function updateBoardLabels(db: Database.Database, boardId: string, labels: Board['labels']) {
+  db.prepare('UPDATE boards SET labels_json = ? WHERE id = ?').run(JSON.stringify(labels), boardId);
+
+  const validLabelIds = new Set(labels.map(label => label.id));
+  const cards = db.prepare('SELECT id, label_ids_json as labelIdsJson FROM cards WHERE board_id = ?').all(boardId) as Array<{ id: string; labelIdsJson: string }>;
+  for (const card of cards) {
+    const nextLabelIds = parseJson<string[]>(card.labelIdsJson).filter(labelId => validLabelIds.has(labelId));
+    db.prepare('UPDATE cards SET label_ids_json = ? WHERE id = ?').run(JSON.stringify(nextLabelIds), card.id);
+  }
+
+  const rules = db.prepare('SELECT id, conditions_json as conditionsJson, action_config_json as actionConfigJson, action, enabled FROM automation_rules WHERE board_id = ?').all(boardId) as Array<{
+    id: string;
+    conditionsJson: string;
+    actionConfigJson: string;
+    action: AutomationRule['action'];
+    enabled: number;
+  }>;
+
+  for (const rule of rules) {
+    const conditions = rule.conditionsJson ? parseJson<AutomationRule['conditions']>(rule.conditionsJson) : DEFAULT_AUTOMATION_CONDITIONS;
+    const actionConfig = parseJson<AutomationRule['actionConfig']>(rule.actionConfigJson);
+    let nextConditions = conditions;
+    let nextActionConfig = actionConfig;
+    let nextEnabled = Boolean(rule.enabled);
+
+    if (conditions.labelId && !validLabelIds.has(conditions.labelId)) {
+      nextConditions = { ...conditions, labelId: null };
+    }
+
+    if (rule.action === 'add_label' && actionConfig.labelId && !validLabelIds.has(actionConfig.labelId)) {
+      nextActionConfig = Object.fromEntries(Object.entries(actionConfig).filter(([key]) => key !== 'labelId'));
+      nextEnabled = false;
+    }
+
+    db.prepare('UPDATE automation_rules SET conditions_json = ?, action_config_json = ?, enabled = ? WHERE id = ?').run(
+      JSON.stringify(nextConditions),
+      JSON.stringify(nextActionConfig),
+      nextEnabled ? 1 : 0,
+      rule.id,
+    );
+  }
 }
 
 export function getBoardById(db: Database.Database, boardId: string): Board | null {
@@ -476,20 +522,58 @@ export function getMaxListPosition(db: Database.Database, boardId: string) {
 
 // ── Automation rule mutations ────────────────────────────────────────
 export function createAutomationRule(db: Database.Database, id: string, boardId: string, name: string, trigger: string, triggerConfig: Record<string, string>, action: string, actionConfig: Record<string, string>, enabled: boolean) {
-  db.prepare('INSERT INTO automation_rules (id, board_id, name, trigger, trigger_config_json, action, action_config_json, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-    id, boardId, name, trigger, JSON.stringify(triggerConfig), action, JSON.stringify(actionConfig), enabled ? 1 : 0,
+  db.prepare('INSERT INTO automation_rules (id, board_id, name, trigger, trigger_config_json, conditions_json, action, action_config_json, enabled, last_run_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id,
+    boardId,
+    name,
+    trigger,
+    JSON.stringify(triggerConfig),
+    JSON.stringify(DEFAULT_AUTOMATION_CONDITIONS),
+    action,
+    JSON.stringify(actionConfig),
+    enabled ? 1 : 0,
+    null,
   );
 }
 
-export function updateAutomationRule(db: Database.Database, ruleId: string, updates: { name?: string; trigger?: string; triggerConfig?: Record<string, string>; action?: string; actionConfig?: Record<string, string>; enabled?: boolean }) {
+export function createAutomationRuleWithConditions(
+  db: Database.Database,
+  id: string,
+  boardId: string,
+  name: string,
+  trigger: AutomationRule['trigger'],
+  triggerConfig: AutomationRule['triggerConfig'],
+  conditions: AutomationRule['conditions'],
+  action: AutomationRule['action'],
+  actionConfig: AutomationRule['actionConfig'],
+  enabled: boolean,
+  lastRunAt: string | null,
+) {
+  db.prepare('INSERT INTO automation_rules (id, board_id, name, trigger, trigger_config_json, conditions_json, action, action_config_json, enabled, last_run_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id,
+    boardId,
+    name,
+    trigger,
+    JSON.stringify(triggerConfig),
+    JSON.stringify(conditions),
+    action,
+    JSON.stringify(actionConfig),
+    enabled ? 1 : 0,
+    lastRunAt,
+  );
+}
+
+export function updateAutomationRule(db: Database.Database, ruleId: string, updates: { name?: string; trigger?: AutomationRule['trigger']; triggerConfig?: AutomationRule['triggerConfig']; conditions?: AutomationRule['conditions']; action?: AutomationRule['action']; actionConfig?: AutomationRule['actionConfig']; enabled?: boolean; lastRunAt?: string | null }) {
   const setClauses: string[] = [];
   const values: unknown[] = [];
   if (updates.name !== undefined) { setClauses.push('name = ?'); values.push(updates.name); }
   if (updates.trigger !== undefined) { setClauses.push('trigger = ?'); values.push(updates.trigger); }
   if (updates.triggerConfig !== undefined) { setClauses.push('trigger_config_json = ?'); values.push(JSON.stringify(updates.triggerConfig)); }
+  if (updates.conditions !== undefined) { setClauses.push('conditions_json = ?'); values.push(JSON.stringify(updates.conditions)); }
   if (updates.action !== undefined) { setClauses.push('action = ?'); values.push(updates.action); }
   if (updates.actionConfig !== undefined) { setClauses.push('action_config_json = ?'); values.push(JSON.stringify(updates.actionConfig)); }
   if (updates.enabled !== undefined) { setClauses.push('enabled = ?'); values.push(updates.enabled ? 1 : 0); }
+  if (updates.lastRunAt !== undefined) { setClauses.push('last_run_at = ?'); values.push(updates.lastRunAt); }
   if (setClauses.length === 0) return;
   values.push(ruleId);
   db.prepare(`UPDATE automation_rules SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
@@ -506,10 +590,59 @@ export function getAutomationRuleById(db: Database.Database, ruleId: string) {
     id: String(row.id), boardId: String(row.board_id), name: String(row.name),
     trigger: row.trigger as AutomationRule['trigger'],
     triggerConfig: parseJson<AutomationRule['triggerConfig']>(String(row.trigger_config_json)),
+    conditions: row.conditions_json ? parseJson<AutomationRule['conditions']>(String(row.conditions_json)) : DEFAULT_AUTOMATION_CONDITIONS,
     action: row.action as AutomationRule['action'],
     actionConfig: parseJson<AutomationRule['actionConfig']>(String(row.action_config_json)),
     enabled: asBool(Number(row.enabled)),
+    lastRunAt: row.last_run_at ? String(row.last_run_at) : null,
   };
+}
+
+export function listScheduledAutomationRules(db: Database.Database) {
+  return (db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger IN ('date_time', 'weekday', 'monthly', 'heartbeat') ORDER BY name ASC").all() as Array<Record<string, unknown>>).map(row => ({
+    id: String(row.id),
+    boardId: String(row.board_id),
+    name: String(row.name),
+    trigger: row.trigger as AutomationRule['trigger'],
+    triggerConfig: parseJson<AutomationRule['triggerConfig']>(String(row.trigger_config_json)),
+    conditions: row.conditions_json ? parseJson<AutomationRule['conditions']>(String(row.conditions_json)) : DEFAULT_AUTOMATION_CONDITIONS,
+    action: row.action as AutomationRule['action'],
+    actionConfig: parseJson<AutomationRule['actionConfig']>(String(row.action_config_json)),
+    enabled: asBool(Number(row.enabled)),
+    lastRunAt: row.last_run_at ? String(row.last_run_at) : null,
+  }));
+}
+
+export function setAutomationRuleLastRunAt(db: Database.Database, ruleId: string, lastRunAt: string | null) {
+  db.prepare('UPDATE automation_rules SET last_run_at = ? WHERE id = ?').run(lastRunAt, ruleId);
+}
+
+export function listActiveCardsForAutomation(db: Database.Database, boardId: string, conditions: AutomationRule['conditions']) {
+  const cards = (db.prepare('SELECT * FROM cards WHERE board_id = ? AND archived = 0 ORDER BY position ASC').all(boardId) as Array<Record<string, unknown>>).map(row => ({
+    id: String(row.id),
+    title: String(row.title),
+    description: String(row.description),
+    listId: String(row.list_id),
+    boardId: String(row.board_id),
+    position: Number(row.position),
+    memberIds: parseJson<Card['memberIds']>(String(row.member_ids_json)),
+    labelIds: parseJson<Card['labelIds']>(String(row.label_ids_json)),
+    checklists: parseJson<Card['checklists']>(String(row.checklists_json)),
+    dueDate: row.due_date ? String(row.due_date) : null,
+    dueDateComplete: asBool(Number(row.due_date_complete)),
+    comments: parseJson<Card['comments']>(String(row.comments_json)),
+    activity: parseJson<Card['activity']>(String(row.activity_json)),
+    attachments: parseJson<Card['attachments']>(String(row.attachments_json)),
+    watching: asBool(Number(row.watching)),
+    archived: asBool(Number(row.archived)),
+    createdAt: String(row.created_at),
+  }));
+
+  return cards.filter(card => {
+    if (conditions.listId && card.listId !== conditions.listId) return false;
+    if (conditions.labelId && !card.labelIds.includes(conditions.labelId)) return false;
+    return true;
+  });
 }
 
 // ── Notification mutations ───────────────────────────────────────────

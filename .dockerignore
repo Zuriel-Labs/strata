@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+coverage/
+playwright-report/
+test-results/
+server/data/
+.sessions/
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+*.log
+Dockerfile.*

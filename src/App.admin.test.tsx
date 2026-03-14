@@ -35,6 +35,12 @@ describe('App admin flows', () => {
           auditEvents: [],
         });
       }
+      if (path.endsWith('/api/boards/b1/labels')) {
+        return Response.json({
+          boardId: 'b1',
+          labels: initialState.boards.find(board => board.id === 'b1')?.labels ?? [],
+        });
+      }
       return new Response(null, { status: 404 });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -43,6 +49,11 @@ describe('App admin flows', () => {
   it('opens the admin panel for system admins', async () => {
     const user = userEvent.setup();
     render(<App />);
+
+    expect(await screen.findByRole('button', { name: 'Manage board labels' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Manage board labels' }));
+    expect(screen.getByRole('heading', { name: 'Board labels' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close label manager' }));
 
     await user.click(await screen.findByRole('button', { name: 'Open admin panel' }));
 

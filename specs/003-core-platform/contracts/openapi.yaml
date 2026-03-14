@@ -1,0 +1,273 @@
+openapi: 3.0.3
+info:
+  title: Strata Core Platform API Changes
+  version: 0.3.0
+  description: API contract changes for 003-core-platform feature
+
+paths:
+  /api/auth/needs-bootstrap:
+    get:
+      summary: Check if system needs first-run bootstrap
+      operationId: needsBootstrap
+      responses:
+        '200':
+          description: Bootstrap status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  needsBootstrap:
+                    type: boolean
+                required:
+                  - needsBootstrap
+
+  /api/auth/bootstrap:
+    post:
+      summary: Create initial system admin account (first-run only)
+      operationId: bootstrap
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 32
+                  pattern: '^[a-zA-Z0-9_-]+$'
+                password:
+                  type: string
+                  minLength: 10
+                confirmPassword:
+                  type: string
+                name:
+                  type: string
+              required:
+                - username
+                - password
+                - confirmPassword
+      responses:
+        '200':
+          description: Admin account created, session started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPayload'
+        '400':
+          description: Validation error (password mismatch, invalid username, etc.)
+        '409':
+          description: Bootstrap already completed (users exist)
+
+  /api/auth/login:
+    post:
+      summary: Login with username and password
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - username
+                - password
+      responses:
+        '200':
+          description: Authenticated session or password change required
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SessionPayload'
+                  - $ref: '#/components/schemas/PasswordChangeRequired'
+
+  /api/auth/recovery-key/generate:
+    post:
+      summary: Generate a recovery key for the authenticated user
+      operationId: generateRecoveryKey
+      security:
+        - session: []
+      responses:
+        '200':
+          description: Recovery key generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recoveryKey:
+                    type: string
+                    description: Plaintext recovery key (shown only once)
+                required:
+                  - recoveryKey
+        '401':
+          description: Not authenticated
+
+  /api/auth/recovery-key/consume:
+    post:
+      summary: Reset password using recovery key (unauthenticated)
+      operationId: consumeRecoveryKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                recoveryKey:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 10
+                confirmPassword:
+                  type: string
+              required:
+                - username
+                - recoveryKey
+                - newPassword
+                - confirmPassword
+      responses:
+        '204':
+          description: Password reset successful
+        '400':
+          description: Validation error (password mismatch, short password)
+        '401':
+          description: Invalid username or recovery key
+
+  /api/workspaces:
+    post:
+      summary: Create a new workspace (system_admin only)
+      operationId: createWorkspace
+      security:
+        - session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                description:
+                  type: string
+                  default: ''
+                visibility:
+                  type: string
+                  enum: ['private', 'public']
+                  default: 'private'
+              required:
+                - name
+      responses:
+        '201':
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workspace'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not authorized (not system_admin)
+
+components:
+  schemas:
+    SessionPayload:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ['authenticated']
+        user:
+          $ref: '#/components/schemas/SessionUser'
+        permissions:
+          $ref: '#/components/schemas/PermissionSnapshot'
+        appState:
+          type: object
+      required:
+        - status
+        - user
+        - permissions
+        - appState
+
+    PasswordChangeRequired:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ['password-change-required']
+        user:
+          $ref: '#/components/schemas/SessionUser'
+      required:
+        - status
+        - user
+
+    SessionUser:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        initials:
+          type: string
+        color:
+          type: string
+        username:
+          type: string
+        platformRole:
+          type: string
+        mustChangePassword:
+          type: boolean
+      required:
+        - id
+        - name
+        - initials
+        - color
+        - username
+        - platformRole
+        - mustChangePassword
+
+    PermissionSnapshot:
+      type: object
+      properties:
+        isSystemAdmin:
+          type: boolean
+        workspaceMemberships:
+          type: array
+        boardMemberships:
+          type: array
+
+    Workspace:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        visibility:
+          type: string
+      required:
+        - id
+        - name
+        - description
+        - visibility
+
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: strata_session

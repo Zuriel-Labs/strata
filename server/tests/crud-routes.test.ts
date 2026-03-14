@@ -1,0 +1,410 @@
+// @vitest-environment node
+
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { createDatabase, closeDatabase } from '../src/db/database';
+import { createApp } from '../src/app';
+
+beforeAll(() => {
+  process.env.SEED_DATA = 'true';
+});
+
+/** Log in as the seeded admin user (pre-rotated password) */
+async function loginAdmin(app: ReturnType<typeof createApp>) {
+  const agent = request.agent(app);
+  await agent.post('/api/auth/login').send({ username: 'admin', password: 'ChangeMe123!' });
+  await agent.post('/api/auth/password/change').send({ currentPassword: 'ChangeMe123!', nextPassword: 'ChangeThisNow123!', confirmPassword: 'ChangeThisNow123!' });
+  return agent;
+}
+
+/** Log in as a non-admin seeded user */
+async function loginAs(app: ReturnType<typeof createApp>, username: string, password: string) {
+  const agent = request.agent(app);
+  await agent.post('/api/auth/login').send({ username, password });
+  return agent;
+}
+
+describe('board CRUD routes', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('creates a board with default labels', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.post('/api/boards').send({ workspaceId: 'w1', title: 'New Board', color: '#3b82f6' });
+    expect(res.status).toBe(201);
+    expect(res.body.title).toBe('New Board');
+    expect(res.body.workspaceId).toBe('w1');
+    expect(res.body.color).toBe('#3b82f6');
+    expect(res.body.labels).toHaveLength(3);
+    expect(res.body.id).toBeTruthy();
+  });
+
+  it('creates a board with custom labels', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const labels = [{ id: 'lb1', name: 'Priority', color: '#ff0000' }];
+    const res = await agent.post('/api/boards').send({ workspaceId: 'w1', title: 'Custom Board', color: '#10b981', labels });
+    expect(res.status).toBe(201);
+    expect(res.body.labels).toEqual(labels);
+  });
+
+  it('rejects board creation with invalid payload', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.post('/api/boards').send({ title: 'No workspace' });
+    expect(res.status).toBe(400);
+  });
+
+  it('toggles board star', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    // b1 is seeded with starred=true, so first toggle sets it to false
+    const res1 = await agent.patch('/api/boards/b1/star').send();
+    expect(res1.status).toBe(200);
+    expect(res1.body.starred).toBe(false);
+
+    // Toggle again to true
+    const res2 = await agent.patch('/api/boards/b1/star').send();
+    expect(res2.status).toBe(200);
+    expect(res2.body.starred).toBe(true);
+  });
+
+  it('returns 403 when creating board in inaccessible workspace', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    // priya (u3) is a member of w1 but not workspace_admin
+    const agent = await loginAs(app, 'priya', 'Member12345!');
+
+    const res = await agent.post('/api/boards').send({ workspaceId: 'w1', title: 'Denied Board', color: '#000' });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('list CRUD routes', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('creates a list in a board', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.post('/api/lists').send({ boardId: 'b1', title: 'New List' });
+    expect(res.status).toBe(201);
+    expect(res.body.title).toBe('New List');
+    expect(res.body.boardId).toBe('b1');
+    expect(res.body.archived).toBe(false);
+  });
+
+  it('updates a list title', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    // Create a list to get an ID
+    const created = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Original' });
+    const listId = created.body.id;
+
+    const res = await agent.patch(`/api/lists/${listId}`).send({ title: 'Renamed' });
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe('Renamed');
+  });
+
+  it('archives and restores a list', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const created = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Archivable' });
+    const listId = created.body.id;
+
+    const archiveRes = await agent.post(`/api/lists/${listId}/archive`).send();
+    expect(archiveRes.status).toBe(200);
+
+    const restoreRes = await agent.post(`/api/lists/${listId}/restore`).send();
+    expect(restoreRes.status).toBe(200);
+  });
+
+  it('moves a list position', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const created = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Movable' });
+    const listId = created.body.id;
+
+    const res = await agent.post(`/api/lists/${listId}/move`).send({ toPosition: 0 });
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 404 for non-existent list', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.patch('/api/lists/nonexistent').send({ title: 'X' });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('card CRUD routes', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('creates a card with activity', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    // Create list first
+    const list = await agent.post('/api/lists').send({ boardId: 'b1', title: 'List for cards' });
+
+    const res = await agent.post('/api/cards').send({ boardId: 'b1', listId: list.body.id, title: 'Test Card' });
+    expect(res.status).toBe(201);
+    expect(res.body.title).toBe('Test Card');
+    expect(res.body.boardId).toBe('b1');
+    expect(res.body.listId).toBe(list.body.id);
+    expect(res.body.activity).toHaveLength(1);
+    expect(res.body.activity[0].action).toBe('created this card');
+    expect(res.body.memberIds).toEqual([]);
+    expect(res.body.labelIds).toEqual([]);
+    expect(res.body.checklists).toEqual([]);
+    expect(res.body.comments).toEqual([]);
+    expect(res.body.attachments).toEqual([]);
+    expect(res.body.watching).toBe(false);
+    expect(res.body.archived).toBe(false);
+  });
+
+  it('updates card fields', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const list = await agent.post('/api/lists').send({ boardId: 'b1', title: 'List' });
+    const card = await agent.post('/api/cards').send({ boardId: 'b1', listId: list.body.id, title: 'Original' });
+    const cardId = card.body.id;
+
+    // Update title
+    const r1 = await agent.patch(`/api/cards/${cardId}`).send({ title: 'Updated Title' });
+    expect(r1.status).toBe(200);
+    expect(r1.body.title).toBe('Updated Title');
+
+    // Update description
+    const r2 = await agent.patch(`/api/cards/${cardId}`).send({ description: 'A description' });
+    expect(r2.body.description).toBe('A description');
+
+    // Update labels
+    const r3 = await agent.patch(`/api/cards/${cardId}`).send({ labelIds: ['lb1', 'lb2'] });
+    expect(r3.body.labelIds).toEqual(['lb1', 'lb2']);
+
+    // Update members
+    const r4 = await agent.patch(`/api/cards/${cardId}`).send({ memberIds: ['u1', 'u2'] });
+    expect(r4.body.memberIds).toEqual(['u1', 'u2']);
+
+    // Update due date
+    const dueDate = '2025-12-31T00:00:00.000Z';
+    const r5 = await agent.patch(`/api/cards/${cardId}`).send({ dueDate });
+    expect(r5.body.dueDate).toBe(dueDate);
+
+    // Mark due date complete
+    const r6 = await agent.patch(`/api/cards/${cardId}`).send({ dueDateComplete: true });
+    expect(r6.body.dueDateComplete).toBe(true);
+
+    // Update watching
+    const r7 = await agent.patch(`/api/cards/${cardId}`).send({ watching: true });
+    expect(r7.body.watching).toBe(true);
+
+    // Update checklists
+    const checklists = [{ id: 'cl1', title: 'Todo', items: [{ id: 'ci1', text: 'Item 1', completed: false }] }];
+    const r8 = await agent.patch(`/api/cards/${cardId}`).send({ checklists });
+    expect(r8.body.checklists).toEqual(checklists);
+
+    // Update comments
+    const comments = [{ id: 'cm1', userId: 'u1', text: 'Hello', createdAt: new Date().toISOString() }];
+    const r9 = await agent.patch(`/api/cards/${cardId}`).send({ comments });
+    expect(r9.body.comments).toEqual(comments);
+
+    // Update attachments
+    const attachments = [{ id: 'at1', name: 'test.pdf', url: 'https://example.com/test.pdf', type: 'link' as const, addedAt: new Date().toISOString() }];
+    const r10 = await agent.patch(`/api/cards/${cardId}`).send({ attachments });
+    expect(r10.body.attachments).toEqual(attachments);
+
+    // Archive
+    const r11 = await agent.patch(`/api/cards/${cardId}`).send({ archived: true });
+    expect(r11.body.archived).toBe(true);
+  });
+
+  it('moves a card between lists', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const list1 = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Source' });
+    const list2 = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Dest' });
+    const card = await agent.post('/api/cards').send({ boardId: 'b1', listId: list1.body.id, title: 'Moving Card' });
+
+    const res = await agent.post(`/api/cards/${card.body.id}/move`).send({ toListId: list2.body.id, toPosition: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body.listId).toBe(list2.body.id);
+  });
+
+  it('deletes a card', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const list = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Del List' });
+    const card = await agent.post('/api/cards').send({ boardId: 'b1', listId: list.body.id, title: 'Deletable' });
+
+    const res = await agent.delete(`/api/cards/${card.body.id}`).send();
+    expect(res.status).toBe(204);
+
+    // Verify it's gone
+    const getRes = await agent.patch(`/api/cards/${card.body.id}`).send({ title: 'Ghost' });
+    expect(getRes.status).toBe(404);
+  });
+
+  it('returns 404 for non-existent card', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.patch('/api/cards/nonexistent').send({ title: 'X' });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('automation rule CRUD routes', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('creates an automation rule', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Auto-assign',
+      trigger: 'card_moved',
+      triggerConfig: { toListId: 'l1' },
+      action: 'assign_member',
+      actionConfig: { memberId: 'u1' },
+      enabled: true,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe('Auto-assign');
+    expect(res.body.boardId).toBe('b1');
+    expect(res.body.enabled).toBe(true);
+    expect(res.body.trigger).toBe('card_moved');
+    expect(res.body.action).toBe('assign_member');
+  });
+
+  it('updates an automation rule', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const created = await agent.post('/api/automation-rules').send({
+      boardId: 'b1', name: 'Rule', trigger: 'card_created', triggerConfig: {},
+      action: 'add_label', actionConfig: { labelId: 'lb1' }, enabled: true,
+    });
+
+    const res = await agent.patch(`/api/automation-rules/${created.body.id}`).send({ enabled: false, name: 'Disabled Rule' });
+    expect(res.status).toBe(200);
+    expect(res.body.enabled).toBe(false);
+    expect(res.body.name).toBe('Disabled Rule');
+  });
+
+  it('deletes an automation rule', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const created = await agent.post('/api/automation-rules').send({
+      boardId: 'b1', name: 'ToDelete', trigger: 'card_created', triggerConfig: {},
+      action: 'mark_due_complete', actionConfig: {}, enabled: true,
+    });
+
+    const res = await agent.delete(`/api/automation-rules/${created.body.id}`).send();
+    expect(res.status).toBe(204);
+  });
+
+  it('returns 404 for non-existent rule', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.patch('/api/automation-rules/nonexistent').send({ enabled: false });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('notification routes', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('marks all notifications read', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.post('/api/notifications/read-all').send();
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+describe('data persistence across sessions', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('retains boards, lists, and cards after logout and login', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    // Create board
+    const board = await agent.post('/api/boards').send({ workspaceId: 'w1', title: 'Persistent Board', color: '#f97316' });
+    const boardId = board.body.id;
+
+    // Create list
+    const list = await agent.post('/api/lists').send({ boardId, title: 'Persistent List' });
+    const listId = list.body.id;
+
+    // Create card
+    const card = await agent.post('/api/cards').send({ boardId, listId, title: 'Persistent Card' });
+    const cardId = card.body.id;
+
+    // Update card with description and checklists
+    await agent.patch(`/api/cards/${cardId}`).send({
+      description: 'This should persist',
+      checklists: [{ id: 'cl-persist', title: 'Persist Check', items: [{ id: 'ci-persist', text: 'Item', completed: true }] }],
+    });
+
+    // Logout
+    await agent.post('/api/auth/logout').send();
+
+    // Login again
+    const agent2 = request.agent(app);
+    await agent2.post('/api/auth/login').send({ username: 'admin', password: 'ChangeThisNow123!' });
+
+    // Fetch session - data should be there
+    const session = await agent2.get('/api/auth/session');
+    expect(session.status).toBe(200);
+
+    const state = session.body.appState;
+    expect(state.boards.some((b: { id: string }) => b.id === boardId)).toBe(true);
+    expect(state.lists.some((l: { id: string }) => l.id === listId)).toBe(true);
+
+    const persistedCard = state.cards.find((c: { id: string }) => c.id === cardId);
+    expect(persistedCard).toBeTruthy();
+    expect(persistedCard.title).toBe('Persistent Card');
+    expect(persistedCard.description).toBe('This should persist');
+    expect(persistedCard.checklists).toHaveLength(1);
+    expect(persistedCard.checklists[0].items[0].completed).toBe(true);
+  });
+});

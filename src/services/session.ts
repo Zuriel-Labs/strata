@@ -5,10 +5,21 @@ export function fetchSession() {
   return apiRequest<SessionResponse>('/api/auth/session', { method: 'GET' });
 }
 
-export function login(email: string, password: string) {
+export function checkBootstrap() {
+  return apiRequest<{ needsBootstrap: boolean }>('/api/auth/needs-bootstrap', { method: 'GET' });
+}
+
+export function submitBootstrap(username: string, password: string, confirmPassword: string) {
+  return apiRequest<SessionResponse>('/api/auth/bootstrap', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, confirmPassword }),
+  });
+}
+
+export function login(username: string, password: string) {
   return apiRequest<SessionResponse>('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ username, password }),
   });
 }
 
@@ -16,10 +27,21 @@ export function logout() {
   return apiRequest<void>('/api/auth/logout', { method: 'POST' });
 }
 
-export function changePassword(currentPassword: string, nextPassword: string) {
+export function changePassword(currentPassword: string, nextPassword: string, confirmPassword: string) {
   return apiRequest<void>('/api/auth/password/change', {
     method: 'POST',
-    body: JSON.stringify({ currentPassword, nextPassword }),
+    body: JSON.stringify({ currentPassword, nextPassword, confirmPassword }),
+  });
+}
+
+export function generateRecoveryKey() {
+  return apiRequest<{ recoveryKey: string }>('/api/auth/recovery-key/generate', { method: 'POST' });
+}
+
+export function consumeRecoveryKey(username: string, recoveryKey: string, newPassword: string, confirmPassword: string) {
+  return apiRequest<{ newRecoveryKey: string }>('/api/auth/recovery-key/consume', {
+    method: 'POST',
+    body: JSON.stringify({ username, recoveryKey, newPassword, confirmPassword }),
   });
 }
 

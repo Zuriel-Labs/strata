@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('mvp flow works end to end', async ({ page }) => {
+  // Wait for server readiness
   await expect.poll(async () => {
     try {
       const response = await page.request.get('http://127.0.0.1:8787/api/health');
@@ -8,31 +9,32 @@ test('mvp flow works end to end', async ({ page }) => {
     } catch {
       return false;
     }
-  }).toBeTruthy();
+  }, { timeout: 30000 }).toBeTruthy();
 
   await page.goto('/');
 
-  await page.getByLabel('Email').fill('admin@strata.local');
+  // --- Login with fresh admin (requires password change) ---
+  await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Password').fill('ChangeMe123!');
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  const currentPasswordField = page.getByLabel('Current password');
-  const boardHeading = page.getByRole('heading', { name: 'Bug Tracker' });
+  // Fresh seed → must change password
+  await expect(page.getByLabel('Current password')).toBeVisible({ timeout: 10000 });
+  await page.getByLabel('Current password').fill('ChangeMe123!');
+  await page.getByLabel('New password', { exact: true }).fill('ChangeThisNow123!');
+  await page.getByLabel('Confirm new password').fill('ChangeThisNow123!');
+  await page.getByRole('button', { name: 'Update password' }).click();
 
-  if (!(await currentPasswordField.isVisible().catch(() => false)) && !(await boardHeading.isVisible().catch(() => false))) {
-    await expect(page.getByText('Invalid credentials.')).toBeVisible();
-    await page.getByLabel('Password').fill('ChangeThisNow123!');
-    await page.getByRole('button', { name: 'Sign in' }).click();
-  }
+  // --- Board selection via header dropdown ---
+  // After login, a board should be selected in the header combobox
+  const boardSelect = page.getByRole('combobox').nth(1);
+  await expect(boardSelect).toBeVisible({ timeout: 10000 });
 
-  if (await currentPasswordField.isVisible().catch(() => false)) {
-    await currentPasswordField.fill('ChangeMe123!');
-    await page.getByLabel('New password').fill('ChangeThisNow123!');
-    await page.getByRole('button', { name: 'Update password' }).click();
-  }
+  // Select "Platform Sprint 24" from the board dropdown
+  await boardSelect.selectOption({ label: 'Platform Sprint 24' });
+  await expect(boardSelect.locator('option:checked')).toHaveText('Platform Sprint 24');
 
-  await page.getByRole('button', { name: 'Platform Sprint 24' }).last().click();
-  await expect(page.getByRole('heading', { name: 'Platform Sprint 24' })).toBeVisible();
+  // --- Card interaction: open card, add attachment, add comment ---
   await page.getByText('Implement OAuth2 login flow').click();
   await page.getByPlaceholder('Paste link or cloud doc URL').fill('docs.example.com/auth');
   await page.getByRole('button', { name: 'Attach' }).click();
@@ -42,7 +44,50 @@ test('mvp flow works end to end', async ({ page }) => {
   await page.getByRole('button', { name: 'Send' }).click();
   await page.getByLabel('Close card').click();
 
+  // --- Search ---
   await page.getByLabel('Open search').click();
   await page.getByPlaceholder('Search cards… (try @name, #label, is:overdue)').fill('@alex');
   await expect(page.getByText('Set up CI/CD pipeline for monorepo').first()).toBeVisible();
+  // Close search
+  await page.keyboard.press('Escape');
+
+  // --- Create new board via navigation overlay ---
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.getByRole('button', { name: 'Boards' }).click();
+  await page.getByText('+ Add board').click();
+  const boardInput = page.getByPlaceholder('Board name…');
+  await expect(boardInput).toBeVisible({ timeout: 5000 });
+  await boardInput.fill('E2E Test Board');
+  await boardInput.press('Enter');
+
+  // Overlay closes after creation; verify the new board is selected in the dropdown
+  await expect(boardSelect.locator('option:checked')).toHaveText('E2E Test Board', { timeout: 5000 });
+
+  // --- Create a list on the new board ---
+  const addListButton = page.getByRole('button', { name: '+ Add another list' });
+  if (await addListButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await addListButton.click();
+  }
+  const addListInput = page.getByPlaceholder('List title…');
+  if (await addListInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await addListInput.fill('E2E List');
+    await addListInput.press('Enter');
+    await expect(page.getByText('E2E List')).toBeVisible();
+  }
+
+  // --- Logout via profile overlay ---
+  await page.getByRole('button', { name: 'Open profile menu' }).click();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByLabel('Username')).toBeVisible({ timeout: 5000 });
+
+  // --- Login again and verify persistence ---
+  await page.getByLabel('Username').fill('admin');
+  await page.getByLabel('Password').fill('ChangeThisNow123!');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
+  // Seeded boards should still be present in the board dropdown
+  const boardSelectAfterLogin = page.getByRole('combobox').nth(1);
+  await expect(boardSelectAfterLogin).toBeVisible({ timeout: 10000 });
+  // The E2E-created board should persist as an option
+  await expect(boardSelectAfterLogin.locator('option', { hasText: 'E2E Test Board' })).toBeAttached();
 });

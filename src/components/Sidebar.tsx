@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
+import { createWorkspace } from '../services/admin';
+import { createBoardApi, toggleBoardStarApi } from '../services/data';
+import { updateCardApi, deleteCardApi, restoreListApi } from '../services/data';
 
 export function Sidebar() {
   const state = useAppState();
@@ -9,6 +12,9 @@ export function Sidebar() {
   const [newBoardName, setNewBoardName] = useState('');
   const [addingBoard, setAddingBoard] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [addingWorkspace, setAddingWorkspace] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [newWorkspaceDesc, setNewWorkspaceDesc] = useState('');
 
   if (!state.sidebarOpen) return null;
 
@@ -41,8 +47,61 @@ export function Sidebar() {
               <option key={w.id} value={w.id}>{w.name}</option>
             ))}
           </select>
+          {auth.session?.permissions.isSystemAdmin && (
+            <button
+              onClick={() => setAddingWorkspace(true)}
+              className="w-8 h-8 rounded-md flex items-center justify-center text-base font-medium hover:opacity-80 transition-opacity"
+              style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}
+              title="Create workspace"
+            >
+              +
+            </button>
+          )}
         </div>
         <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{currentWs?.description}</p>
+        {addingWorkspace && (
+          <div className="mt-3 space-y-2">
+            <input
+              autoFocus
+              value={newWorkspaceName}
+              onChange={e => setNewWorkspaceName(e.target.value)}
+              placeholder="Workspace name…"
+              className="w-full px-3 min-h-[44px] text-sm rounded border outline-none"
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+            <input
+              value={newWorkspaceDesc}
+              onChange={e => setNewWorkspaceDesc(e.target.value)}
+              placeholder="Description (optional)"
+              className="w-full px-3 min-h-[44px] text-sm rounded border outline-none"
+              style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+            <div className="flex gap-2">
+              <button
+                className="px-3 min-h-[44px] text-xs rounded font-semibold"
+                style={{ background: 'var(--accent)', color: '#fff' }}
+                onClick={async () => {
+                  if (!newWorkspaceName.trim()) return;
+                  const result = await createWorkspace({ name: newWorkspaceName.trim(), description: newWorkspaceDesc.trim(), visibility: 'private' });
+                  dispatch({ type: 'ADD_WORKSPACE', payload: { id: result.id, name: result.name, description: result.description, memberIds: [], visibility: result.visibility as 'private' | 'workspace' } });
+                  setNewWorkspaceName('');
+                  setNewWorkspaceDesc('');
+                  setAddingWorkspace(false);
+                  await auth.refresh();
+                }}
+              >
+                Create
+              </button>
+              <button
+                className="px-3 min-h-[44px] text-xs rounded"
+                style={{ color: 'var(--text-muted)' }}
+                onClick={() => { setAddingWorkspace(false); setNewWorkspaceName(''); setNewWorkspaceDesc(''); }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Starred boards */}
@@ -55,7 +114,7 @@ export function Sidebar() {
             <button
               key={b.id}
               onClick={() => dispatch({ type: 'SET_CURRENT_BOARD', payload: b.id })}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm mb-0.5 transition-colors"
+              className="w-full flex items-center gap-2 px-2 min-h-[44px] rounded-md text-sm mb-0.5 transition-colors"
               style={{
                 background: state.currentBoardId === b.id ? 'var(--active-bg)' : 'transparent',
                 color: state.currentBoardId === b.id ? 'var(--text-primary)' : 'var(--text-secondary)',
@@ -77,8 +136,9 @@ export function Sidebar() {
           {canManageWorkspace && (
             <button
               onClick={() => setAddingBoard(true)}
-              className="text-xs w-5 h-5 rounded flex items-center justify-center hover:opacity-80 transition-opacity"
-              style={{ color: 'var(--text-muted)' }}
+              className="w-8 h-8 rounded-md flex items-center justify-center text-base font-medium hover:opacity-80 transition-opacity"
+              style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}
+              title="Add board"
             >
               +
             </button>
@@ -92,7 +152,7 @@ export function Sidebar() {
           >
             <button
               onClick={() => dispatch({ type: 'SET_CURRENT_BOARD', payload: b.id })}
-              className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md text-sm mb-0.5 transition-colors"
+              className="flex-1 flex items-center gap-2 px-2 min-h-[44px] rounded-md text-sm mb-0.5 transition-colors"
               style={{
                 background: state.currentBoardId === b.id ? 'var(--active-bg)' : 'transparent',
                 color: state.currentBoardId === b.id ? 'var(--text-primary)' : 'var(--text-secondary)',
@@ -102,8 +162,8 @@ export function Sidebar() {
               <span className="truncate">{b.title}</span>
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); }}
-              className="opacity-0 group-hover:opacity-100 text-xs px-1 transition-opacity"
+              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); toggleBoardStarApi(b.id); }}
+              className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-md flex items-center justify-center text-sm transition-opacity"
               style={{ color: b.starred ? '#eab308' : 'var(--text-muted)' }}
             >
               {b.starred ? '★' : '☆'}
@@ -119,14 +179,19 @@ export function Sidebar() {
               onChange={e => setNewBoardName(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && newBoardName.trim() && state.currentWorkspaceId) {
-                  dispatch({ type: 'ADD_BOARD', payload: { workspaceId: state.currentWorkspaceId, title: newBoardName.trim(), color: boardColors[Math.floor(Math.random() * boardColors.length)] } });
+                  const title = newBoardName.trim();
+                  const color = boardColors[Math.floor(Math.random() * boardColors.length)];
+                  const wsId = state.currentWorkspaceId;
+                  createBoardApi({ workspaceId: wsId, title, color }).then(board => {
+                    dispatch({ type: 'ADD_BOARD_FROM_API', payload: board });
+                  });
                   setNewBoardName('');
                   setAddingBoard(false);
                 }
                 if (e.key === 'Escape') { setAddingBoard(false); setNewBoardName(''); }
               }}
               placeholder="Board name…"
-              className="w-full px-2 py-1 text-sm rounded border outline-none"
+              className="w-full px-3 min-h-[44px] text-sm rounded border outline-none"
               style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
             />
           </div>
@@ -138,7 +203,7 @@ export function Sidebar() {
         <div className="px-3 pb-3">
           <button
             onClick={() => setArchiveOpen(!archiveOpen)}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors"
+            className="w-full flex items-center gap-2 px-2 min-h-[44px] rounded-md text-xs transition-colors"
             style={{ color: 'var(--text-muted)' }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
@@ -147,17 +212,17 @@ export function Sidebar() {
           {archiveOpen && (
             <div className="mt-1 max-h-40 overflow-y-auto space-y-1">
               {archivedLists.map(l => (
-                <div key={l.id} className="flex items-center justify-between px-2 py-1 text-xs rounded" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
+                <div key={l.id} className="flex items-center justify-between px-2 min-h-[44px] text-xs rounded" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
                   <span className="truncate">📋 {l.title}</span>
-                  <button onClick={() => dispatch({ type: 'RESTORE_LIST', payload: l.id })} className="text-[10px] underline shrink-0 ml-1" style={{ color: 'var(--accent)' }}>Restore</button>
+                  <button onClick={() => { dispatch({ type: 'RESTORE_LIST', payload: l.id }); restoreListApi(l.id); }} className="text-xs underline shrink-0 ml-1 min-h-[44px] flex items-center" style={{ color: 'var(--accent)' }}>Restore</button>
                 </div>
               ))}
               {archivedCards.map(c => (
-                <div key={c.id} className="flex items-center justify-between px-2 py-1 text-xs rounded" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
+                <div key={c.id} className="flex items-center justify-between px-2 min-h-[44px] text-xs rounded" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
                   <span className="truncate">🃏 {c.title}</span>
                   <div className="flex gap-1 shrink-0 ml-1">
-                    <button onClick={() => dispatch({ type: 'RESTORE_CARD', payload: c.id })} className="text-[10px] underline" style={{ color: 'var(--accent)' }}>Restore</button>
-                    <button onClick={() => dispatch({ type: 'DELETE_CARD', payload: c.id })} className="text-[10px] underline" style={{ color: '#ef4444' }}>Delete</button>
+                    <button onClick={() => { dispatch({ type: 'RESTORE_CARD', payload: c.id }); updateCardApi(c.id, { archived: false }); }} className="text-xs underline min-h-[44px] flex items-center" style={{ color: 'var(--accent)' }}>Restore</button>
+                    <button onClick={() => { dispatch({ type: 'DELETE_CARD', payload: c.id }); deleteCardApi(c.id); }} className="text-xs underline min-h-[44px] flex items-center" style={{ color: '#ef4444' }}>Delete</button>
                   </div>
                 </div>
               ))}

@@ -19,7 +19,7 @@ export function getBoardWorkspaceId(db: Database.Database, boardId: string) {
 }
 
 export function canAccessWorkspace(auth: AuthContextValue, workspaceId: string) {
-  return isSystemAdmin(auth) || hasWorkspaceRole(auth, workspaceId, ['workspace_admin', 'member', 'guest']);
+  return isSystemAdmin(auth) || hasWorkspaceRole(auth, workspaceId, ['workspace_admin', 'member']);
 }
 
 export function canManageWorkspace(auth: AuthContextValue, workspaceId: string) {
@@ -28,7 +28,7 @@ export function canManageWorkspace(auth: AuthContextValue, workspaceId: string) 
 
 export function canAccessBoard(db: Database.Database, auth: AuthContextValue, boardId: string) {
   if (isSystemAdmin(auth)) return true;
-  if (hasBoardRole(auth, boardId, ['board_admin', 'member', 'observer', 'guest'])) return true;
+  if (hasBoardRole(auth, boardId, ['board_admin', 'member', 'observer'])) return true;
   const workspaceId = getBoardWorkspaceId(db, boardId);
   return workspaceId ? canAccessWorkspace(auth, workspaceId) : false;
 }

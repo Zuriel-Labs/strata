@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useAppState, useDispatch } from '../store';
 import { uid } from '../data';
+import { updateCardApi, moveCardApi } from '../services/data';
 
 export function CardModal() {
   const state = useAppState();
@@ -38,41 +39,41 @@ export function CardModal() {
 
     const url = /^https?:\/\//i.test(value) ? value : `https://${value}`;
 
+    const attachment = {
+      id: uid(),
+      name: value.replace(/^https?:\/\//i, ''),
+      kind: 'link' as const,
+      url,
+      createdAt: new Date().toISOString(),
+    };
+
     dispatch({
       type: 'ADD_ATTACHMENT',
-      payload: {
-        cardId: card.id,
-        attachment: {
-          id: uid(),
-          name: value.replace(/^https?:\/\//i, ''),
-          kind: 'link',
-          url,
-          createdAt: new Date().toISOString(),
-        },
-      },
+      payload: { cardId: card.id, attachment },
     });
+    updateCardApi(card.id, { attachments: [...card.attachments, attachment] });
     setAttachmentLink('');
   };
 
   const handleFileAttachment = (files: FileList | null) => {
     if (!files) return;
 
-    Array.from(files).forEach(file => {
+    const newAttachments = Array.from(files).map(file => ({
+      id: uid(),
+      name: file.name,
+      kind: 'file' as const,
+      size: file.size,
+      mimeType: file.type,
+      createdAt: new Date().toISOString(),
+    }));
+
+    newAttachments.forEach(attachment => {
       dispatch({
         type: 'ADD_ATTACHMENT',
-        payload: {
-          cardId: card.id,
-          attachment: {
-            id: uid(),
-            name: file.name,
-            kind: 'file',
-            size: file.size,
-            mimeType: file.type,
-            createdAt: new Date().toISOString(),
-          },
-        },
+        payload: { cardId: card.id, attachment },
       });
     });
+    updateCardApi(card.id, { attachments: [...card.attachments, ...newAttachments] });
 
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -90,7 +91,7 @@ export function CardModal() {
           <div className="flex-1 pr-4">
             <input
               value={card.title}
-              onChange={e => dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, title: e.target.value } })}
+              onChange={e => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, title: e.target.value } }); updateCardApi(card.id, { title: e.target.value }); }}
               className="text-lg font-bold bg-transparent outline-none w-full"
               style={{ color: 'var(--text-primary)' }}
             />
@@ -99,7 +100,7 @@ export function CardModal() {
               {card.watching && <span className="ml-2">👁 Watching</span>}
             </p>
           </div>
-          <button aria-label="Close card" onClick={close} className="text-lg shrink-0 w-8 h-8 rounded-lg flex items-center justify-center hover:opacity-70 transition-opacity" style={{ color: 'var(--text-muted)' }}>✕</button>
+          <button aria-label="Close card" onClick={close} className="text-base shrink-0 w-9 h-9 rounded-lg flex items-center justify-center hover:opacity-70 transition-opacity" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>✕</button>
         </div>
 
         <div className="flex gap-5 px-5 pb-5">
@@ -115,8 +116,9 @@ export function CardModal() {
                     onClick={() => {
                       const ids = card.labelIds.includes(l.id) ? card.labelIds.filter(x => x !== l.id) : [...card.labelIds, l.id];
                       dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, labelIds: ids } });
+                      updateCardApi(card.id, { labelIds: ids });
                     }}
-                    className="px-2 py-1 rounded text-[10px] font-bold text-white transition-all"
+                    className="px-2.5 min-h-[44px] flex items-center rounded text-[10px] font-bold text-white transition-all"
                     style={{ background: l.color, opacity: card.labelIds.includes(l.id) ? 1 : 0.3, outline: card.labelIds.includes(l.id) ? `2px solid ${l.color}` : 'none', outlineOffset: '1px' }}
                   >
                     {l.name}
@@ -132,8 +134,8 @@ export function CardModal() {
                 {members.map(m => (
                   <button
                     key={m.id}
-                    onClick={() => dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, memberIds: card.memberIds.filter(x => x !== m.id) } })}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium text-white transition-opacity hover:opacity-80"
+                    onClick={() => { const ids = card.memberIds.filter(x => x !== m.id); dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, memberIds: ids } }); updateCardApi(card.id, { memberIds: ids }); }}
+                    className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-full text-xs font-medium text-white transition-opacity hover:opacity-80"
                     style={{ background: m.color }}
                     title={`Remove ${m.name}`}
                   >
@@ -144,9 +146,9 @@ export function CardModal() {
                   <select
                     value=""
                     onChange={e => {
-                      if (e.target.value) dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, memberIds: [...card.memberIds, e.target.value] } });
+                      if (e.target.value) { const ids = [...card.memberIds, e.target.value]; dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, memberIds: ids } }); updateCardApi(card.id, { memberIds: ids }); }
                     }}
-                    className="text-xs px-2 py-1 rounded border bg-transparent cursor-pointer"
+                    className="text-xs px-3 min-h-[44px] rounded border bg-transparent cursor-pointer"
                     style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
                   >
                     <option value="">+ Add…</option>
@@ -163,16 +165,16 @@ export function CardModal() {
                 <input
                   type="date"
                   value={card.dueDate ? card.dueDate.split('T')[0] : ''}
-                  onChange={e => dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, dueDate: e.target.value ? new Date(e.target.value).toISOString() : null } })}
-                  className="text-xs px-2 py-1 rounded border bg-transparent"
+                  onChange={e => { const dueDate = e.target.value ? new Date(e.target.value).toISOString() : null; dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, dueDate } }); updateCardApi(card.id, { dueDate }); }}
+                  className="text-xs px-3 min-h-[44px] rounded border bg-transparent"
                   style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
                 {card.dueDate && (
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer min-h-[44px]" style={{ color: 'var(--text-secondary)' }}>
                     <input
                       type="checkbox"
                       checked={card.dueDateComplete}
-                      onChange={() => dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, dueDateComplete: !card.dueDateComplete } })}
+                      onChange={() => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, dueDateComplete: !card.dueDateComplete } }); updateCardApi(card.id, { dueDateComplete: !card.dueDateComplete }); }}
                       className="rounded"
                     />
                     Complete
@@ -186,8 +188,8 @@ export function CardModal() {
               <h4 className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Move to</h4>
               <select
                 value={card.listId}
-                onChange={e => dispatch({ type: 'MOVE_CARD', payload: { cardId: card.id, toListId: e.target.value, toPosition: 0 } })}
-                className="text-xs px-2 py-1 rounded border bg-transparent cursor-pointer"
+                onChange={e => { dispatch({ type: 'MOVE_CARD', payload: { cardId: card.id, toListId: e.target.value, toPosition: 0 } }); moveCardApi(card.id, e.target.value, 0); }}
+                className="text-xs px-3 min-h-[44px] rounded border bg-transparent cursor-pointer"
                 style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               >
                 {lists.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
@@ -208,8 +210,8 @@ export function CardModal() {
                     style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                   />
                   <div className="flex gap-1 mt-1">
-                    <button onClick={() => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, description: desc } }); setDescEditing(false); }} className="px-3 py-1 rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Save</button>
-                    <button onClick={() => { setDesc(card.description); setDescEditing(false); }} className="px-2 py-1 text-xs" style={{ color: 'var(--text-muted)' }}>Cancel</button>
+                    <button onClick={() => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, description: desc } }); updateCardApi(card.id, { description: desc }); setDescEditing(false); }} className="px-3 min-h-[44px] rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Save</button>
+                    <button onClick={() => { setDesc(card.description); setDescEditing(false); }} className="px-3 min-h-[44px] text-xs" style={{ color: 'var(--text-muted)' }}>Cancel</button>
                   </div>
                 </div>
               ) : (
@@ -252,10 +254,10 @@ export function CardModal() {
                     }
                   }}
                   placeholder="Paste link or cloud doc URL"
-                  className="flex-1 px-2 py-1 text-xs rounded border bg-transparent outline-none"
+                  className="flex-1 px-3 min-h-[44px] text-xs rounded border bg-transparent outline-none"
                   style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
-                <button onClick={handleLinkAttachment} className="px-2 py-1 rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Attach</button>
+                <button onClick={handleLinkAttachment} className="px-3 min-h-[44px] rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Attach</button>
               </div>
               <div className="space-y-1.5">
                 {card.attachments.length === 0 && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Add files or links to keep task context close to the work.</p>}
@@ -274,8 +276,8 @@ export function CardModal() {
                       </p>
                     </div>
                     <button
-                      onClick={() => dispatch({ type: 'REMOVE_ATTACHMENT', payload: { cardId: card.id, attachmentId: attachment.id } })}
-                      className="text-[10px]"
+                      onClick={() => { dispatch({ type: 'REMOVE_ATTACHMENT', payload: { cardId: card.id, attachmentId: attachment.id } }); updateCardApi(card.id, { attachments: card.attachments.filter(item => item.id !== attachment.id) }); }}
+                      className="text-xs min-h-[44px] flex items-center"
                       style={{ color: '#ef4444' }}
                     >
                       Remove
@@ -300,17 +302,17 @@ export function CardModal() {
                   <div key={cl.id} className="mb-3">
                     <h4 className="text-xs font-bold mb-1.5" style={{ color: 'var(--text-primary)' }}>☑ {cl.title}</h4>
                     {cl.items.map(item => (
-                      <div key={item.id} className="flex items-center gap-2 py-0.5 group">
+                      <div key={item.id} className="flex items-center gap-2 min-h-[44px] group">
                         <input
                           type="checkbox"
                           checked={item.completed}
-                          onChange={() => dispatch({ type: 'TOGGLE_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, itemId: item.id } })}
+                          onChange={() => { dispatch({ type: 'TOGGLE_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, itemId: item.id } }); const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: c.items.map(i => i.id === item.id ? { ...i, completed: !i.completed } : i) } : c); updateCardApi(card.id, { checklists: updated }); }}
                           className="rounded shrink-0"
                         />
                         <span className="text-sm flex-1" style={{ color: 'var(--text-primary)', textDecoration: item.completed ? 'line-through' : 'none', opacity: item.completed ? 0.5 : 1 }}>{item.text}</span>
                         <button
-                          onClick={() => dispatch({ type: 'DELETE_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, itemId: item.id } })}
-                          className="opacity-0 group-hover:opacity-100 text-[10px] transition-opacity"
+                          onClick={() => { dispatch({ type: 'DELETE_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, itemId: item.id } }); const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: c.items.filter(i => i.id !== item.id) } : c); updateCardApi(card.id, { checklists: updated }); }}
+                          className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded flex items-center justify-center text-xs transition-opacity"
                           style={{ color: '#ef4444' }}
                         >✕</button>
                       </div>
@@ -324,6 +326,9 @@ export function CardModal() {
                           onKeyDown={e => {
                             if (e.key === 'Enter' && newItemText.trim()) {
                               dispatch({ type: 'ADD_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, text: newItemText.trim() } });
+                              const newItem = { id: crypto.randomUUID(), text: newItemText.trim(), completed: false };
+                              const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: [...c.items, newItem] } : c);
+                              updateCardApi(card.id, { checklists: updated });
                               setNewItemText('');
                             }
                             if (e.key === 'Escape') { setAddingItemTo(null); setNewItemText(''); }
@@ -333,13 +338,13 @@ export function CardModal() {
                           style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                         />
                         <button onClick={() => {
-                          if (newItemText.trim()) dispatch({ type: 'ADD_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, text: newItemText.trim() } });
+                          if (newItemText.trim()) { dispatch({ type: 'ADD_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, text: newItemText.trim() } }); const newItem = { id: crypto.randomUUID(), text: newItemText.trim(), completed: false }; const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: [...c.items, newItem] } : c); updateCardApi(card.id, { checklists: updated }); }
                           setNewItemText('');
-                        }} className="text-xs px-2 py-1 rounded text-white" style={{ background: 'var(--accent)' }}>Add</button>
-                        <button onClick={() => { setAddingItemTo(null); setNewItemText(''); }} className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>✕</button>
+                        }} className="text-xs px-3 min-h-[44px] rounded text-white" style={{ background: 'var(--accent)' }}>Add</button>
+                        <button onClick={() => { setAddingItemTo(null); setNewItemText(''); }} className="text-xs px-2 min-h-[44px]" style={{ color: 'var(--text-muted)' }}>✕</button>
                       </div>
                     ) : (
-                      <button onClick={() => setAddingItemTo(cl.id)} className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>+ Add item</button>
+                      <button onClick={() => setAddingItemTo(cl.id)} className="text-xs min-h-[44px] flex items-center" style={{ color: 'var(--text-muted)' }}>+ Add item</button>
                     )}
                   </div>
                 ))}
@@ -357,6 +362,8 @@ export function CardModal() {
                     onKeyDown={e => {
                       if (e.key === 'Enter' && newChecklistTitle.trim()) {
                         dispatch({ type: 'ADD_CHECKLIST', payload: { cardId: card.id, title: newChecklistTitle.trim() } });
+                        const newCl = { id: crypto.randomUUID(), title: newChecklistTitle.trim(), items: [] };
+                        updateCardApi(card.id, { checklists: [...card.checklists, newCl] });
                         setNewChecklistTitle('');
                         setAddingChecklist(false);
                       }
@@ -367,13 +374,13 @@ export function CardModal() {
                     style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                   />
                   <button onClick={() => {
-                    if (newChecklistTitle.trim()) dispatch({ type: 'ADD_CHECKLIST', payload: { cardId: card.id, title: newChecklistTitle.trim() } });
+                    if (newChecklistTitle.trim()) { dispatch({ type: 'ADD_CHECKLIST', payload: { cardId: card.id, title: newChecklistTitle.trim() } }); const newCl = { id: crypto.randomUUID(), title: newChecklistTitle.trim(), items: [] }; updateCardApi(card.id, { checklists: [...card.checklists, newCl] }); }
                     setNewChecklistTitle(''); setAddingChecklist(false);
-                  }} className="text-xs px-2 py-1 rounded text-white" style={{ background: 'var(--accent)' }}>Add</button>
+                  }} className="text-xs px-3 min-h-[44px] rounded text-white" style={{ background: 'var(--accent)' }}>Add</button>
                 </div>
               </div>
             ) : (
-              <button onClick={() => setAddingChecklist(true)} className="text-xs mb-4 block" style={{ color: 'var(--accent)' }}>+ Add checklist</button>
+              <button onClick={() => setAddingChecklist(true)} className="text-xs min-h-[44px] flex items-center mb-4" style={{ color: 'var(--accent)' }}>+ Add checklist</button>
             )}
 
             {/* Tabs: Comments / Activity */}
@@ -382,7 +389,7 @@ export function CardModal() {
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className="text-xs font-medium pb-2 capitalize transition-colors"
+                  className="text-xs font-medium min-h-[44px] flex items-center capitalize transition-colors"
                   style={{ color: tab === t ? 'var(--accent)' : 'var(--text-muted)', borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent' }}
                 >
                   {t === 'details' ? `Comments (${card.comments.length})` : 'Activity'}
@@ -406,8 +413,8 @@ export function CardModal() {
                     />
                     {comment.trim() && (
                       <button
-                        onClick={() => { dispatch({ type: 'ADD_COMMENT', payload: { cardId: card.id, text: comment.trim() } }); setComment(''); }}
-                        className="mt-1 px-3 py-1 rounded text-xs font-medium text-white"
+                        onClick={() => { const newComment = { id: crypto.randomUUID(), userId: state.users[0]?.id || '', text: comment.trim(), createdAt: new Date().toISOString() }; dispatch({ type: 'ADD_COMMENT', payload: { cardId: card.id, text: comment.trim() } }); updateCardApi(card.id, { comments: [...card.comments, newComment] }); setComment(''); }}
+                        className="mt-1 px-3 min-h-[44px] rounded text-xs font-medium text-white"
                         style={{ background: 'var(--accent)' }}
                       >
                         Send
@@ -458,16 +465,16 @@ export function CardModal() {
             <h4 className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Actions</h4>
             <button
               aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
-              onClick={() => dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, watching: !card.watching } })}
-              className="w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors"
+              onClick={() => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, watching: !card.watching } }); updateCardApi(card.id, { watching: !card.watching }); }}
+              className="w-full text-left px-2.5 min-h-[44px] flex items-center rounded text-xs transition-colors"
               style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}
             >
               {card.watching ? '👁 Watching' : '👁 Watch'}
             </button>
             <button
               aria-label="Archive card"
-              onClick={() => { dispatch({ type: 'ARCHIVE_CARD', payload: card.id }); }}
-              className="w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors"
+              onClick={() => { dispatch({ type: 'ARCHIVE_CARD', payload: card.id }); updateCardApi(card.id, { archived: true }); }}
+              className="w-full text-left px-2.5 min-h-[44px] flex items-center rounded text-xs transition-colors"
               style={{ background: 'var(--active-bg)', color: '#ef4444' }}
             >
               📦 Archive

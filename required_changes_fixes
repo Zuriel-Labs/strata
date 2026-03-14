@@ -1,0 +1,54 @@
+# Required Changes & Fixes
+
+## Priority 1 — Bugs
+
+### 1. Create-user invite link closes instantly
+- **Location:** Admin Panel → Create User
+- **Bug:** Clicking "Create user" shows the invite-link overlay for a few milliseconds then auto-closes.
+- **Expected:** Overlay stays open until the admin explicitly closes it (close button or clicking outside).
+
+### 2. Password recovery page not scrollable
+- **Location:** Password Recovery page
+- **Bug:** When form elements extend beyond the viewport, the page cannot be scrolled.
+- **Expected:** Page is scrollable via mouse wheel (desktop) and touch-drag (mobile).
+
+## Priority 2 — UX Improvements
+
+### 3. Password recovery: replace "Reset Password" with "Proceed to Login" after success
+- **Location:** Password Recovery page (post-reset state)
+- **Change:** After a successful password reset and new recovery key display:
+  - Hide the "Reset Password" button.
+  - Show a "Proceed to Login" button that navigates back to the login page.
+
+## Priority 3 — UI Overhaul (Overlay-First Navigation)
+
+> **Design principle:** Replace sliding side panels with overlay menus/windows for a cleaner, mobile-friendly experience across all device sizes.
+
+### 4. Header bar redesign
+- **Change:** Simplify the default header. Left-to-right layout:
+  1. Hamburger menu button (opens the main navigation overlay — see item 5)
+  2. Workspace Name — [Board Name]
+     - If the user has access to multiple workspaces, the workspace name becomes a dropdown to switch between them.
+     - The board name is also a dropdown, listing only the boards within the currently selected workspace.
+  3. View options (Board, Table, Calendar)
+  4. Filter
+  5. Search
+  6. Notifications
+  7. Admin (visible only to sys-admin role)
+  8. Profile avatar/initials button (opens profile overlay — see item 7)
+
+### 5. Main navigation overlay (replaces left sidebar)
+- **Trigger:** Hamburger menu button (top-left)
+- **Content:** Tabbed overlay with four tabs:
+  - Workspaces
+  - Boards
+  - Automations
+  - Archive
+
+### 6. Admin panel overlay (replaces right sidebar)
+- **Trigger:** Admin button in header
+- **Change:** Open as an overlay menu instead of a sliding right-side panel.
+
+### 7. Profile menu overlay (replaces dropdown)
+- **Trigger:** Profile initials button (top-right)
+- **Change:** Open as an overlay menu instead of a dropdown menu.

@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
-import { audit } from '../audit/audit-log';
 import { createManagedUser, listAdminUsers, updateManagedUser } from '../db/admin-repositories';
-import { getBoardMembershipsForUser, getWorkspaceMembershipsForUser, getUserById, listAuditEvents, updateUserPassword, upsertPasswordReset } from '../db/repositories';
-import { generateTemporaryPassword, hashPassword } from '../auth/passwords';
+import { getBoardMembershipsForUser, getWorkspaceMembershipsForUser, getUserById, listAuditEvents, upsertRecoveryKey } from '../db/repositories';
+import { hashPassword } from '../auth/passwords';
+import { randomBytes } from 'node:crypto';
+import { audit } from '../audit/audit-log';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageUserPlatform } from '../rbac/policies';
 import type { BoardRole, WorkspaceRole } from '../types';
@@ -13,11 +14,11 @@ const userSchema = z.object({
   name: z.string().min(1),
   initials: z.string().min(1).max(4),
   color: z.string().min(4),
-  email: z.string().email(),
+  username: z.string().min(1),
   platformRole: z.enum(['system_admin', 'user']).default('user'),
   active: z.boolean().default(true),
-  workspaceMemberships: z.array(z.object({ workspaceId: z.string(), role: z.enum(['workspace_admin', 'member', 'guest']) })).default([]),
-  boardMemberships: z.array(z.object({ boardId: z.string(), role: z.enum(['board_admin', 'member', 'observer', 'guest']) })).default([]),
+  workspaceMemberships: z.array(z.object({ workspaceId: z.string(), role: z.enum(['workspace_admin', 'member']) })).default([]),
+  boardMemberships: z.array(z.object({ boardId: z.string(), role: z.enum(['board_admin', 'member', 'observer']) })).default([]),
 });
 
 const userPatchSchema = userSchema.partial();
@@ -53,21 +54,24 @@ export function createAdminRoutes(db: Database.Database) {
       response.status(400).json({ message: 'Invalid user payload.' });
       return;
     }
-    const temporaryPassword = generateTemporaryPassword();
-    const passwordHash = await hashPassword(temporaryPassword);
+    const placeholderPassword = randomBytes(32).toString('hex');
+    const passwordHash = await hashPassword(placeholderPassword);
     const created = createManagedUser(db, request.auth.user, {
       ...parsed.data,
       workspaceMemberships: parsed.data.workspaceMemberships as Array<{ workspaceId: string; role: WorkspaceRole }>,
       boardMemberships: parsed.data.boardMemberships as Array<{ boardId: string; role: BoardRole }>,
       passwordHash,
-      mustChangePassword: true,
+      mustChangePassword: false,
     });
     if (!created) {
       response.status(500).json({ message: 'Unable to create user.' });
       return;
     }
-    upsertPasswordReset(db, created.id, request.auth.user.id, passwordHash);
-    response.status(201).json({ user: created, temporaryPassword });
+    const inviteToken = randomBytes(32).toString('hex');
+    const inviteHash = await hashPassword(inviteToken);
+    upsertRecoveryKey(db, created.id, inviteHash);
+    audit(db, { actorUserId: request.auth.user.id, scopeType: 'platform', action: 'admin.user_create', outcome: 'success', metadata: { username: parsed.data.username } });
+    response.status(201).json({ user: created, inviteToken });
   });
 
   router.patch('/users/:userId', (request: AuthenticatedRequest, response) => {
@@ -96,7 +100,7 @@ export function createAdminRoutes(db: Database.Database) {
     }
   });
 
-  router.post('/users/:userId/reset-password', async (request: AuthenticatedRequest, response) => {
+  router.post('/users/:userId/generate-recovery-key', async (request: AuthenticatedRequest, response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) {
       response.status(403).json({ message: 'Forbidden.' });
       return;
@@ -106,12 +110,11 @@ export function createAdminRoutes(db: Database.Database) {
       response.status(404).json({ message: 'User not found.' });
       return;
     }
-    const temporaryPassword = generateTemporaryPassword();
-    const passwordHash = await hashPassword(temporaryPassword);
-    updateUserPassword(db, user.id, passwordHash, true);
-    upsertPasswordReset(db, user.id, request.auth.user.id, passwordHash);
-    audit(db, { actorUserId: request.auth.user.id, targetUserId: user.id, scopeType: 'auth', action: 'auth.password_reset', outcome: 'success' });
-    response.json({ temporaryPassword });
+    const rawKey = randomBytes(32).toString('hex');
+    const keyHash = await hashPassword(rawKey);
+    upsertRecoveryKey(db, user.id, keyHash);
+    audit(db, { actorUserId: request.auth.user.id, targetUserId: user.id, scopeType: 'auth', action: 'auth.admin_recovery_key_generate', outcome: 'success' });
+    response.json({ recoveryKey: rawKey });
   });
 
   return router;

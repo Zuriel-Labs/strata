@@ -7,7 +7,7 @@ type UserInput = {
   name: string;
   initials: string;
   color: string;
-  email: string;
+  username: string;
   platformRole: PlatformRole;
   passwordHash: string;
   mustChangePassword: boolean;
@@ -25,7 +25,7 @@ export function listAdminUsers(db: Database.Database) {
     name: user.name,
     initials: user.initials,
     color: user.color,
-    email: user.email,
+    username: user.username,
     platformRole: user.platformRole,
     active: user.active,
     mustChangePassword: user.mustChangePassword,
@@ -38,14 +38,14 @@ export function createManagedUser(db: Database.Database, actor: UserRecord, inpu
   const id = randomUUID();
   const timestamp = new Date().toISOString();
   db.prepare(`
-    INSERT INTO users (id, name, initials, color, email, platform_role, password_hash, active, must_change_password, created_at, updated_at)
+    INSERT INTO users (id, name, initials, color, username, platform_role, password_hash, active, must_change_password, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.name,
     input.initials,
     input.color,
-    input.email,
+    input.username,
     input.platformRole,
     input.passwordHash,
     input.active ? 1 : 0,
@@ -83,13 +83,13 @@ export function updateManagedUser(db: Database.Database, actor: UserRecord, user
   }
   db.prepare(`
     UPDATE users
-    SET name = ?, initials = ?, color = ?, email = ?, platform_role = ?, active = ?, must_change_password = ?, updated_at = ?
+    SET name = ?, initials = ?, color = ?, username = ?, platform_role = ?, active = ?, must_change_password = ?, updated_at = ?
     WHERE id = ?
   `).run(
     input.name ?? current.name,
     input.initials ?? current.initials,
     input.color ?? current.color,
-    input.email ?? current.email,
+    input.username ?? current.username,
     input.platformRole ?? current.platformRole,
     input.active === undefined ? (current.active ? 1 : 0) : input.active ? 1 : 0,
     input.mustChangePassword === undefined ? (current.mustChangePassword ? 1 : 0) : input.mustChangePassword ? 1 : 0,

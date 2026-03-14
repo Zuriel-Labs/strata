@@ -12,7 +12,7 @@ function authenticatedSession(): SessionPayload {
       name: 'System Admin',
       initials: 'SA',
       color: '#6366f1',
-      email: 'admin@strata.local',
+      username: 'admin',
       platformRole: 'system_admin',
       mustChangePassword: false,
     },
@@ -52,7 +52,7 @@ describe('App auth flows', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Platform Sprint 24' })).toBeInTheDocument();
+      expect(screen.getByText('Platform Sprint 24')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Open admin panel' })).toBeInTheDocument();
   });

@@ -30,14 +30,30 @@ describe('store reducer', () => {
     expect(mention).toBeTruthy();
   });
 
-  it('adds notifications and watching when members are assigned', () => {
+  it('adds notifications and watching when the active user is assigned', () => {
+    const state = reducer(initialState, { type: 'UPDATE_CARD', payload: { id: 'c5', memberIds: ['u1'] } });
+    const card = state.cards.find(candidate => candidate.id === 'c5');
+
+    expect(card?.memberIds).toContain('u1');
+    expect(card?.watching).toBe(true);
+  });
+
+  it('adds notifications without changing watch when another user is assigned', () => {
     const state = reducer(initialState, { type: 'UPDATE_CARD', payload: { id: 'c5', memberIds: ['u3'] } });
     const card = state.cards.find(candidate => candidate.id === 'c5');
     const assignment = state.notifications.find(notification => notification.userId === 'u3' && notification.message.includes('assigned'));
 
     expect(card?.memberIds).toContain('u3');
-    expect(card?.watching).toBe(true);
+    expect(card?.watching).toBe(false);
     expect(assignment).toBeTruthy();
+  });
+
+  it('disables watching when the active user is removed from members', () => {
+    const state = reducer(initialState, { type: 'UPDATE_CARD', payload: { id: 'c1', memberIds: ['u2'] } });
+    const card = state.cards.find(candidate => candidate.id === 'c1');
+
+    expect(card?.memberIds).toEqual(['u2']);
+    expect(card?.watching).toBe(false);
   });
 
   it('adds and removes attachments', () => {

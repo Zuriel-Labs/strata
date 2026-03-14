@@ -34,13 +34,22 @@ test('mvp flow works end to end', async ({ page }) => {
   await boardSelect.selectOption({ label: 'Platform Sprint 24' });
   await expect(boardSelect.locator('option:checked')).toHaveText('Platform Sprint 24');
 
-  // --- Card interaction: open card, add attachment, add comment ---
+  // --- Card interaction: open card, move lists, toggle watch, add attachment, add comment ---
   await page.getByText('Implement OAuth2 login flow').click();
+  await expect(page.getByLabel('Card list')).toBeVisible();
+  await page.getByLabel('Card list').selectOption({ label: 'Backlog' });
+  await expect(page.getByText('In list Backlog')).toBeVisible();
+
+  await expect(page.getByLabel('Stop watching card')).toBeVisible();
+  await page.getByLabel('Stop watching card').click();
+  await expect(page.getByLabel('Watch card')).toBeVisible();
+
+  await page.getByRole('button', { name: /attachment/i }).click();
   await page.getByPlaceholder('Paste link or cloud doc URL').fill('docs.example.com/auth');
   await page.getByRole('button', { name: 'Attach' }).click();
   await expect(page.getByRole('link', { name: 'docs.example.com/auth' })).toBeVisible();
 
-  await page.getByPlaceholder('Write a comment… (use @name to mention)').fill('Please review this @Alex Chen');
+  await page.getByPlaceholder('Write a comment...').fill('Please review this @Alex Chen');
   await page.getByRole('button', { name: 'Send' }).click();
   await page.getByLabel('Close card').click();
 

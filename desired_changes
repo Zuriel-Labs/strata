@@ -1,161 +1,240 @@
 # Strata Change Plan: Optimized, Organized, Prioritized
 
-## Priority Legend
-- P0 = Blocker / security / data integrity / first-run viability
-- P1 = Core product capability and admin usability
-- P2 = UX enhancement and polish
+## Executive Summary
 
-## Recommended Execution Order (High to Low)
-
-1. **P0 - Fresh install + auth foundation**
-2. **P0 - Permission model correction**
-3. **P0 - User lifecycle security (password recovery/reset)**
-4. **P1 - Admin IA (information architecture) and broken form isolation**
-5. **P1 - Workspace creation capability**
-6. **P2 - Mobile/touch overhaul using overlays**
+| Metric | Value |
+|--------|-------|
+| Total Items | 12 |
+| Epics | 4 |
+| Phases | 3 |
+| Estimated Sprints | 3-4 |
 
 ---
 
-## P0: First-Run Viability and Security (Do First)
+## Dependency Graph
 
-### P0.1 Fresh startup with no seeded user data
-- Source: Item 1
-- Requirement:
-	- Remove demo/sample user data from default startup state.
-	- First launch must begin with zero users and zero sample workspace records unless explicitly seeded in dev/test mode.
-- Why first: Prevents data contamination and enables real onboarding.
-- Done when:
-	- New install starts with empty user table.
-	- Existing non-dev app startup does not auto-insert demo users/workspaces.
-
-### P0.2 First-run System Admin bootstrap flow
-- Source: Item 10 (+ Item 12 confirm password rule)
-- Requirement:
-	- If no System Admin exists, force setup wizard at startup/login:
-		- Username (currently using email field as username)
-		- Password
-		- Confirm password
-	- If at least one System Admin exists, show normal login instead.
-- Why first: Platform must be administrable from first launch.
-- Dependencies: P0.1
-- Done when:
-	- Admin bootstrap screen only appears when system has zero System Admin accounts.
-	- Password and confirm password must match.
-
-### P0.3 Username model update (no outbound email system)
-- Source: Item 9
-- Requirement:
-	- Treat account "email" as the username identifier.
-	- Remove assumptions that email delivery exists (no verification or email reset dependency).
-- Why first: Required for consistent login/reset logic.
-- Done when:
-	- Login, user creation, and recovery flows use username (stored in existing email field or renamed field).
-	- No feature path requires sending an actual email.
-
-### P0.4 Permissions parity with desired matrix; remove Guest role
-- Source: Item 8
-- Requirement:
-	- Remove Guest role.
-	- Rebuild role-permission mappings to match desired_permissions.png exactly.
-- Why first: Authorization correctness is security-critical.
-- Dependencies: None (but validate against latest RBAC tests)
-- Done when:
-	- Guest role no longer exists in DB, UI, and permission checks.
-	- RBAC matrix is aligned to desired_permissions.png.
-	- Automated tests verify permission boundaries.
-
-### P0.5 Account recovery and password reset with recovery key
-- Source: Item 11 + Item 12
-- Requirement:
-	- Authenticated users can generate/regenerate a recovery key from account settings.
-	- Login screen includes "Forgot Password?" flow:
-		- Username
-		- Recovery key
-		- New password
-		- Confirm new password
-	- Logged-in users can reset password in settings with confirm password.
-- Why first: Critical account recovery and lockout prevention.
-- Dependencies: P0.3
-- Done when:
-	- Recovery key flow works end-to-end without email.
-	- All password change flows enforce confirm-password match.
-	- Recovery key can be rotated and old key invalidates.
+```
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                    PHASE 1: FOUNDATION                   │
+                    │                    (Sprint 1 - Week 1-2)                 │
+                    ├─────────────────────────────────────────────────────────┤
+                    │                                                          │
+                    │   ┌──────────────┐    ┌──────────────┐                  │
+                    │   │ 1. Remove    │───▶│ 10. First-   │                  │
+                    │   │ Demo Data    │    │ Run Admin    │                  │
+                    │   └──────────────┘    │ Bootstrap    │                  │
+                    │         │             └──────┬───────┘                  │
+                    │         │                    │                           │
+                    │         ▼                    ▼                           │
+                    │   ┌──────────────┐    ┌──────────────┐                  │
+                    │   │ 9. Username  │◀──▶│ 11. Recovery │                  │
+                    │   │ as Identity  │    │ Key System   │                  │
+                    │   └──────────────┘    └──────┬───────┘                  │
+                    │         │                    │                           │
+                    │         ▼                    ▼                           │
+                    │   ┌──────────────┐    ┌──────────────┐                  │
+                    │   │ 8. Permission│    │ 12. Confirm  │                  │
+                    │   │ Matrix       │    │ Password     │                  │
+                    │   └──────────────┘    └──────────────┘                  │
+                    │                                                          │
+                    └─────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                    PHASE 2: CORE FEATURES               │
+                    │                    (Sprint 2 - Week 3-4)                 │
+                    ├─────────────────────────────────────────────────────────┤
+                    │                                                          │
+                    │   ┌──────────────┐    ┌──────────────┐                  │
+                    │   │ 5+6. Admin   │───▶│ 7. Fix       │                  │
+                    │   │ Sub-Menus    │    │ State Bug    │                  │
+                    │   └──────────────┘    └──────────────┘                  │
+                    │                                                          │
+                    │   ┌──────────────┐                                      │
+                    │   │ 4. Workspace │                                      │
+                    │   │ Creation     │                                      │
+                    │   └──────────────┘                                      │
+                    │                                                          │
+                    └─────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼
+                    ┌─────────────────────────────────────────────────────────┐
+                    │                    PHASE 3: UX ENHANCEMENT              │
+                    │                    (Sprint 3 - Week 5-6)                 │
+                    ├─────────────────────────────────────────────────────────┤
+                    │                                                          │
+                    │   ┌──────────────┐    ┌──────────────┐                  │
+                    │   │ 2. Overlay   │───▶│ 3. Touch     │                  │
+                    │   │ Menus        │    │ Friendly     │                  │
+                    │   └──────────────┘    └──────────────┘                  │
+                    │                                                          │
+                    └─────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## P1: Core Capability and Admin UX
+## Phase 1: Foundation (P0 - Blockers)
 
-### P1.1 Admin panel sub-menu architecture
-- Source: Items 5 and 6
-- Requirement:
-	- Admin tools must be split into distinct sub-menus/views:
-		- Edit Users
-		- Create User
-		- Audit
-	- Each tool has isolated local state and clear navigation.
-- Why now: Reduces operator errors and supports scaling admin features.
-- Dependencies: P0.4 recommended first (permissions affect visible tools)
-- Done when:
-	- Admin sees discrete sub-menu entries for each tool.
-	- Tool content does not overlap in a shared conflicting form state.
+> **Goal**: Platform is secure, clean, and administrable from first launch.
 
-### P1.2 Fix Create User/Edit User state coupling bug
-- Source: Item 7
-- Requirement:
-	- Creating a user must use a separate form model from edit user.
-	- Edits in Create User cannot mutate Edit User in-memory state.
-- Why now: Current behavior risks incorrect account changes.
-- Dependencies: P1.1 (or fix in parallel by splitting state stores)
-- Done when:
-	- Repro no longer occurs.
-	- Unit/integration tests protect against cross-form state bleed.
+### Epic A: Clean Install + Auth Foundation
 
-### P1.3 Workspace creation support
-- Source: Item 4
-- Requirement:
-	- Add ability to create a new workspace from UI.
-	- Newly created workspace is persisted and selectable immediately.
-	- Sample workspaces are optional, not required for operation.
-- Why now: Core product functionality currently missing.
-- Dependencies: P0.1 (fresh data baseline), P0.4 (permissions for who can create)
-- Done when:
-	- User with proper permission can create, view, and interact with a new workspace.
+| # | Item | Priority | Dependencies | Acceptance Criteria |
+|---|------|----------|--------------|---------------------|
+| 1 | Remove Demo Data | P0 | None | Fresh DB has zero users/workspaces |
+| 10 | First-Run Admin Bootstrap | P0 | #1 | Wizard appears when no admin exists |
+| 9 | Username as Identity | P0 | None | All auth uses username, not email |
+| 12 | Confirm Password | P0 | #10, #11 | All password flows require confirmation |
+
+### Epic B: Security + Recovery
+
+| # | Item | Priority | Dependencies | Acceptance Criteria |
+|---|------|----------|--------------|---------------------|
+| 11 | Recovery Key System | P0 | #9 | Users can reset password via recovery key |
+| 8 | Permission Matrix | P0 | None | Guest removed, matrix matches desired_permissions.png |
 
 ---
 
-## P2: Mobile + Touch UX Overhaul
+## Phase 2: Core Features (P1 - High Priority)
 
-### P2.1 Overlay menu system across all form factors
-- Source: Item 2
-- Requirement:
-	- Replace side-panels with overlay/drawer patterns for desktop and mobile.
-	- Use consistent open/close interactions and focus management.
-- Why later: Important usability improvement, but not platform blocker.
-- Dependencies: P1 IA decisions recommended first
-- Done when:
-	- No primary workflow depends on fixed side-panels.
-	- Overlay navigation is keyboard and touch accessible.
+> **Goal**: Admin panel is usable, workspaces can be created.
 
-### P2.2 Touchscreen-friendly interaction pass
-- Source: Item 3
-- Requirement:
-	- Increase touch target sizes.
-	- Ensure spacing, scroll behavior, and gestures are touch-usable.
-	- Validate core flows on mobile and tablet.
-- Why later: UX optimization after functional correctness.
-- Dependencies: P2.1
-- Done when:
-	- Core flows pass touch usability checks (login, admin nav, create user, create workspace).
+### Epic C: Admin Panel Overhaul
+
+| # | Item | Priority | Dependencies | Acceptance Criteria |
+|---|------|----------|--------------|---------------------|
+| 5+6 | Admin Sub-Menus | P1 | #8 | Edit Users, Create User, Audit are separate views |
+| 7 | Fix State Coupling Bug | P1 | #5+6 | Create User doesn't affect Edit User state |
+
+### Epic D: Workspace Management
+
+| # | Item | Priority | Dependencies | Acceptance Criteria |
+|---|------|----------|--------------|---------------------|
+| 4 | Workspace Creation | P1 | #1, #8 | Users can create and interact with new workspaces |
 
 ---
 
-## Consolidated Notes (Deduplication and Clarifications)
-- Items 5 and 6 are merged into P1.1 (same requirement family).
-- Item 12 is applied globally to all password set/reset flows (P0.2 and P0.5).
-- Item 7 likely resolves via P1.1 + explicit state isolation in P1.2.
-- Item 8 requires desired_permissions.png as source of truth; treat any mismatch as a defect.
+## Phase 3: UX Enhancement (P2 - Polish)
 
-## Suggested Delivery Milestones
-- Milestone A (Security + First Run): P0.1-P0.5
-- Milestone B (Admin + Workspaces): P1.1-P1.3
-- Milestone C (Responsive + Touch): P2.1-P2.2
+> **Goal**: App is mobile-friendly and touch-optimized.
+
+### Epic E: Responsive + Touch
+
+| # | Item | Priority | Dependencies | Acceptance Criteria |
+|---|------|----------|--------------|---------------------|
+| 2 | Overlay Menus | P2 | #5+6 | Side-panels replaced with overlay/drawer |
+| 3 | Touch Friendly | P2 | #2 | Touch targets ≥44px, gestures work |
+
+---
+
+## Detailed Requirements
+
+### 1. Remove Demo Data (P0)
+**Source**: Original Item 1
+- Remove all sample users, workspaces, and boards from default startup
+- First launch begins with empty database
+- Dev/test mode can optionally seed data via environment flag
+
+### 2. Overlay Menus (P2)
+**Source**: Original Item 2
+- Replace fixed side-panels with overlay/drawer pattern
+- Consistent open/close behavior across all device types
+- Backdrop dismiss, keyboard accessible
+
+### 3. Touch Friendly (P2)
+**Source**: Original Item 3
+- Minimum 44x44px touch targets
+- Adequate spacing prevent mis-taps
+- Gesture support for common actions
+
+### 4. Workspace Creation (P1)
+**Source**: Original Item 4
+- "Create Workspace" button in UI
+- Form with name, description, visibility
+- Immediate persistence and selection
+
+### 5+6. Admin Sub-Menus (P1)
+**Source**: Original Items 5, 6
+- Three distinct views: Edit Users, Create User, Audit
+- Clear navigation between sub-menus
+- Each view has isolated state
+
+### 7. Fix State Coupling Bug (P1)
+**Source**: Original Item 7
+- Create User form uses separate state from Edit User
+- Switching views doesn't leak data
+- Protected by automated tests
+
+### 8. Permission Matrix (P0)
+**Source**: Original Item 8
+- Remove Guest role entirely
+- Align to desired_permissions.md matrix
+- RBAC tests validate all boundaries
+
+### 9. Username as Identity (P0)
+**Source**: Original Item 9
+- Email field becomes username
+- No email delivery dependencies
+- Login, registration, recovery all use username
+
+### 10. First-Run Admin Bootstrap (P0)
+**Source**: Original Item 10
+- Setup wizard when zero admins exist
+- Fields: username, password, confirm password
+- Normal login when admin exists
+
+### 11. Recovery Key System (P0)
+**Source**: Original Item 11
+- Generate recovery key from account settings
+- "Forgot Password?" on login screen
+- Flow: username + recovery key + new password + confirm
+
+### 12. Confirm Password (P0)
+**Source**: Original Item 12
+- Applied to: bootstrap, settings reset, recovery, admin reset
+- Mismatch shows error, prevents submission
+
+---
+
+## Execution Checklist
+
+### Phase 1: Foundation
+- [ ] 1. Remove demo data from seed
+- [ ] 9. Rename email → username in schema and types
+- [ ] 10. Build bootstrap wizard (backend + frontend)
+- [ ] 11. Implement recovery key generation and forgot-password flow
+- [ ] 12. Add confirm password validation to all password forms
+- [ ] 8. Remove Guest role, align permissions to desired_permissions.md
+
+### Phase 2: Core Features
+- [ ] 5+6. Refactor AdminPanel into sub-menu architecture
+- [ ] 7. Isolate Create User and Edit User state
+- [ ] 4. Add workspace creation endpoint and UI
+
+### Phase 3: UX Enhancement
+- [ ] 2. Replace side-panels with overlay/drawer components
+- [ ] 3. Increase touch targets, add gesture support
+- [ ] Validate all flows on mobile viewport
+
+---
+
+## Risk Register
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Username migration breaks existing sessions | High | Clear all sessions on deploy, force re-login |
+| Permission changes lock out existing users | High | Validate matrix against current usage before deploy |
+| Recovery key security (brute force) | Medium | Rate limit forgot-password attempts, use bcrypt |
+| Overlay pattern conflicts with existing CSS | Low | Use CSS modules or scoped styles |
+
+---
+
+## Success Metrics
+
+| Metric | Target |
+|--------|--------|
+| Fresh install to first admin login | < 2 minutes |
+| Password reset via recovery key | < 1 minute |
+| Admin task completion (create user) | < 30 seconds |
+| Mobile usability score | 90+ (Lighthouse) |
+| Test coverage | ≥ 80% |

@@ -1,44 +1,130 @@
-import { useRef, useState } from 'react';
-import { useAppState, useDispatch } from '../store';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { AlignLeft, Circle, Clock3, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Users, X } from 'lucide-react';
 import { uid } from '../data';
 import { updateCardApi, moveCardApi } from '../services/data';
+import { useAppState, useDispatch } from '../store';
+
+type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
 
 export function CardModal() {
   const state = useAppState();
   const dispatch = useDispatch();
-  const card = state.cards.find(c => c.id === state.activeCardId);
+  const card = state.cards.find(candidate => candidate.id === state.activeCardId);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
   const [descEditing, setDescEditing] = useState(false);
   const [desc, setDesc] = useState('');
   const [comment, setComment] = useState('');
-  const [newChecklistTitle, setNewChecklistTitle] = useState('');
-  const [addingChecklist, setAddingChecklist] = useState(false);
-  const [addingItemTo, setAddingItemTo] = useState<string | null>(null);
-  const [newItemText, setNewItemText] = useState('');
   const [attachmentLink, setAttachmentLink] = useState('');
-  const [tab, setTab] = useState<'details' | 'activity'>('details');
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [revealedSections, setRevealedSections] = useState<Record<OptionalSectionKey, boolean>>({
+    members: false,
+    labels: false,
+    dueDate: false,
+    attachments: false,
+  });
+
+  useEffect(() => {
+    if (titleEditing && card) {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [card, titleEditing]);
 
   if (!card) return null;
 
-  const board = state.boards.find(b => b.id === card.boardId);
-  const list = state.lists.find(l => l.id === card.listId);
-  const labels = board?.labels || [];
-  const members = state.users.filter(u => card.memberIds.includes(u.id));
-  const availableMembers = state.users.filter(u => !card.memberIds.includes(u.id));
-  const lists = state.lists.filter(l => l.boardId === card.boardId && !l.archived).sort((a, b) => a.position - b.position);
-  const totalItems = card.checklists.reduce((a, c) => a + c.items.length, 0);
-  const checkedItems = card.checklists.reduce((a, c) => a + c.items.filter(i => i.completed).length, 0);
-  const progress = totalItems > 0 ? (checkedItems / totalItems) * 100 : 0;
+  const board = state.boards.find(candidate => candidate.id === card.boardId);
+  const list = state.lists.find(candidate => candidate.id === card.listId);
+  const labels = board?.labels ?? [];
+  const members = state.users.filter(user => card.memberIds.includes(user.id));
+  const availableMembers = state.users.filter(user => !card.memberIds.includes(user.id));
+  const lists = state.lists
+    .filter(candidate => candidate.boardId === card.boardId && !candidate.archived)
+    .sort((a, b) => a.position - b.position);
+  const currentUser = state.users.find(user => user.id === state.currentUserId) ?? state.users[0] ?? null;
+  const hiddenSectionButtons = [
+    { key: 'members' as const, label: 'Members', icon: Users, visible: card.memberIds.length > 0 || revealedSections.members },
+    { key: 'labels' as const, label: 'Labels', icon: Tag, visible: card.labelIds.length > 0 || revealedSections.labels },
+    { key: 'dueDate' as const, label: 'Dates', icon: Clock3, visible: Boolean(card.dueDate) || revealedSections.dueDate },
+    { key: 'attachments' as const, label: 'Attachment', icon: Paperclip, visible: card.attachments.length > 0 || revealedSections.attachments },
+  ].filter(section => !section.visible);
 
   const close = () => dispatch({ type: 'SET_ACTIVE_CARD', payload: null });
+
+  const persistCard = (updates: Record<string, unknown>) => {
+    dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, ...updates } });
+    updateCardApi(card.id, updates);
+  };
+
+  const getWatchingForMemberChange = (nextMemberIds: string[]) => {
+    const wasCurrentUserMember = card.memberIds.includes(state.currentUserId);
+    const isCurrentUserMember = nextMemberIds.includes(state.currentUserId);
+    if (!wasCurrentUserMember && isCurrentUserMember) return true;
+    if (wasCurrentUserMember && !isCurrentUserMember) return false;
+    return card.watching;
+  };
+
+  const revealSection = (section: OptionalSectionKey) => {
+    setRevealedSections(current => ({ ...current, [section]: true }));
+  };
+
+  const handleMoveList = (nextListId: string) => {
+    if (!nextListId || nextListId === card.listId) return;
+    dispatch({ type: 'MOVE_CARD', payload: { cardId: card.id, toListId: nextListId, toPosition: 0 } });
+    moveCardApi(card.id, nextListId, 0);
+  };
+
+  const handleToggleWatch = () => {
+    persistCard({ watching: !card.watching });
+  };
+
+  const beginTitleEdit = () => {
+    setDraftTitle(card.title);
+    setTitleEditing(true);
+  };
+
+  const commitTitle = () => {
+    const nextTitle = draftTitle.trim();
+    if (!nextTitle) {
+      setDraftTitle(card.title);
+      setTitleEditing(false);
+      return;
+    }
+    if (nextTitle !== card.title) {
+      persistCard({ title: nextTitle });
+    }
+    setTitleEditing(false);
+  };
+
+  const cancelTitleEdit = () => {
+    setDraftTitle(card.title);
+    setTitleEditing(false);
+  };
+
+  const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commitTitle();
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelTitleEdit();
+    }
+  };
+
+  const handleMemberChange = (nextMemberIds: string[]) => {
+    revealSection('members');
+    persistCard({ memberIds: nextMemberIds, watching: getWatchingForMemberChange(nextMemberIds) });
+  };
 
   const handleLinkAttachment = () => {
     const value = attachmentLink.trim();
     if (!value) return;
 
     const url = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-
     const attachment = {
       id: uid(),
       name: value.replace(/^https?:\/\//i, ''),
@@ -53,6 +139,7 @@ export function CardModal() {
     });
     updateCardApi(card.id, { attachments: [...card.attachments, attachment] });
     setAttachmentLink('');
+    revealSection('attachments');
   };
 
   const handleFileAttachment = (files: FileList | null) => {
@@ -74,210 +161,323 @@ export function CardModal() {
       });
     });
     updateCardApi(card.id, { attachments: [...card.attachments, ...newAttachments] });
-
     if (fileInputRef.current) fileInputRef.current.value = '';
+    revealSection('attachments');
   };
 
   return (
     <div
       ref={overlayRef}
-      onClick={e => { if (e.target === overlayRef.current) close(); }}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-12 pb-12 overflow-y-auto"
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+      onClick={event => {
+        if (event.target === overlayRef.current) close();
+      }}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-3 py-6 sm:px-6 sm:py-10"
+      style={{ background: 'rgba(5, 7, 12, 0.72)', backdropFilter: 'blur(8px)' }}
     >
-      <div className="w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden" style={{ background: 'var(--modal-bg)' }}>
-        {/* Header */}
-        <div className="flex items-start justify-between p-5 pb-3">
-          <div className="flex-1 pr-4">
-            <input
-              value={card.title}
-              onChange={e => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, title: e.target.value } }); updateCardApi(card.id, { title: e.target.value }); }}
-              className="text-lg font-bold bg-transparent outline-none w-full"
-              style={{ color: 'var(--text-primary)' }}
-            />
-            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-              in list <strong style={{ color: 'var(--text-secondary)' }}>{list?.title}</strong>
-              {card.watching && <span className="ml-2">👁 Watching</span>}
-            </p>
+      <div className="w-full max-w-3xl overflow-hidden rounded-[24px] border shadow-2xl" style={{ background: 'var(--modal-bg)', borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-5" style={{ borderColor: 'var(--border)' }}>
+          <select
+            aria-label="Card list"
+            value={card.listId}
+            onChange={event => handleMoveList(event.target.value)}
+            className="min-h-[40px] rounded-md border px-3 text-sm font-medium outline-none"
+            style={{ background: '#2a2d36', borderColor: 'transparent', color: 'var(--text-primary)' }}
+          >
+            {lists.map(candidate => (
+              <option key={candidate.id} value={candidate.id}>{candidate.title}</option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-2">
+            <button
+              aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
+              onClick={handleToggleWatch}
+              className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
+              style={{ background: 'rgba(255,255,255,0.06)', color: card.watching ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+            >
+              {card.watching ? <Eye size={18} /> : <EyeOff size={18} />}
+            </button>
+            <button
+              aria-label="Close card"
+              onClick={close}
+              className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
+              style={{ background: 'transparent', color: 'var(--text-secondary)' }}
+            >
+              <X size={18} />
+            </button>
           </div>
-          <button aria-label="Close card" onClick={close} className="text-base shrink-0 w-9 h-9 rounded-lg flex items-center justify-center hover:opacity-70 transition-opacity" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>✕</button>
         </div>
 
-        <div className="flex gap-5 px-5 pb-5">
-          {/* Main content */}
-          <div className="flex-1 min-w-0">
-            {/* Labels */}
-            <div className="mb-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Labels</h4>
-              <div className="flex flex-wrap gap-1.5">
-                {labels.map(l => (
-                  <button
-                    key={l.id}
-                    onClick={() => {
-                      const ids = card.labelIds.includes(l.id) ? card.labelIds.filter(x => x !== l.id) : [...card.labelIds, l.id];
-                      dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, labelIds: ids } });
-                      updateCardApi(card.id, { labelIds: ids });
-                    }}
-                    className="px-2.5 min-h-[44px] flex items-center rounded text-[10px] font-bold text-white transition-all"
-                    style={{ background: l.color, opacity: card.labelIds.includes(l.id) ? 1 : 0.3, outline: card.labelIds.includes(l.id) ? `2px solid ${l.color}` : 'none', outlineOffset: '1px' }}
-                  >
-                    {l.name}
-                  </button>
-                ))}
-              </div>
+        <div className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6">
+          <div className="mb-5 flex items-start gap-3">
+            <div className="pt-1" style={{ color: 'var(--text-muted)' }}>
+              <Circle size={18} />
             </div>
+            <div className="min-w-0 flex-1">
+              {titleEditing ? (
+                <input
+                  ref={titleInputRef}
+                  value={draftTitle}
+                  onChange={event => setDraftTitle(event.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={handleTitleKeyDown}
+                  className="w-full border-none bg-transparent text-[2rem] font-bold leading-tight outline-none"
+                  style={{ color: 'var(--text-primary)' }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={beginTitleEdit}
+                  className="w-full text-left text-[2rem] font-bold leading-tight"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  {card.title}
+                </button>
+              )}
+              {list && (
+                <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  In list <span style={{ color: 'var(--text-primary)' }}>{list.title}</span>
+                </p>
+              )}
+            </div>
+          </div>
 
-            {/* Members */}
-            <div className="mb-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Members</h4>
-              <div className="flex flex-wrap gap-1.5 items-center">
-                {members.map(m => (
+          {hiddenSectionButtons.length > 0 && (
+            <div className="mb-6 flex flex-wrap gap-2">
+              {hiddenSectionButtons.map(section => {
+                const Icon = section.icon;
+                return (
                   <button
-                    key={m.id}
-                    onClick={() => { const ids = card.memberIds.filter(x => x !== m.id); dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, memberIds: ids } }); updateCardApi(card.id, { memberIds: ids }); }}
-                    className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-full text-xs font-medium text-white transition-opacity hover:opacity-80"
-                    style={{ background: m.color }}
-                    title={`Remove ${m.name}`}
+                    key={section.key}
+                    type="button"
+                    onClick={() => revealSection(section.key)}
+                    className="inline-flex min-h-[44px] items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors"
+                    style={{ background: 'transparent', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
                   >
-                    {m.initials} {m.name}
+                    <Plus size={16} />
+                    <Icon size={15} />
+                    {section.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {(card.memberIds.length > 0 || revealedSections.members) && (
+            <section className="mb-5">
+              <SectionHeading icon={Users} title="Members" />
+              <div className="flex flex-wrap items-center gap-2">
+                {members.map(member => (
+                  <button
+                    key={member.id}
+                    type="button"
+                    onClick={() => handleMemberChange(card.memberIds.filter(id => id !== member.id))}
+                    className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-3 text-sm font-medium text-white transition-opacity hover:opacity-85"
+                    style={{ background: member.color }}
+                    title={`Remove ${member.name}`}
+                  >
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-[11px] font-bold">{member.initials}</span>
+                    {member.name}
                   </button>
                 ))}
                 {availableMembers.length > 0 && (
                   <select
+                    aria-label="Add member"
                     value=""
-                    onChange={e => {
-                      if (e.target.value) { const ids = [...card.memberIds, e.target.value]; dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, memberIds: ids } }); updateCardApi(card.id, { memberIds: ids }); }
+                    onChange={event => {
+                      if (event.target.value) handleMemberChange([...card.memberIds, event.target.value]);
                     }}
-                    className="text-xs px-3 min-h-[44px] rounded border bg-transparent cursor-pointer"
-                    style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                    className="min-h-[44px] rounded-full border px-3 text-sm outline-none"
+                    style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                   >
-                    <option value="">+ Add…</option>
-                    {availableMembers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    <option value="">+ Add member</option>
+                    {availableMembers.map(member => (
+                      <option key={member.id} value={member.id}>{member.name}</option>
+                    ))}
                   </select>
                 )}
               </div>
-            </div>
+            </section>
+          )}
 
-            {/* Due date */}
-            <div className="mb-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Due Date</h4>
-              <div className="flex items-center gap-2">
+          {(card.labelIds.length > 0 || revealedSections.labels) && (
+            <section className="mb-5">
+              <SectionHeading icon={Tag} title="Labels" />
+              <div className="flex flex-wrap gap-2">
+                {labels.map(label => {
+                  const active = card.labelIds.includes(label.id);
+                  return (
+                    <button
+                      key={label.id}
+                      type="button"
+                      onClick={() => {
+                        const nextLabelIds = active ? card.labelIds.filter(id => id !== label.id) : [...card.labelIds, label.id];
+                        revealSection('labels');
+                        persistCard({ labelIds: nextLabelIds });
+                      }}
+                      className="inline-flex min-h-[44px] items-center rounded-md px-3 text-sm font-semibold text-white transition-all"
+                      style={{ background: label.color, opacity: active ? 1 : 0.42, boxShadow: active ? `0 0 0 2px ${label.color}` : 'none' }}
+                    >
+                      {label.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {(card.dueDate || revealedSections.dueDate) && (
+            <section className="mb-5">
+              <SectionHeading icon={Clock3} title="Due date" />
+              <div className="flex flex-wrap items-center gap-3">
                 <input
                   type="date"
                   value={card.dueDate ? card.dueDate.split('T')[0] : ''}
-                  onChange={e => { const dueDate = e.target.value ? new Date(e.target.value).toISOString() : null; dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, dueDate } }); updateCardApi(card.id, { dueDate }); }}
-                  className="text-xs px-3 min-h-[44px] rounded border bg-transparent"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  onChange={event => {
+                    const dueDate = event.target.value ? new Date(event.target.value).toISOString() : null;
+                    revealSection('dueDate');
+                    persistCard({ dueDate });
+                  }}
+                  className="min-h-[44px] rounded-md border px-3 text-sm outline-none"
+                  style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
                 {card.dueDate && (
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer min-h-[44px]" style={{ color: 'var(--text-secondary)' }}>
+                  <label className="inline-flex min-h-[44px] items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
                     <input
                       type="checkbox"
                       checked={card.dueDateComplete}
-                      onChange={() => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, dueDateComplete: !card.dueDateComplete } }); updateCardApi(card.id, { dueDateComplete: !card.dueDateComplete }); }}
+                      onChange={() => persistCard({ dueDateComplete: !card.dueDateComplete })}
                       className="rounded"
                     />
                     Complete
                   </label>
                 )}
               </div>
-            </div>
+            </section>
+          )}
 
-            {/* Move to list */}
-            <div className="mb-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Move to</h4>
-              <select
-                value={card.listId}
-                onChange={e => { dispatch({ type: 'MOVE_CARD', payload: { cardId: card.id, toListId: e.target.value, toPosition: 0 } }); moveCardApi(card.id, e.target.value, 0); }}
-                className="text-xs px-3 min-h-[44px] rounded border bg-transparent cursor-pointer"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+          <section className="mb-5">
+            <SectionHeading icon={AlignLeft} title="Description" />
+            {descEditing ? (
+              <div>
+                <textarea
+                  autoFocus
+                  value={desc}
+                  onChange={event => setDesc(event.target.value)}
+                  rows={4}
+                  className="w-full resize-none rounded-xl border px-4 py-3 text-sm outline-none"
+                  style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      persistCard({ description: desc });
+                      setDescEditing(false);
+                    }}
+                    className="min-h-[44px] rounded-md px-4 text-sm font-medium text-white"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDesc(card.description);
+                      setDescEditing(false);
+                    }}
+                    className="min-h-[44px] px-2 text-sm"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setDesc(card.description);
+                  setDescEditing(true);
+                }}
+                className="min-h-[88px] w-full rounded-xl border px-4 py-3 text-left text-sm"
+                style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)', color: card.description ? 'var(--text-primary)' : 'var(--text-secondary)' }}
               >
-                {lists.map(l => <option key={l.id} value={l.id}>{l.title}</option>)}
-              </select>
-            </div>
+                {card.description || 'Add a more detailed description...'}
+              </button>
+            )}
+          </section>
 
-            {/* Description */}
-            <div className="mb-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Description</h4>
-              {descEditing ? (
-                <div>
-                  <textarea
-                    autoFocus
-                    value={desc}
-                    onChange={e => setDesc(e.target.value)}
-                    rows={4}
-                    className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none border"
-                    style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  />
-                  <div className="flex gap-1 mt-1">
-                    <button onClick={() => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, description: desc } }); updateCardApi(card.id, { description: desc }); setDescEditing(false); }} className="px-3 min-h-[44px] rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Save</button>
-                    <button onClick={() => { setDesc(card.description); setDescEditing(false); }} className="px-3 min-h-[44px] text-xs" style={{ color: 'var(--text-muted)' }}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  onClick={() => { setDesc(card.description); setDescEditing(true); }}
-                  className="px-3 py-2 rounded-lg text-sm cursor-pointer min-h-[40px]"
-                  style={{ background: 'var(--input-bg)', color: card.description ? 'var(--text-primary)' : 'var(--text-muted)' }}
-                >
-                  {card.description || 'Add a description…'}
-                </div>
-              )}
-            </div>
-
-            <div className="mb-4">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Attachments</h4>
+          {(card.attachments.length > 0 || revealedSections.attachments) && (
+            <section className="mb-5">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <SectionHeading icon={Paperclip} title="Attachments" className="mb-0" />
                 <input
                   ref={fileInputRef}
                   type="file"
                   multiple
                   className="hidden"
-                  onChange={e => handleFileAttachment(e.target.files)}
+                  onChange={event => handleFileAttachment(event.target.files)}
                 />
                 <button
+                  type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-[10px] font-medium"
+                  className="min-h-[44px] text-sm font-medium"
                   style={{ color: 'var(--accent)' }}
                 >
-                  + Upload files
+                  Upload files
                 </button>
               </div>
-              <div className="flex gap-2 mb-2">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row">
                 <input
                   value={attachmentLink}
-                  onChange={e => setAttachmentLink(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
+                  onChange={event => setAttachmentLink(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
                       handleLinkAttachment();
                     }
                   }}
                   placeholder="Paste link or cloud doc URL"
-                  className="flex-1 px-3 min-h-[44px] text-xs rounded border bg-transparent outline-none"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  className="min-h-[44px] flex-1 rounded-md border px-3 text-sm outline-none"
+                  style={{ background: 'transparent', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
-                <button onClick={handleLinkAttachment} className="px-3 min-h-[44px] rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Attach</button>
+                <button
+                  type="button"
+                  onClick={handleLinkAttachment}
+                  className="min-h-[44px] rounded-md px-4 text-sm font-medium text-white"
+                  style={{ background: 'var(--accent)' }}
+                >
+                  Attach
+                </button>
               </div>
-              <div className="space-y-1.5">
-                {card.attachments.length === 0 && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Add files or links to keep task context close to the work.</p>}
+              <div className="space-y-2">
+                {card.attachments.length === 0 && (
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    Add files or links to keep task context close to the work.
+                  </p>
+                )}
                 {card.attachments.map(attachment => (
-                  <div key={attachment.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg" style={{ background: 'var(--input-bg)' }}>
-                    <div className="min-w-0">
+                  <div key={attachment.id} className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.04)' }}>
+                    <div className="min-w-0 flex-1">
                       {attachment.url ? (
-                        <a href={attachment.url} target="_blank" rel="noreferrer" className="text-xs font-medium block truncate" style={{ color: 'var(--text-primary)' }}>
+                        <a href={attachment.url} target="_blank" rel="noreferrer" className="block truncate text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                           {attachment.name}
                         </a>
                       ) : (
-                        <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{attachment.name}</p>
+                        <p className="truncate text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{attachment.name}</p>
                       )}
-                      <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
                         {attachment.kind === 'link' ? 'Link attachment' : `${attachment.mimeType || 'File'}${attachment.size ? ` • ${Math.max(1, Math.round(attachment.size / 1024))} KB` : ''}`}
                       </p>
                     </div>
                     <button
-                      onClick={() => { dispatch({ type: 'REMOVE_ATTACHMENT', payload: { cardId: card.id, attachmentId: attachment.id } }); updateCardApi(card.id, { attachments: card.attachments.filter(item => item.id !== attachment.id) }); }}
-                      className="text-xs min-h-[44px] flex items-center"
+                      type="button"
+                      onClick={() => {
+                        dispatch({ type: 'REMOVE_ATTACHMENT', payload: { cardId: card.id, attachmentId: attachment.id } });
+                        updateCardApi(card.id, { attachments: card.attachments.filter(item => item.id !== attachment.id) });
+                      }}
+                      className="min-h-[44px] text-sm"
                       style={{ color: '#ef4444' }}
                     >
                       Remove
@@ -285,203 +485,106 @@ export function CardModal() {
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
+          )}
 
-            {/* Checklists */}
-            {card.checklists.length > 0 && (
-              <div className="mb-4">
-                {totalItems > 0 && (
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[10px] font-bold" style={{ color: progress === 100 ? '#22c55e' : 'var(--text-muted)' }}>{Math.round(progress)}%</span>
-                    <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
-                      <div className="h-full rounded-full transition-all duration-300" style={{ width: `${progress}%`, background: progress === 100 ? '#22c55e' : 'var(--accent)' }} />
-                    </div>
-                  </div>
-                )}
-                {card.checklists.map(cl => (
-                  <div key={cl.id} className="mb-3">
-                    <h4 className="text-xs font-bold mb-1.5" style={{ color: 'var(--text-primary)' }}>☑ {cl.title}</h4>
-                    {cl.items.map(item => (
-                      <div key={item.id} className="flex items-center gap-2 min-h-[44px] group">
-                        <input
-                          type="checkbox"
-                          checked={item.completed}
-                          onChange={() => { dispatch({ type: 'TOGGLE_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, itemId: item.id } }); const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: c.items.map(i => i.id === item.id ? { ...i, completed: !i.completed } : i) } : c); updateCardApi(card.id, { checklists: updated }); }}
-                          className="rounded shrink-0"
-                        />
-                        <span className="text-sm flex-1" style={{ color: 'var(--text-primary)', textDecoration: item.completed ? 'line-through' : 'none', opacity: item.completed ? 0.5 : 1 }}>{item.text}</span>
-                        <button
-                          onClick={() => { dispatch({ type: 'DELETE_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, itemId: item.id } }); const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: c.items.filter(i => i.id !== item.id) } : c); updateCardApi(card.id, { checklists: updated }); }}
-                          className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded flex items-center justify-center text-xs transition-opacity"
-                          style={{ color: '#ef4444' }}
-                        >✕</button>
-                      </div>
-                    ))}
-                    {addingItemTo === cl.id ? (
-                      <div className="flex gap-1 mt-1">
-                        <input
-                          autoFocus
-                          value={newItemText}
-                          onChange={e => setNewItemText(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && newItemText.trim()) {
-                              dispatch({ type: 'ADD_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, text: newItemText.trim() } });
-                              const newItem = { id: crypto.randomUUID(), text: newItemText.trim(), completed: false };
-                              const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: [...c.items, newItem] } : c);
-                              updateCardApi(card.id, { checklists: updated });
-                              setNewItemText('');
-                            }
-                            if (e.key === 'Escape') { setAddingItemTo(null); setNewItemText(''); }
-                          }}
-                          placeholder="Item text…"
-                          className="flex-1 px-2 py-1 text-xs rounded border bg-transparent outline-none"
-                          style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                        />
-                        <button onClick={() => {
-                          if (newItemText.trim()) { dispatch({ type: 'ADD_CHECKLIST_ITEM', payload: { cardId: card.id, checklistId: cl.id, text: newItemText.trim() } }); const newItem = { id: crypto.randomUUID(), text: newItemText.trim(), completed: false }; const updated = card.checklists.map(c => c.id === cl.id ? { ...c, items: [...c.items, newItem] } : c); updateCardApi(card.id, { checklists: updated }); }
-                          setNewItemText('');
-                        }} className="text-xs px-3 min-h-[44px] rounded text-white" style={{ background: 'var(--accent)' }}>Add</button>
-                        <button onClick={() => { setAddingItemTo(null); setNewItemText(''); }} className="text-xs px-2 min-h-[44px]" style={{ color: 'var(--text-muted)' }}>✕</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => setAddingItemTo(cl.id)} className="text-xs min-h-[44px] flex items-center" style={{ color: 'var(--text-muted)' }}>+ Add item</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add checklist */}
-            {addingChecklist ? (
-              <div className="mb-4">
-                <div className="flex gap-1">
-                  <input
-                    autoFocus
-                    value={newChecklistTitle}
-                    onChange={e => setNewChecklistTitle(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && newChecklistTitle.trim()) {
-                        dispatch({ type: 'ADD_CHECKLIST', payload: { cardId: card.id, title: newChecklistTitle.trim() } });
-                        const newCl = { id: crypto.randomUUID(), title: newChecklistTitle.trim(), items: [] };
-                        updateCardApi(card.id, { checklists: [...card.checklists, newCl] });
-                        setNewChecklistTitle('');
-                        setAddingChecklist(false);
-                      }
-                      if (e.key === 'Escape') { setAddingChecklist(false); setNewChecklistTitle(''); }
+          <section>
+            <SectionHeading icon={MessageSquare} title="Comments and activity" />
+            <div className="mb-4 flex gap-3">
+              <AvatarBadge initials={currentUser?.initials ?? '??'} color={currentUser?.color ?? '#6366f1'} />
+              <div className="flex-1">
+                <textarea
+                  value={comment}
+                  onChange={event => setComment(event.target.value)}
+                  placeholder="Write a comment..."
+                  rows={2}
+                  className="w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none"
+                  style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+                {comment.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newComment = { id: uid(), userId: state.currentUserId, text: comment.trim(), createdAt: new Date().toISOString() };
+                      dispatch({ type: 'ADD_COMMENT', payload: { cardId: card.id, text: comment.trim() } });
+                      updateCardApi(card.id, { comments: [...card.comments, newComment] });
+                      setComment('');
                     }}
-                    placeholder="Checklist title…"
-                    className="flex-1 px-2 py-1 text-xs rounded border bg-transparent outline-none"
-                    style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  />
-                  <button onClick={() => {
-                    if (newChecklistTitle.trim()) { dispatch({ type: 'ADD_CHECKLIST', payload: { cardId: card.id, title: newChecklistTitle.trim() } }); const newCl = { id: crypto.randomUUID(), title: newChecklistTitle.trim(), items: [] }; updateCardApi(card.id, { checklists: [...card.checklists, newCl] }); }
-                    setNewChecklistTitle(''); setAddingChecklist(false);
-                  }} className="text-xs px-3 min-h-[44px] rounded text-white" style={{ background: 'var(--accent)' }}>Add</button>
-                </div>
+                    className="mt-2 min-h-[44px] rounded-md px-4 text-sm font-medium text-white"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    Send
+                  </button>
+                )}
               </div>
-            ) : (
-              <button onClick={() => setAddingChecklist(true)} className="text-xs min-h-[44px] flex items-center mb-4" style={{ color: 'var(--accent)' }}>+ Add checklist</button>
-            )}
-
-            {/* Tabs: Comments / Activity */}
-            <div className="flex gap-3 border-b mb-3" style={{ borderColor: 'var(--border)' }}>
-              {(['details', 'activity'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className="text-xs font-medium min-h-[44px] flex items-center capitalize transition-colors"
-                  style={{ color: tab === t ? 'var(--accent)' : 'var(--text-muted)', borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent' }}
-                >
-                  {t === 'details' ? `Comments (${card.comments.length})` : 'Activity'}
-                </button>
-              ))}
             </div>
 
-            {tab === 'details' && (
-              <>
-                {/* Comment input */}
-                <div className="flex gap-2 mb-3">
-                  <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[9px] font-bold text-white" style={{ background: '#6366f1' }}>YO</div>
-                  <div className="flex-1">
-                    <textarea
-                      value={comment}
-                      onChange={e => setComment(e.target.value)}
-                      placeholder="Write a comment… (use @name to mention)"
-                      rows={2}
-                      className="w-full px-2 py-1.5 rounded-lg text-xs outline-none resize-none border"
-                      style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                    />
-                    {comment.trim() && (
-                      <button
-                        onClick={() => { const newComment = { id: crypto.randomUUID(), userId: state.users[0]?.id || '', text: comment.trim(), createdAt: new Date().toISOString() }; dispatch({ type: 'ADD_COMMENT', payload: { cardId: card.id, text: comment.trim() } }); updateCardApi(card.id, { comments: [...card.comments, newComment] }); setComment(''); }}
-                        className="mt-1 px-3 min-h-[44px] rounded text-xs font-medium text-white"
-                        style={{ background: 'var(--accent)' }}
-                      >
-                        Send
-                      </button>
-                    )}
+            <div className="space-y-4">
+              {card.comments.slice().reverse().map(entry => {
+                const user = state.users.find(candidate => candidate.id === entry.userId);
+                return (
+                  <div key={entry.id} className="flex gap-3">
+                    <AvatarBadge initials={user?.initials ?? '??'} color={user?.color ?? '#888'} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{user?.name}</span>
+                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(entry.createdAt).toLocaleString()}</span>
+                      </div>
+                      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{entry.text}</p>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {card.activity.length > 0 && (
+                <div className="border-t pt-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--text-muted)' }}>Activity</p>
+                  <div className="space-y-3">
+                    {card.activity.slice().reverse().map(entry => {
+                      const user = state.users.find(candidate => candidate.id === entry.userId);
+                      return (
+                        <div key={entry.id} className="flex items-start gap-3">
+                          <AvatarBadge initials={user?.initials ?? '??'} color={user?.color ?? '#888'} compact />
+                          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                            <strong style={{ color: 'var(--text-primary)' }}>{user?.name}</strong> {entry.action}
+                            <span className="ml-2 text-xs" style={{ color: 'var(--text-muted)' }}>{new Date(entry.createdAt).toLocaleString()}</span>
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-                {/* Comments */}
-                {card.comments.slice().reverse().map(cm => {
-                  const user = state.users.find(u => u.id === cm.userId);
-                  return (
-                    <div key={cm.id} className="flex gap-2 mb-3">
-                      <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[9px] font-bold text-white" style={{ background: user?.color || '#888' }}>{user?.initials}</div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>{user?.name}</span>
-                          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{new Date(cm.createdAt).toLocaleString()}</span>
-                        </div>
-                        <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{cm.text}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </>
-            )}
-
-            {tab === 'activity' && (
-              <div className="space-y-2">
-                {card.activity.length === 0 && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No activity yet</p>}
-                {card.activity.slice().reverse().map(a => {
-                  const user = state.users.find(u => u.id === a.userId);
-                  return (
-                    <div key={a.id} className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[8px] font-bold text-white" style={{ background: user?.color || '#888' }}>{user?.initials}</div>
-                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        <strong style={{ color: 'var(--text-primary)' }}>{user?.name}</strong> {a.action}
-                        <span className="ml-1" style={{ color: 'var(--text-muted)' }}>{new Date(a.createdAt).toLocaleString()}</span>
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Sidebar actions */}
-          <div className="w-36 shrink-0 space-y-1.5">
-            <h4 className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Actions</h4>
-            <button
-              aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
-              onClick={() => { dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, watching: !card.watching } }); updateCardApi(card.id, { watching: !card.watching }); }}
-              className="w-full text-left px-2.5 min-h-[44px] flex items-center rounded text-xs transition-colors"
-              style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}
-            >
-              {card.watching ? '👁 Watching' : '👁 Watch'}
-            </button>
-            <button
-              aria-label="Archive card"
-              onClick={() => { dispatch({ type: 'ARCHIVE_CARD', payload: card.id }); updateCardApi(card.id, { archived: true }); }}
-              className="w-full text-left px-2.5 min-h-[44px] flex items-center rounded text-xs transition-colors"
-              style={{ background: 'var(--active-bg)', color: '#ef4444' }}
-            >
-              📦 Archive
-            </button>
-          </div>
+              )}
+            </div>
+          </section>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SectionHeading({
+  icon: Icon,
+  title,
+  className = 'mb-2',
+}: {
+  icon: typeof AlignLeft;
+  title: string;
+  className?: string;
+}) {
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <Icon size={16} style={{ color: 'var(--text-secondary)' }} />
+      <h3 className="text-[1.05rem] font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+    </div>
+  );
+}
+
+function AvatarBadge({ initials, color, compact = false }: { initials: string; color: string; compact?: boolean }) {
+  const size = compact ? 'h-7 w-7 text-[10px]' : 'h-9 w-9 text-[11px]';
+  return (
+    <div className={`flex ${size} shrink-0 items-center justify-center rounded-full font-bold text-white`} style={{ background: color }}>
+      {initials}
     </div>
   );
 }

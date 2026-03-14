@@ -238,14 +238,21 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_CARD': {
       const currentCard = state.cards.find(card => card.id === action.payload.id);
       const addedUserIds = currentCard && action.payload.memberIds ? action.payload.memberIds.filter(memberId => !currentCard.memberIds.includes(memberId)) : [];
+      const removedUserIds = currentCard && action.payload.memberIds ? currentCard.memberIds.filter(memberId => !action.payload.memberIds?.includes(memberId)) : [];
 
       return {
         ...state,
         notifications: currentCard ? state.notifications.concat(createNotificationsForUsers(state, addedUserIds, currentCard, `You were assigned to "${currentCard.title}"`)) : state.notifications,
         cards: state.cards.map(card => {
           if (card.id !== action.payload.id) return card;
-          let updated = { ...card, ...action.payload, watching: addedUserIds.length > 0 ? true : action.payload.watching ?? card.watching };
-          if (addedUserIds.length > 0) updated = appendActivity(updated, state.currentUserId, 'updated card members');
+          const currentUserAdded = addedUserIds.includes(state.currentUserId);
+          const currentUserRemoved = removedUserIds.includes(state.currentUserId);
+          let watching = action.payload.watching ?? card.watching;
+          if (currentUserAdded) watching = true;
+          if (currentUserRemoved) watching = false;
+
+          let updated = { ...card, ...action.payload, watching };
+          if (addedUserIds.length > 0 || removedUserIds.length > 0) updated = appendActivity(updated, state.currentUserId, 'updated card members');
           if (action.payload.dueDate !== undefined && action.payload.dueDate !== card.dueDate) updated = appendActivity(updated, state.currentUserId, action.payload.dueDate ? 'set a due date' : 'removed the due date');
           if (action.payload.description !== undefined && action.payload.description !== card.description) updated = appendActivity(updated, state.currentUserId, 'updated the description');
           if (action.payload.watching !== undefined && action.payload.watching !== card.watching) updated = appendActivity(updated, state.currentUserId, action.payload.watching ? 'started watching this card' : 'stopped watching this card');

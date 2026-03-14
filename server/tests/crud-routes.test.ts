@@ -86,6 +86,57 @@ describe('board CRUD routes', () => {
     const res = await agent.post('/api/boards').send({ workspaceId: 'w1', title: 'Denied Board', color: '#000' });
     expect(res.status).toBe(403);
   });
+
+  it('updates board labels and cleans up removed label references', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    await agent.patch('/api/cards/c5').send({ labelIds: ['lb3'] });
+    const rule = await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Add bug label',
+      trigger: 'card_created',
+      triggerConfig: {},
+      conditions: { listId: null, labelId: 'lb3' },
+      action: 'add_label',
+      actionConfig: { labelId: 'lb3' },
+      enabled: true,
+    });
+    expect(rule.status).toBe(201);
+
+    const res = await agent.put('/api/boards/b1/labels').send({
+      labels: [
+        { id: 'lb1', name: 'Urgent', color: '#ef4444' },
+        { id: 'lb2', name: 'Feature', color: '#a855f7' },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.labels).toHaveLength(2);
+
+    const cardRow = db.prepare('SELECT label_ids_json as labelIdsJson FROM cards WHERE id = ?').get('c5') as { labelIdsJson: string };
+    const ruleRow = db.prepare('SELECT conditions_json as conditionsJson, action_config_json as actionConfigJson, enabled FROM automation_rules WHERE id = ?').get(rule.body.id) as { conditionsJson: string; actionConfigJson: string; enabled: number };
+    expect(JSON.parse(cardRow.labelIdsJson)).toEqual([]);
+    expect(JSON.parse(ruleRow.conditionsJson)).toEqual({ listId: null, labelId: null });
+    expect(JSON.parse(ruleRow.actionConfigJson)).toEqual({});
+    expect(ruleRow.enabled).toBe(0);
+  });
+
+  it('allows board labels with empty names for color-only labels', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.put('/api/boards/b1/labels').send({
+      labels: [
+        { id: 'lb1', name: '', color: '#ef4444' },
+        { id: 'lb2', name: 'Feature', color: '#a855f7' },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.labels[0]).toEqual({ id: 'lb1', name: '', color: '#ef4444' });
+  });
 });
 
 describe('list CRUD routes', () => {
@@ -293,6 +344,7 @@ describe('automation rule CRUD routes', () => {
       name: 'Auto-assign',
       trigger: 'card_moved',
       triggerConfig: { toListId: 'l1' },
+      conditions: { listId: null, labelId: null },
       action: 'assign_member',
       actionConfig: { memberId: 'u1' },
       enabled: true,
@@ -311,7 +363,7 @@ describe('automation rule CRUD routes', () => {
     const agent = await loginAdmin(app);
 
     const created = await agent.post('/api/automation-rules').send({
-      boardId: 'b1', name: 'Rule', trigger: 'card_created', triggerConfig: {},
+      boardId: 'b1', name: 'Rule', trigger: 'card_created', triggerConfig: {}, conditions: { listId: null, labelId: null },
       action: 'add_label', actionConfig: { labelId: 'lb1' }, enabled: true,
     });
 
@@ -327,7 +379,7 @@ describe('automation rule CRUD routes', () => {
     const agent = await loginAdmin(app);
 
     const created = await agent.post('/api/automation-rules').send({
-      boardId: 'b1', name: 'ToDelete', trigger: 'card_created', triggerConfig: {},
+      boardId: 'b1', name: 'ToDelete', trigger: 'card_created', triggerConfig: {}, conditions: { listId: null, labelId: null },
       action: 'mark_due_complete', actionConfig: {}, enabled: true,
     });
 

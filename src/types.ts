@@ -17,6 +17,31 @@ export interface Label {
   color: string;
 }
 
+export interface AutomationConditions {
+  listId: string | null;
+  labelId: string | null;
+}
+
+export type AutomationTrigger =
+  | 'card_moved'
+  | 'card_created'
+  | 'checklist_complete'
+  | 'due_date_reached'
+  | 'date_time'
+  | 'weekday'
+  | 'monthly'
+  | 'heartbeat';
+
+export interface AutomationTriggerConfig {
+  toListId?: string;
+  runAt?: string;
+  weekdays?: number[];
+  time?: string;
+  dayOfMonth?: number;
+  intervalValue?: number;
+  intervalUnit?: 'minutes' | 'hours';
+}
+
 export interface ChecklistItem {
   id: string;
   text: string;
@@ -85,11 +110,13 @@ export interface AutomationRule {
   id: string;
   boardId: string;
   name: string;
-  trigger: 'card_moved' | 'card_created' | 'due_date_reached' | 'checklist_complete';
-  triggerConfig: Record<string, string>;
+  trigger: AutomationTrigger;
+  triggerConfig: AutomationTriggerConfig;
+  conditions: AutomationConditions;
   action: 'assign_member' | 'add_label' | 'move_to_list' | 'mark_due_complete';
   actionConfig: Record<string, string>;
   enabled: boolean;
+  lastRunAt: string | null;
 }
 
 export interface Board {
@@ -244,9 +271,10 @@ export type Action =
   | { type: 'REMOVE_ATTACHMENT'; payload: { cardId: string; attachmentId: string } }
   | { type: 'ADD_BOARD'; payload: { workspaceId: string; title: string; color: string } }
   | { type: 'ADD_BOARD_FROM_API'; payload: Board }
+  | { type: 'UPDATE_BOARD_LABELS'; payload: { boardId: string; labels: Label[] } }
   | { type: 'ADD_WORKSPACE'; payload: Workspace }
   | { type: 'TOGGLE_BOARD_STAR'; payload: string }
-  | { type: 'ADD_AUTOMATION_RULE'; payload: Omit<AutomationRule, 'id'> }
+  | { type: 'ADD_AUTOMATION_RULE'; payload: Omit<AutomationRule, 'id' | 'lastRunAt'> }
   | { type: 'ADD_AUTOMATION_RULE_FROM_API'; payload: AutomationRule }
   | { type: 'UPDATE_AUTOMATION_RULE'; payload: Partial<AutomationRule> & { id: string } }
   | { type: 'DELETE_AUTOMATION_RULE'; payload: string }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { AppState, Action, Card, AutomationRule, User } from './types';
+import type { AppState, Action, Card, AutomationRule, Label, User } from './types';
 import { USERS, WORKSPACES, BOARDS, LISTS, CARDS, AUTOMATION_RULES, NOTIFICATIONS, uid } from './data';
 
 export const STORAGE_KEY = 'strata-app-state';
@@ -66,6 +66,33 @@ function getBoardDefault(boardId: string | null, boards: AppState['boards']): { 
   };
 }
 
+function ruleMatchesConditions(card: Card, conditions: AutomationRule['conditions']) {
+  if (conditions.listId && card.listId !== conditions.listId) return false;
+  if (conditions.labelId && !card.labelIds.includes(conditions.labelId)) return false;
+  return true;
+}
+
+function applyBoardLabelsToState(state: AppState, boardId: string, labels: Label[]): Pick<AppState, 'boards' | 'cards' | 'automationRules'> {
+  const validLabelIds = new Set(labels.map(label => label.id));
+  return {
+    boards: state.boards.map(board => board.id === boardId ? { ...board, labels } : board),
+    cards: state.cards.map(card => card.boardId === boardId ? { ...card, labelIds: card.labelIds.filter(labelId => validLabelIds.has(labelId)) } : card),
+    automationRules: state.automationRules.map(rule => {
+      if (rule.boardId !== boardId) return rule;
+      const nextConditions = rule.conditions.labelId && !validLabelIds.has(rule.conditions.labelId)
+        ? { ...rule.conditions, labelId: null }
+        : rule.conditions;
+      const actionLabelId = rule.actionConfig.labelId;
+      if (rule.action === 'add_label' && actionLabelId && !validLabelIds.has(actionLabelId)) {
+        const nextActionConfig = { ...rule.actionConfig };
+        delete nextActionConfig.labelId;
+        return { ...rule, conditions: nextConditions, actionConfig: nextActionConfig, enabled: false };
+      }
+      return { ...rule, conditions: nextConditions };
+    }),
+  };
+}
+
 function reindexCards(cards: Card[]): Card[] {
   return cards.map((card, index) => ({ ...card, position: index }));
 }
@@ -109,6 +136,7 @@ function runAutomations(state: AppState, card: Card, trigger: AutomationRule['tr
     if (idx === -1) continue;
 
     const nextCard = { ...updatedCards[idx] };
+    if (!ruleMatchesConditions(nextCard, rule.conditions)) continue;
 
     if (rule.action === 'assign_member' && rule.actionConfig.memberId && !nextCard.memberIds.includes(rule.actionConfig.memberId)) {
       nextCard.memberIds = [...nextCard.memberIds, rule.actionConfig.memberId];
@@ -381,6 +409,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'ADD_BOARD_FROM_API':
       return { ...state, boards: [...state.boards, action.payload], currentWorkspaceId: action.payload.workspaceId, currentBoardId: action.payload.id };
 
+    case 'UPDATE_BOARD_LABELS': {
+      const next = applyBoardLabelsToState(state, action.payload.boardId, action.payload.labels);
+      return { ...state, ...next };
+    }
+
     case 'ADD_WORKSPACE':
       return { ...state, workspaces: [...state.workspaces, action.payload], currentWorkspaceId: action.payload.id };
 
@@ -388,7 +421,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, boards: state.boards.map(board => board.id === action.payload ? { ...board, starred: !board.starred } : board) };
 
     case 'ADD_AUTOMATION_RULE':
-      return { ...state, automationRules: [...state.automationRules, { ...action.payload, id: uid() }] };
+      return { ...state, automationRules: [...state.automationRules, { ...action.payload, id: uid(), lastRunAt: null }] };
 
     case 'ADD_AUTOMATION_RULE_FROM_API':
       return { ...state, automationRules: [...state.automationRules, action.payload] };

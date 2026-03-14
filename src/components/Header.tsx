@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
-import { markNotificationReadApi, markAllNotificationsReadApi } from '../services/data';
+import { markNotificationReadApi, markAllNotificationsReadApi, updateBoardLabelsApi } from '../services/data';
 import { NavigationOverlay } from './NavigationOverlay';
 import { ProfileOverlay } from './ProfileOverlay';
+import { BoardLabelsDialog } from './BoardLabelsDialog';
 
 export function Header() {
   const state = useAppState();
@@ -13,6 +14,7 @@ export function Header() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
   const currentUserNotifications = state.notifications.filter(n => n.userId === state.currentUserId);
@@ -23,6 +25,7 @@ export function Header() {
   const hasMultipleWorkspaces = state.workspaces.length > 1;
   const unreadCount = currentUserNotifications.filter(n => !n.read).length;
   const dueFilterOptions: Array<[typeof state.filterDue, string]> = [['all', 'Any'], ['overdue', 'Overdue'], ['week', 'This Week'], ['month', 'This Month'], ['none', 'No Date']];
+  const canManageLabels = auth.canManageBoardLabels(state.currentBoardId);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -187,6 +190,18 @@ export function Header() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           </button>
 
+          {board && canManageLabels && (
+            <button
+              aria-label="Manage board labels"
+              onClick={() => setLabelsOpen(true)}
+              className="w-8 h-8 rounded-md flex items-center justify-center transition-colors"
+              style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}
+              title="Manage board labels"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3H4a1 1 0 0 0-1 1v5.59A2 2 0 0 0 3.59 11l9.58 9.59a2 2 0 0 0 2.83 0l4.59-4.59a2 2 0 0 0 0-2.83Z"/><path d="M7 7h.01"/></svg>
+            </button>
+          )}
+
           {/* Notifications */}
           <div className="relative" ref={notifRef}>
             <button
@@ -264,6 +279,18 @@ export function Header() {
       </header>
 
       <NavigationOverlay open={navOpen} onClose={() => setNavOpen(false)} />
+      {board && canManageLabels && labelsOpen && (
+        <BoardLabelsDialog
+          key={board.id}
+          open={labelsOpen}
+          labels={board.labels}
+          onClose={() => setLabelsOpen(false)}
+          onSave={async labels => {
+            const result = await updateBoardLabelsApi(board.id, labels);
+            dispatch({ type: 'UPDATE_BOARD_LABELS', payload: result });
+          }}
+        />
+      )}
       <ProfileOverlay open={profileOpen} onClose={() => setProfileOpen(false)} />
     </>
   );

@@ -147,8 +147,8 @@ export async function seedIfNeeded(db: Database.Database) {
   }
 
   const insertRule = db.prepare(`
-    INSERT INTO automation_rules (id, board_id, name, trigger, trigger_config_json, action, action_config_json, enabled)
-    VALUES (@id, @boardId, @name, @trigger, @triggerConfigJson, @action, @actionConfigJson, @enabled)
+    INSERT INTO automation_rules (id, board_id, name, trigger, trigger_config_json, conditions_json, action, action_config_json, enabled, last_run_at)
+    VALUES (@id, @boardId, @name, @trigger, @triggerConfigJson, @conditionsJson, @action, @actionConfigJson, @enabled, @lastRunAt)
   `);
   for (const rule of AUTOMATION_RULES) {
     insertRule.run({
@@ -157,9 +157,11 @@ export async function seedIfNeeded(db: Database.Database) {
       name: rule.name,
       trigger: rule.trigger,
       triggerConfigJson: JSON.stringify(rule.triggerConfig),
+      conditionsJson: JSON.stringify(rule.conditions),
       action: rule.action,
       actionConfigJson: JSON.stringify(rule.actionConfig),
       enabled: rule.enabled ? 1 : 0,
+      lastRunAt: rule.lastRunAt,
     });
   }
 

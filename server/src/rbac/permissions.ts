@@ -39,3 +39,19 @@ export function canManageBoard(db: Database.Database, auth: AuthContextValue, bo
   const workspaceId = getBoardWorkspaceId(db, boardId);
   return workspaceId ? canManageWorkspace(auth, workspaceId) : false;
 }
+
+export function canManageAutomation(db: Database.Database, auth: AuthContextValue, boardId: string) {
+  return canManageBoard(db, auth, boardId);
+}
+
+export function canManageBoardLabels(db: Database.Database, auth: AuthContextValue, boardId: string) {
+  return canManageBoard(db, auth, boardId);
+}
+
+export function canArchiveBoardContent(db: Database.Database, auth: AuthContextValue, boardId: string) {
+  return canManageBoard(db, auth, boardId);
+}
+
+export function canEditBoardCards(db: Database.Database, auth: AuthContextValue, boardId: string) {
+  return canManageBoard(db, auth, boardId);
+}

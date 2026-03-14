@@ -250,6 +250,7 @@ describe('automation rule RBAC', () => {
     name: 'Test Rule',
     trigger: 'card_moved',
     triggerConfig: { toListId: 'l5' },
+    conditions: { listId: null, labelId: null },
     action: 'assign_member',
     actionConfig: { memberId: 'u1' },
     enabled: true,
@@ -339,7 +340,7 @@ describe('unauthenticated access', () => {
     expect((await agent.post('/api/boards').send({ workspaceId: 'w1', title: 'X', color: '#000' })).status).toBe(401);
     expect((await agent.post('/api/lists').send({ boardId: 'b1', title: 'X' })).status).toBe(401);
     expect((await agent.post('/api/cards').send({ boardId: 'b1', listId: 'l1', title: 'X' })).status).toBe(401);
-    expect((await agent.post('/api/automation-rules').send({ boardId: 'b1', name: 'X', trigger: 't', triggerConfig: {}, action: 'a', actionConfig: {}, enabled: true })).status).toBe(401);
+    expect((await agent.post('/api/automation-rules').send({ boardId: 'b1', name: 'X', trigger: 't', triggerConfig: {}, conditions: { listId: null, labelId: null }, action: 'a', actionConfig: {}, enabled: true })).status).toBe(401);
     expect((await agent.post('/api/notifications/read-all').send()).status).toBe(401);
   });
 });

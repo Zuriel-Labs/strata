@@ -22,6 +22,10 @@ interface AuthContextValue {
   setAccessDenied: (message: string | null) => void;
   canManageWorkspace: (workspaceId: string | null) => boolean;
   canManageBoard: (boardId: string | null) => boolean;
+  canManageAutomation: (boardId: string | null) => boolean;
+  canManageBoardLabels: (boardId: string | null) => boolean;
+  canArchiveBoardContent: (boardId: string | null) => boolean;
+  canEditBoardCards: (boardId: string | null) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -122,15 +126,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!workspaceId || !session) return false;
       return session.permissions.isSystemAdmin || session.permissions.workspaceMemberships.some(membership => membership.workspaceId === workspaceId && membership.role === 'workspace_admin');
     },
-    canManageBoard: boardId => {
-      if (!boardId || !session) return false;
-      if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
-        return true;
-      }
-      const board = session.appState.boards.find(candidate => candidate.id === boardId);
-      return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
-    },
-  }), [accessDenied, adminOpen, appKey, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword]);
+      canManageBoard: boardId => {
+        if (!boardId || !session) return false;
+        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
+          return true;
+        }
+        const board = session.appState.boards.find(candidate => candidate.id === boardId);
+        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
+      },
+      canManageAutomation: boardId => {
+        if (!boardId || !session) return false;
+        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
+          return true;
+        }
+        const board = session.appState.boards.find(candidate => candidate.id === boardId);
+        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
+      },
+      canManageBoardLabels: boardId => {
+        if (!boardId || !session) return false;
+        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
+          return true;
+        }
+        const board = session.appState.boards.find(candidate => candidate.id === boardId);
+        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
+      },
+      canArchiveBoardContent: boardId => {
+        if (!boardId || !session) return false;
+        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
+          return true;
+        }
+        const board = session.appState.boards.find(candidate => candidate.id === boardId);
+        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
+      },
+      canEditBoardCards: boardId => {
+        if (!boardId || !session) return false;
+        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
+          return true;
+        }
+        const board = session.appState.boards.find(candidate => candidate.id === boardId);
+        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
+      },
+    }), [accessDenied, adminOpen, appKey, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

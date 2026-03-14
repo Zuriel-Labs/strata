@@ -57,9 +57,19 @@ function CardItem({ card }: { card: CardType }) {
     >
       {labels.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
-          {labels.map(l => (
-            <span key={l.id} className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white" style={{ background: l.color }}>{l.name}</span>
-          ))}
+          {labels.map(label => {
+            const isColorOnly = label.name.trim().length === 0;
+            return (
+              <span
+                key={label.id}
+                title={isColorOnly ? 'Color-only label' : label.name}
+                className={isColorOnly ? 'h-4 w-4 rounded text-[9px] font-bold' : 'px-1.5 py-0.5 rounded text-[9px] font-bold text-white'}
+                style={{ background: label.color }}
+              >
+                {!isColorOnly ? label.name : null}
+              </span>
+            );
+          })}
         </div>
       )}
       <p className="text-sm font-medium leading-snug mb-1.5" style={{ color: 'var(--text-primary)' }}>{card.title}</p>
@@ -92,11 +102,14 @@ function CardItem({ card }: { card: CardType }) {
 function ListColumn({ list }: { list: ListType }) {
   const state = useAppState();
   const dispatch = useDispatch();
+  const auth = useAuth();
   const [addingCard, setAddingCard] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
   const [listTitle, setListTitle] = useState(list.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const canEditCards = auth.canEditBoardCards(list.boardId);
+  const canArchiveContent = auth.canArchiveBoardContent(list.boardId);
 
   const cards = state.cards
     .filter(c => c.listId === list.id && passesFilter(c, state))
@@ -114,6 +127,20 @@ function ListColumn({ list }: { list: ListType }) {
       const dragList = state.lists.find(l => l.id === listId);
       if (dragList) { dispatch({ type: 'MOVE_LIST', payload: { listId, toPosition: list.position } }); moveListApi(listId, list.position); }
     }
+  };
+
+  const submitCard = () => {
+    const title = newTitle.trim();
+    if (!title) {
+      setAddingCard(false);
+      setNewTitle('');
+      return;
+    }
+    void createCardApi({ listId: list.id, boardId: list.boardId, title }).then(card => {
+      dispatch({ type: 'ADD_CARD_FROM_API', payload: card });
+      setNewTitle('');
+      setAddingCard(false);
+    });
   };
 
   return (
@@ -140,15 +167,19 @@ function ListColumn({ list }: { list: ListType }) {
           />
         ) : (
           <h3
-            onClick={() => { setEditingTitle(true); setListTitle(list.title); }}
-            className="text-[11px] font-bold uppercase tracking-widest cursor-pointer"
+            onClick={() => {
+              if (!canEditCards) return;
+              setEditingTitle(true);
+              setListTitle(list.title);
+            }}
+            className={`text-[11px] font-bold uppercase tracking-widest ${canEditCards ? 'cursor-pointer' : ''}`}
             style={{ color: 'var(--text-muted)' }}
           >
             {list.title} <span className="font-normal">({cards.length})</span>
           </h3>
         )}
         <div className="relative">
-          <button onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>
+          {canArchiveContent && <button onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
           {menuOpen && (
             <div className="absolute right-0 top-full mt-1 w-36 rounded-lg shadow-xl border z-50 py-1" style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}>
               <button onClick={() => { dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); archiveListApi(list.id); setMenuOpen(false); }} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70" style={{ color: 'var(--text-secondary)' }}>Archive list</button>
@@ -171,46 +202,24 @@ function ListColumn({ list }: { list: ListType }) {
 
       {/* Add card */}
       <div className="px-2 pb-2">
-        {addingCard ? (
+        {canEditCards && (addingCard ? (
           <div>
-            <textarea
+            <input
               autoFocus
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
+              onBlur={submitCard}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter') {
                   e.preventDefault();
-                  if (newTitle.trim()) {
-                    createCardApi({ listId: list.id, boardId: list.boardId, title: newTitle.trim() }).then(card => {
-                      dispatch({ type: 'ADD_CARD_FROM_API', payload: card });
-                    });
-                    setNewTitle('');
-                  }
+                  submitCard();
                 }
                 if (e.key === 'Escape') { setAddingCard(false); setNewTitle(''); }
               }}
               placeholder="Card title…"
-              rows={2}
-              className="w-full px-2 py-1.5 rounded-lg text-sm outline-none resize-none border"
+              className="w-full px-2 py-2 rounded-lg text-sm outline-none border"
               style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)', color: 'var(--text-primary)' }}
             />
-            <div className="flex gap-1 mt-1">
-              <button
-                onClick={() => {
-                  if (newTitle.trim()) {
-                    createCardApi({ listId: list.id, boardId: list.boardId, title: newTitle.trim() }).then(card => {
-                      dispatch({ type: 'ADD_CARD_FROM_API', payload: card });
-                    });
-                    setNewTitle('');
-                  }
-                }}
-                className="px-3 min-h-[44px] rounded text-xs font-medium text-white"
-                style={{ background: 'var(--accent)' }}
-              >
-                Add
-              </button>
-              <button onClick={() => { setAddingCard(false); setNewTitle(''); }} className="w-8 h-8 rounded-md flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>✕</button>
-            </div>
           </div>
         ) : (
           <button
@@ -222,7 +231,7 @@ function ListColumn({ list }: { list: ListType }) {
           >
             + Add a card
           </button>
-        )}
+        ))}
       </div>
     </div>
   );

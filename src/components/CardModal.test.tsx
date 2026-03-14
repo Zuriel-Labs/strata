@@ -4,6 +4,12 @@ import { CardModal } from './CardModal';
 import { AppProvider, initialState } from '../store';
 import type { AppState } from '../types';
 
+vi.mock('../lib/auth-context', () => ({
+  useAuth: () => ({
+    canEditBoardCards: () => true,
+  }),
+}));
+
 function buildState(cardId: string, overrides?: Partial<AppState['cards'][number]>): AppState {
   return {
     ...initialState,
@@ -63,7 +69,8 @@ describe('CardModal', () => {
     await user.click(screen.getByRole('button', { name: /attachment/i }));
 
     expect(screen.getByRole('heading', { name: 'Members' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Labels' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search labels')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Labels' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Due date' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Attachments' })).toBeInTheDocument();
   });
@@ -90,5 +97,57 @@ describe('CardModal', () => {
     await user.selectOptions(screen.getByLabelText('Card list'), 'l2');
     expect(screen.getByLabelText('Card list')).toHaveValue('l2');
     expect(screen.getByText('In list', { exact: false })).toBeInTheDocument();
+  });
+
+  it('shows a searchable Labels picker and applies labels through it', async () => {
+    const user = userEvent.setup();
+    render(
+      <AppProvider initialAppState={buildState('c5', { labelIds: [] })}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    await user.type(screen.getByPlaceholderText('Search labels'), 'bug');
+    expect(screen.queryByRole('heading', { name: 'Labels' })).not.toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: /bug\s*add/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /feature\s*add/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /bug\s*add/i }));
+    expect(screen.getByRole('button', { name: 'Bug' })).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('labels-panel-backdrop'));
+    expect(screen.queryByPlaceholderText('Search labels')).not.toBeInTheDocument();
+  });
+
+  it('closes the labels panel from its close button', async () => {
+    const user = userEvent.setup();
+    render(
+      <AppProvider initialAppState={buildState('c5', { labelIds: [] })}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    expect(screen.getByPlaceholderText('Search labels')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Close labels panel'));
+    expect(screen.queryByPlaceholderText('Search labels')).not.toBeInTheDocument();
+  });
+
+  it('renders color-only applied labels as square chips', () => {
+    const state = buildState('c5', { labelIds: ['lb1'] });
+    state.boards = state.boards.map(board => board.id === 'b1'
+      ? { ...board, labels: board.labels.map(label => label.id === 'lb1' ? { ...label, name: '' } : label) }
+      : board);
+
+    render(
+      <AppProvider initialAppState={state}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Color-only label' })).toHaveClass('h-11', 'w-11', 'rounded-md');
   });
 });

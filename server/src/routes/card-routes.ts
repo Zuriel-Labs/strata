@@ -2,9 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { createCard, updateCard, deleteCard, getCardById, getMaxCardPosition, createAuditEvent } from '../db/repositories';
+import { createCard, updateCard, deleteCard, getCardById, getMaxCardPosition, createAuditEvent, getBoardById } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { canManageBoard } from '../rbac/permissions';
+import { canArchiveBoardContent, canEditBoardCards, canManageBoard } from '../rbac/permissions';
 
 const createCardSchema = z.object({
   boardId: z.string().min(1),
@@ -37,6 +37,20 @@ const moveCardSchema = z.object({
 export function createCardRoutes(db: Database.Database) {
   const router = Router();
 
+  const validateCardUpdates = (boardId: string, labelIds?: string[], listId?: string) => {
+    const board = getBoardById(db, boardId);
+    if (!board) return 'Board not found.';
+    const validLabelIds = new Set(board.labels.map(label => label.id));
+    if (labelIds && labelIds.some(labelId => !validLabelIds.has(labelId))) {
+      return 'One or more labels do not belong to this board.';
+    }
+    if (listId) {
+      const listExists = db.prepare('SELECT 1 FROM lists WHERE id = ? AND board_id = ?').get(listId, boardId);
+      if (!listExists) return 'Selected list does not belong to this board.';
+    }
+    return null;
+  };
+
   // Create card
   router.post('/', requireAuth, (request: AuthenticatedRequest, response) => {
     const parsed = createCardSchema.safeParse(request.body);
@@ -61,10 +75,22 @@ export function createCardRoutes(db: Database.Database) {
     const cardId = String(request.params.cardId);
     const card = getCardById(db, cardId);
     if (!card) { response.status(404).json({ message: 'Card not found.' }); return; }
-    if (!canManageBoard(db, request.auth!, card.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     const parsed = updateCardSchema.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ message: 'Invalid payload.' }); return; }
+    const requiresArchivePermission = parsed.data.archived !== undefined && parsed.data.archived !== card.archived;
+    const canUpdate = requiresArchivePermission
+      ? canArchiveBoardContent(db, request.auth!, card.boardId)
+      : canEditBoardCards(db, request.auth!, card.boardId);
+    if (!canUpdate) { response.status(403).json({ message: 'Access denied.' }); return; }
+    const validationMessage = validateCardUpdates(card.boardId, parsed.data.labelIds, parsed.data.listId);
+    if (validationMessage) {
+      response.status(validationMessage === 'Board not found.' ? 404 : 400).json({ message: validationMessage });
+      return;
+    }
     updateCard(db, cardId, parsed.data);
+    if (requiresArchivePermission) {
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: card.boardId, action: parsed.data.archived ? 'card.archive' : 'card.restore', outcome: 'success' });
+    }
     const updated = getCardById(db, cardId);
     response.json(updated);
   });

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Desired Permissions</title>
+  <style>
+    :root {
+      --bg: #0f1722;
+      --panel: #13202d;
+      --header: #1c3044;
+      --grid: #2d465d;
+      --text: #d6e2ee;
+      --muted: #a8b6c4;
+      --yes: #79efc2;
+      --no: #ff8c8c;
+      --scope: #ffd27d;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--grid);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+    }
+
+    .content {
+      padding: 18px 18px 10px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
+
+    p {
+      margin: 0 0 16px;
+      color: var(--muted);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+    }
+
+    thead th {
+      padding: 12px 10px;
+      background: var(--header);
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-align: left;
+    }
+
+    tbody td {
+      padding: 16px 10px;
+      border-top: 1px solid var(--grid);
+      vertical-align: top;
+    }
+
+    tbody td:first-child {
+      width: 28%;
+      color: var(--muted);
+    }
+
+    .yes {
+      color: var(--yes);
+      font-weight: 600;
+    }
+
+    .no {
+      color: var(--no);
+      font-weight: 600;
+    }
+
+    .scope {
+      color: var(--scope);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="content">
+      <h1>Action-Level Read / Write Matrix</h1>
+      <p>This section answers the practical questions: who can create, edit, delete, and manage work owned by other users. Where the current MVP does not fully enforce the intended behavior yet, that is called out explicitly.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ACTION</th>
+              <th>SYSTEM_ADMIN</th>
+              <th>WORKSPACE_ADMIN</th>
+              <th>BOARD_ADMIN</th>
+              <th>MEMBER</th>
+              <th>OBSERVER</th>
+              <th>GUEST</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>View all workspaces and boards</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="scope">Only assigned workspace scope</span></td>
+              <td><span class="scope">Only assigned board scope</span></td>
+              <td><span class="scope">Only assigned board scope</span></td>
+              <td><span class="scope">Only assigned board scope</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Create users / reset passwords / manage memberships</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Create workspace</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Edit workspace settings</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Assigned workspace</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Delete workspace</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Assigned workspace</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Create board</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">In assigned workspace</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Edit board settings</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">In assigned workspace</span></td>
+              <td><span class="yes">Assigned board</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Delete board</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Create cards and lists</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Edit cards, comments, checklists, attachments</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Delete cards</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+            <tr>
+              <td>Edit another user's card</td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="yes">Yes</span></td>
+              <td><span class="no">No</span></td>
+              <td><span class="no">No</span></td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

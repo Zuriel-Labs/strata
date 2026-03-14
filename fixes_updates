@@ -1,0 +1,56 @@
+# CardModal — UI Overhaul
+
+Reference images: `fixes_updates_references/` (Card_main_view.png, Card_main_view_added_items.png, Card_triple_dot_menu.png)
+Mimic the reference images closely — they represent the target UX.
+
+---
+
+## Priority 1 — Removals (no dependencies)
+
+- **Remove** the triple-dot (⋯) menu button and all associated menu items/logic entirely.
+
+---
+
+## Priority 2 — Top Bar Layout
+
+Left side:
+- Display the **List** the card currently belongs to as a **dropdown**.
+- Selecting a different list moves the card to that list.
+
+Right side (left to right):
+- **Watch toggle** (Eye icon) — see behavior below.
+- **Close button** (existing "X") — no changes needed.
+
+---
+
+## Priority 3 — Watch Toggle Behavior
+
+- **Enabled state**: standard Eye icon.
+- **Disabled state**: Eye icon with a slash through it.
+- **Auto-enable**: when a user is added as a card member, Watch is automatically enabled for that user.
+- **Auto-disable**: when a user is removed from a card, Watch is automatically disabled for that user.
+- **Creating a card** does NOT automatically enable Watch.
+
+---
+
+## Priority 4 — Inline Title Editing
+
+- The card title is editable directly in the modal.
+- Click the title → enters edit mode.
+- Confirm with **Enter/Return** or by clicking away → exits edit mode, changes persist.
+
+---
+
+## Priority 5 — Card Body Section Order
+
+Default visible sections: **Description**, **Comments**.
+All other sections appear only after being added. When present, render in this order (left-to-right, top-to-bottom):
+
+1. Members
+2. Labels
+3. Due Date
+4. Description
+5. Attachments
+6. Comments
+
+> Checklist is NOT a feature at this time — do not implement or reference it.

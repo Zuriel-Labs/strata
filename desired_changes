@@ -1,0 +1,6 @@
+- Responsive UI Mobile-Friendly overhaul. Make use of overlay menus instead of side-panels for all device types.
+- Touchscreen friendly
+- Ability to create a Workspace. It looks like right now, we can only interact with the sample workspaces that were already there.
+- Adjust Admin panel to display all the tools the admin can interact with so they are each in their own sub-menu
+- So far, these are the Admin tools I am seeing and they need to be organized into each their own sub-menu: Edit Users, Create User, Audit
+- Currently, Create user is broken. It auto-populates with current Edit User in view and when changing the fields in "Create User", it also alters the content in the Edit User panel. Separating these into their own sub-menus will most likely fix this issue.

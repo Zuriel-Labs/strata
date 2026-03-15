@@ -4,7 +4,7 @@ test('mvp flow works end to end', async ({ page }) => {
   // Wait for server readiness
   await expect.poll(async () => {
     try {
-      const response = await page.request.get('http://127.0.0.1:8787/api/health');
+      const response = await page.request.get('http://127.0.0.1:8788/api/health');
       return response.ok();
     } catch {
       return false;

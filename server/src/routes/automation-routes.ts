@@ -16,7 +16,7 @@ import {
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageAutomation } from '../rbac/permissions';
 
-const triggerEnum = z.enum(['card_moved', 'card_created', 'checklist_complete', 'due_date_reached', 'date_time', 'weekday', 'monthly', 'heartbeat']);
+const triggerEnum = z.enum(['card_moved', 'card_created', 'checklist_complete', 'date_time', 'weekday', 'monthly', 'heartbeat']);
 const actionEnum = z.enum(['assign_member', 'add_label', 'move_to_list', 'mark_due_complete']);
 
 const triggerConfigSchema = z.object({

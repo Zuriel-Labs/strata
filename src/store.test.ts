@@ -71,4 +71,32 @@ describe('store reducer', () => {
     expect(withAttachment.cards.find(candidate => candidate.id === 'c3')?.attachments).toContainEqual(attachment);
     expect(withoutAttachment.cards.find(candidate => candidate.id === 'c3')?.attachments).not.toContainEqual(attachment);
   });
+
+  it('hydrates server state while preserving current UI selections', () => {
+    const localState = {
+      ...initialState,
+      currentWorkspaceId: 'w1',
+      currentBoardId: 'b1',
+      activeCardId: 'c1',
+      searchQuery: 'oauth',
+      searchOpen: true,
+      filterLabelIds: ['lb2'],
+      viewMode: 'table' as const,
+      automationPanelOpen: true,
+    };
+    const serverState = {
+      ...initialState,
+      cards: initialState.cards.map(card => card.id === 'c1' ? { ...card, labelIds: [...card.labelIds, 'lb1'] } : card),
+      notifications: [],
+    };
+
+    const hydrated = reducer(localState, { type: 'HYDRATE_FROM_SESSION', payload: serverState });
+
+    expect(hydrated.cards.find(candidate => candidate.id === 'c1')?.labelIds).toContain('lb1');
+    expect(hydrated.searchQuery).toBe('oauth');
+    expect(hydrated.searchOpen).toBe(true);
+    expect(hydrated.viewMode).toBe('table');
+    expect(hydrated.automationPanelOpen).toBe(true);
+    expect(hydrated.activeCardId).toBe('c1');
+  });
 });

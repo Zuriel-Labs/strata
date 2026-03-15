@@ -152,7 +152,7 @@ function AppShell() {
   }
 
   return (
-    <AppProvider key={auth.appKey} initialAppState={auth.session?.appState}>
+    <AppProvider initialAppState={auth.session?.appState}>
       <AppInner />
     </AppProvider>
   );

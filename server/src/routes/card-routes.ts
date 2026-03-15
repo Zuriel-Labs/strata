@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createCard, updateCard, deleteCard, getCardById, getMaxCardPosition, createAuditEvent, getBoardById } from '../db/repositories';
+import { applyRealtimeAutomations, becameChecklistComplete } from '../automation/realtime';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canArchiveBoardContent, canEditBoardCards, canManageBoard } from '../rbac/permissions';
 
@@ -66,7 +67,8 @@ export function createCardRoutes(db: Database.Database) {
     const position = getMaxCardPosition(db, parsed.data.listId) + 1;
     createCard(db, id, parsed.data.title, parsed.data.listId, parsed.data.boardId, position, request.auth!.user.id);
     createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: parsed.data.boardId, action: 'card.create', outcome: 'success' });
-    const card = getCardById(db, id);
+    const createdCard = getCardById(db, id);
+    const card = createdCard ? applyRealtimeAutomations(db, createdCard, 'card_created', request.auth!.user.id) : null;
     response.status(201).json(card);
   });
 
@@ -87,11 +89,15 @@ export function createCardRoutes(db: Database.Database) {
       response.status(validationMessage === 'Board not found.' ? 404 : 400).json({ message: validationMessage });
       return;
     }
+    const shouldRunChecklistAutomations = parsed.data.checklists !== undefined && becameChecklistComplete(card.checklists, parsed.data.checklists as typeof card.checklists);
     updateCard(db, cardId, parsed.data);
     if (requiresArchivePermission) {
       createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: card.boardId, action: parsed.data.archived ? 'card.archive' : 'card.restore', outcome: 'success' });
     }
-    const updated = getCardById(db, cardId);
+    const updatedCard = getCardById(db, cardId);
+    const updated = updatedCard && shouldRunChecklistAutomations
+      ? applyRealtimeAutomations(db, updatedCard, 'checklist_complete', request.auth!.user.id)
+      : updatedCard;
     response.json(updated);
   });
 
@@ -123,7 +129,8 @@ export function createCardRoutes(db: Database.Database) {
 
     db.prepare('UPDATE cards SET list_id = ? WHERE id = ?').run(parsed.data.toListId, card.id);
 
-    const updated = getCardById(db, cardId);
+    const movedCard = getCardById(db, cardId);
+    const updated = movedCard ? applyRealtimeAutomations(db, movedCard, 'card_moved', request.auth!.user.id, { toListId: parsed.data.toListId }) : null;
     response.json(updated);
   });
 

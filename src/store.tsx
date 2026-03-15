@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { AppState, Action, Card, AutomationRule, Label, User } from './types';
 import { USERS, WORKSPACES, BOARDS, LISTS, CARDS, AUTOMATION_RULES, NOTIFICATIONS, uid } from './data';
 
@@ -171,6 +171,34 @@ function runAutomations(state: AppState, card: Card, trigger: AutomationRule['tr
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case 'HYDRATE_FROM_SESSION': {
+      const nextWorkspaceId = action.payload.workspaces.some(workspace => workspace.id === state.currentWorkspaceId)
+        ? state.currentWorkspaceId
+        : action.payload.currentWorkspaceId;
+      const nextBoardId = action.payload.boards.some(board => board.id === state.currentBoardId)
+        ? state.currentBoardId
+        : action.payload.currentBoardId;
+      const nextActiveCardId = action.payload.cards.some(card => card.id === state.activeCardId)
+        ? state.activeCardId
+        : null;
+      return {
+        ...action.payload,
+        currentWorkspaceId: nextWorkspaceId,
+        currentBoardId: nextBoardId,
+        activeCardId: nextActiveCardId,
+        searchQuery: state.searchQuery,
+        searchOpen: state.searchOpen,
+        searchTimestamp: state.searchTimestamp,
+        filterLabelIds: state.filterLabelIds,
+        filterMemberIds: state.filterMemberIds,
+        filterDue: state.filterDue,
+        viewMode: state.viewMode,
+        sidebarOpen: state.sidebarOpen,
+        automationPanelOpen: state.automationPanelOpen,
+        settingsOpen: state.settingsOpen,
+      };
+    }
+
     case 'SET_CURRENT_WORKSPACE':
       return {
         ...state,
@@ -472,6 +500,12 @@ const DispatchContext = createContext<Dispatch<Action>>(() => {});
 
 export function AppProvider({ children, initialAppState }: { children: ReactNode; initialAppState?: AppState }) {
   const [state, dispatch] = useReducer(reducer, initialAppState ?? loadInitialState());
+
+  useEffect(() => {
+    if (initialAppState) {
+      dispatch({ type: 'HYDRATE_FROM_SESSION', payload: initialAppState });
+    }
+  }, [initialAppState]);
 
   return (
     <StateContext.Provider value={state}>

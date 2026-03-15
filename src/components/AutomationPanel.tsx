@@ -1,32 +1,23 @@
 import { useState } from 'react';
 import { useAppState, useDispatch } from '../store';
-import type { AutomationRule } from '../types';
 import { createAutomationRuleApi, updateAutomationRuleApi, deleteAutomationRuleApi } from '../services/data';
-
-const supportedTriggers: AutomationRule['trigger'][] = ['card_moved', 'card_created', 'checklist_complete', 'date_time', 'weekday', 'monthly', 'heartbeat'];
-const supportedActions: AutomationRule['action'][] = ['assign_member', 'add_label', 'move_to_list', 'mark_due_complete'];
+import type { AutomationRule } from '../types';
+import {
+  actionLabels,
+  buildAutomationRuleInput,
+  createDefaultAutomationForm,
+  supportedActions,
+  supportedTriggers,
+  triggerLabels,
+} from './automation-rule-form';
 
 export function AutomationPanel() {
   const state = useAppState();
   const dispatch = useDispatch();
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState<{
-    name: string;
-    trigger: AutomationRule['trigger'];
-    triggerListId: string;
-    conditionListId: string;
-    conditionLabelId: string;
-    scheduleDateTime: string;
-    scheduleWeekdays: number[];
-    scheduleTime: string;
-    scheduleDayOfMonth: string;
-    scheduleIntervalValue: string;
-    scheduleIntervalUnit: 'minutes' | 'hours';
-    action: AutomationRule['action'];
-    actionMemberId: string;
-    actionLabelId: string;
-    actionListId: string;
-  }>({ name: '', trigger: 'card_moved', triggerListId: '', conditionListId: '', conditionLabelId: '', scheduleDateTime: '', scheduleWeekdays: [], scheduleTime: '09:00', scheduleDayOfMonth: '1', scheduleIntervalValue: '1', scheduleIntervalUnit: 'hours', action: 'assign_member', actionMemberId: '', actionLabelId: '', actionListId: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState(createDefaultAutomationForm);
 
   if (!state.automationPanelOpen || !state.currentBoardId) return null;
 
@@ -34,51 +25,26 @@ export function AutomationPanel() {
   const lists = state.lists.filter(l => l.boardId === state.currentBoardId && !l.archived).sort((a, b) => a.position - b.position);
   const board = state.boards.find(b => b.id === state.currentBoardId);
 
-  const triggerLabels: Record<AutomationRule['trigger'], string> = {
-    card_moved: 'When a card is moved to a list',
-    card_created: 'When a card is created',
-    checklist_complete: 'When all checklist items are done',
-    due_date_reached: 'When a due date is reached',
-    date_time: 'At a specific date and time',
-    weekday: 'On selected weekdays',
-    monthly: 'On a day of the month',
-    heartbeat: 'Every interval',
-  };
-  const actionLabels: Record<AutomationRule['action'], string> = {
-    assign_member: 'Assign a member',
-    add_label: 'Add a label',
-    move_to_list: 'Move to a list',
-    mark_due_complete: 'Mark due date complete',
-  };
-
   const handleSave = async () => {
-    if (!form.name.trim()) return;
-    const triggerConfig: AutomationRule['triggerConfig'] = {};
-    if (form.trigger === 'card_moved' && form.triggerListId) triggerConfig.toListId = form.triggerListId;
-    if (form.trigger === 'date_time' && form.scheduleDateTime) triggerConfig.runAt = new Date(form.scheduleDateTime).toISOString();
-    if (form.trigger === 'weekday') {
-      triggerConfig.weekdays = form.scheduleWeekdays;
-      triggerConfig.time = form.scheduleTime;
-    }
-    if (form.trigger === 'monthly') {
-      triggerConfig.dayOfMonth = Number(form.scheduleDayOfMonth);
-      triggerConfig.time = form.scheduleTime;
-    }
-    if (form.trigger === 'heartbeat') {
-      triggerConfig.intervalValue = Number(form.scheduleIntervalValue);
-      triggerConfig.intervalUnit = form.scheduleIntervalUnit;
+    if (!state.currentBoardId || saving) return;
+    setError(null);
+    const { input, error: validationError } = buildAutomationRuleInput(state.currentBoardId, form);
+    if (!input) {
+      setError(validationError);
+      return;
     }
 
-    const conditions = { listId: form.conditionListId || null, labelId: form.conditionLabelId || null };
-    const actionConfig: Record<string, string> = {};
-    if (form.action === 'assign_member' && form.actionMemberId) actionConfig.memberId = form.actionMemberId;
-    if (form.action === 'add_label' && form.actionLabelId) actionConfig.labelId = form.actionLabelId;
-    if (form.action === 'move_to_list' && form.actionListId) actionConfig.listId = form.actionListId;
-
-    const rule = await createAutomationRuleApi({ boardId: state.currentBoardId!, name: form.name, trigger: form.trigger, triggerConfig, conditions, action: form.action, actionConfig, enabled: true });
-    dispatch({ type: 'ADD_AUTOMATION_RULE_FROM_API', payload: rule });
-    setForm({ name: '', trigger: 'card_moved', triggerListId: '', conditionListId: '', conditionLabelId: '', scheduleDateTime: '', scheduleWeekdays: [], scheduleTime: '09:00', scheduleDayOfMonth: '1', scheduleIntervalValue: '1', scheduleIntervalUnit: 'hours', action: 'assign_member', actionMemberId: '', actionLabelId: '', actionListId: '' });
-    setAdding(false);
+    setSaving(true);
+    try {
+      const rule = await createAutomationRuleApi(input);
+      dispatch({ type: 'ADD_AUTOMATION_RULE_FROM_API', payload: rule });
+      setForm(createDefaultAutomationForm());
+      setAdding(false);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to create automation rule.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -131,6 +97,7 @@ export function AutomationPanel() {
 
         {adding ? (
           <div className="rounded-lg p-3 border space-y-2" style={{ borderColor: 'var(--accent)', background: 'var(--card-bg)' }}>
+            {error && <p className="text-xs" style={{ color: '#ffb4b4' }}>{error}</p>}
             <input
               autoFocus
               value={form.name}
@@ -216,13 +183,13 @@ export function AutomationPanel() {
               </select>
             )}
             <div className="flex gap-1 pt-1">
-              <button onClick={handleSave} className="px-3 min-h-[44px] rounded text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>Create Rule</button>
-              <button onClick={() => setAdding(false)} className="px-3 min-h-[44px] text-xs" style={{ color: 'var(--text-muted)' }}>Cancel</button>
+              <button onClick={() => void handleSave()} disabled={saving} className="px-3 min-h-[44px] rounded text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" style={{ background: 'var(--accent)' }}>{saving ? 'Creating…' : 'Create Rule'}</button>
+              <button onClick={() => { setAdding(false); setError(null); setForm(createDefaultAutomationForm()); }} className="px-3 min-h-[44px] text-xs" style={{ color: 'var(--text-muted)' }}>Cancel</button>
             </div>
           </div>
         ) : (
           <button
-            onClick={() => setAdding(true)}
+            onClick={() => { setError(null); setForm(createDefaultAutomationForm()); setAdding(true); }}
             className="w-full px-3 min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium border border-dashed transition-colors"
             style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
           >

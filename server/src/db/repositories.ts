@@ -586,8 +586,14 @@ export function deleteAutomationRule(db: Database.Database, ruleId: string) {
 export function getAutomationRuleById(db: Database.Database, ruleId: string) {
   const row = db.prepare('SELECT * FROM automation_rules WHERE id = ?').get(ruleId) as Record<string, unknown> | undefined;
   if (!row) return null;
+  return mapAutomationRule(row);
+}
+
+function mapAutomationRule(row: Record<string, unknown>): AutomationRule {
   return {
-    id: String(row.id), boardId: String(row.board_id), name: String(row.name),
+    id: String(row.id),
+    boardId: String(row.board_id),
+    name: String(row.name),
     trigger: row.trigger as AutomationRule['trigger'],
     triggerConfig: parseJson<AutomationRule['triggerConfig']>(String(row.trigger_config_json)),
     conditions: row.conditions_json ? parseJson<AutomationRule['conditions']>(String(row.conditions_json)) : DEFAULT_AUTOMATION_CONDITIONS,
@@ -599,18 +605,11 @@ export function getAutomationRuleById(db: Database.Database, ruleId: string) {
 }
 
 export function listScheduledAutomationRules(db: Database.Database) {
-  return (db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger IN ('date_time', 'weekday', 'monthly', 'heartbeat') ORDER BY name ASC").all() as Array<Record<string, unknown>>).map(row => ({
-    id: String(row.id),
-    boardId: String(row.board_id),
-    name: String(row.name),
-    trigger: row.trigger as AutomationRule['trigger'],
-    triggerConfig: parseJson<AutomationRule['triggerConfig']>(String(row.trigger_config_json)),
-    conditions: row.conditions_json ? parseJson<AutomationRule['conditions']>(String(row.conditions_json)) : DEFAULT_AUTOMATION_CONDITIONS,
-    action: row.action as AutomationRule['action'],
-    actionConfig: parseJson<AutomationRule['actionConfig']>(String(row.action_config_json)),
-    enabled: asBool(Number(row.enabled)),
-    lastRunAt: row.last_run_at ? String(row.last_run_at) : null,
-  }));
+  return (db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger IN ('date_time', 'weekday', 'monthly', 'heartbeat') ORDER BY rowid ASC").all() as Array<Record<string, unknown>>).map(mapAutomationRule);
+}
+
+export function listEventAutomationRules(db: Database.Database, boardId: string, trigger: 'card_created' | 'card_moved' | 'checklist_complete') {
+  return (db.prepare('SELECT * FROM automation_rules WHERE board_id = ? AND enabled = 1 AND trigger = ? ORDER BY rowid ASC').all(boardId, trigger) as Array<Record<string, unknown>>).map(mapAutomationRule);
 }
 
 export function setAutomationRuleLastRunAt(db: Database.Database, ruleId: string, lastRunAt: string | null) {

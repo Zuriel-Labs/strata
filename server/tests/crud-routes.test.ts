@@ -305,6 +305,113 @@ describe('card CRUD routes', () => {
     expect(res.body.listId).toBe(list2.body.id);
   });
 
+  it('applies card_created automations on the server before returning the new card', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const intake = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Automation Intake' });
+    const review = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Automation Review' });
+
+    await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Label new cards',
+      trigger: 'card_created',
+      triggerConfig: {},
+      conditions: { listId: intake.body.id, labelId: null },
+      action: 'add_label',
+      actionConfig: { labelId: 'lb1' },
+      enabled: true,
+    });
+
+    await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Move new cards to review',
+      trigger: 'card_created',
+      triggerConfig: {},
+      conditions: { listId: intake.body.id, labelId: 'lb1' },
+      action: 'move_to_list',
+      actionConfig: { listId: review.body.id },
+      enabled: true,
+    });
+
+    const res = await agent.post('/api/cards').send({ boardId: 'b1', listId: intake.body.id, title: 'Created with automation' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.labelIds).toContain('lb1');
+    expect(res.body.listId).toBe(review.body.id);
+  });
+
+  it('applies card_moved automations on the server and persists notifications', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Assign reviewer on done',
+      trigger: 'card_moved',
+      triggerConfig: { toListId: 'l5' },
+      conditions: { listId: null, labelId: null },
+      action: 'assign_member',
+      actionConfig: { memberId: 'u2' },
+      enabled: true,
+    });
+
+    await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Complete due date on done',
+      trigger: 'card_moved',
+      triggerConfig: { toListId: 'l5' },
+      conditions: { listId: null, labelId: null },
+      action: 'mark_due_complete',
+      actionConfig: {},
+      enabled: true,
+    });
+
+    const card = await agent.post('/api/cards').send({ boardId: 'b1', listId: 'l1', title: 'Move automation card' });
+    await agent.patch(`/api/cards/${card.body.id}`).send({ dueDate: '2026-03-21T00:00:00.000Z' });
+
+    const res = await agent.post(`/api/cards/${card.body.id}/move`).send({ toListId: 'l5', toPosition: 0 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.listId).toBe('l5');
+    expect(res.body.memberIds).toContain('u2');
+    expect(res.body.dueDateComplete).toBe(true);
+
+    const notifications = db.prepare('SELECT user_id as userId, message FROM notifications WHERE card_id = ?').all(card.body.id) as Array<{ userId: string; message: string }>;
+    expect(notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: 'u2', message: expect.stringContaining('Automation assigned you') }),
+      expect.objectContaining({ userId: 'u1', message: expect.stringContaining('Automation: Alex Chen assigned') }),
+    ]));
+  });
+
+  it('applies checklist_complete automations when a checklist becomes fully complete', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Complete due date when checklist finishes',
+      trigger: 'checklist_complete',
+      triggerConfig: {},
+      conditions: { listId: null, labelId: null },
+      action: 'mark_due_complete',
+      actionConfig: {},
+      enabled: true,
+    });
+
+    const card = await agent.post('/api/cards').send({ boardId: 'b1', listId: 'l1', title: 'Checklist automation card' });
+    const updated = await agent.patch(`/api/cards/${card.body.id}`).send({
+      dueDate: '2026-03-21T00:00:00.000Z',
+      checklists: [{ id: 'ck1', title: 'Finish', items: [{ id: 'ci1', text: 'Done', completed: true }] }],
+    });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.dueDateComplete).toBe(true);
+  });
+
   it('deletes a card', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
@@ -355,6 +462,65 @@ describe('automation rule CRUD routes', () => {
     expect(res.body.enabled).toBe(true);
     expect(res.body.trigger).toBe('card_moved');
     expect(res.body.action).toBe('assign_member');
+  });
+
+  it('rejects unsupported or invalid automation configurations', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const unsupported = await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Legacy due date rule',
+      trigger: 'due_date_reached',
+      triggerConfig: {},
+      conditions: { listId: null, labelId: null },
+      action: 'mark_due_complete',
+      actionConfig: {},
+      enabled: true,
+    });
+    expect(unsupported.status).toBe(400);
+
+    const invalidMember = await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Assign outsider',
+      trigger: 'card_created',
+      triggerConfig: {},
+      conditions: { listId: null, labelId: null },
+      action: 'assign_member',
+      actionConfig: { memberId: 'missing-user' },
+      enabled: true,
+    });
+    expect(invalidMember.status).toBe(400);
+    expect(invalidMember.body.message).toBe('Selected automation member does not belong to this board.');
+  });
+
+  it('initializes and resets scheduled lastRunAt values appropriately', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const created = await agent.post('/api/automation-rules').send({
+      boardId: 'b1',
+      name: 'Heartbeat rule',
+      trigger: 'heartbeat',
+      triggerConfig: { intervalValue: 1, intervalUnit: 'hours' },
+      conditions: { listId: null, labelId: null },
+      action: 'mark_due_complete',
+      actionConfig: {},
+      enabled: true,
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.body.lastRunAt).toBeTruthy();
+
+    const updated = await agent.patch(`/api/automation-rules/${created.body.id}`).send({
+      trigger: 'monthly',
+      triggerConfig: { dayOfMonth: 14, time: '09:00' },
+    });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.lastRunAt).toBeNull();
   });
 
   it('updates an automation rule', async () => {

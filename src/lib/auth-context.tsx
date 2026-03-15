@@ -29,6 +29,7 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const AUTO_REFRESH_INTERVAL_MS = 5000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
@@ -83,6 +84,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+
+    const refreshIfVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refresh();
+    };
+
+    const timer = window.setInterval(refreshIfVisible, AUTO_REFRESH_INTERVAL_MS);
+    const handleVisibilityChange = () => refreshIfVisible();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refresh, status]);
 
   const login = useCallback(async (username: string, password: string) => {
     const payload = await loginRequest(username, password);

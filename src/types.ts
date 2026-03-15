@@ -240,6 +240,7 @@ export interface AppState {
 }
 
 export type Action =
+  | { type: 'HYDRATE_FROM_SESSION'; payload: AppState }
   | { type: 'SET_CURRENT_WORKSPACE'; payload: string | null }
   | { type: 'SET_CURRENT_BOARD'; payload: string | null }
   | { type: 'SET_ACTIVE_CARD'; payload: string | null }

@@ -272,8 +272,10 @@ export type Action =
   | { type: 'REMOVE_ATTACHMENT'; payload: { cardId: string; attachmentId: string } }
   | { type: 'ADD_BOARD'; payload: { workspaceId: string; title: string; color: string } }
   | { type: 'ADD_BOARD_FROM_API'; payload: Board }
+  | { type: 'UPDATE_BOARD_FROM_API'; payload: Board }
   | { type: 'UPDATE_BOARD_LABELS'; payload: { boardId: string; labels: Label[] } }
   | { type: 'ADD_WORKSPACE'; payload: Workspace }
+  | { type: 'UPDATE_WORKSPACE_FROM_API'; payload: Workspace }
   | { type: 'TOGGLE_BOARD_STAR'; payload: string }
   | { type: 'ADD_AUTOMATION_RULE'; payload: Omit<AutomationRule, 'id' | 'lastRunAt'> }
   | { type: 'ADD_AUTOMATION_RULE_FROM_API'; payload: AutomationRule }

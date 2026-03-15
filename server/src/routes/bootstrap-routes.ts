@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { buildSessionPayload, createAuditEvent } from '../db/repositories';
+import { buildSessionPayload, createAuditEvent, getWorkspaceById } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageWorkspace, isSystemAdmin } from '../rbac/permissions';
 
@@ -10,6 +10,10 @@ const workspaceSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(''),
   visibility: z.enum(['private', 'workspace', 'public']).default('private'),
+});
+
+const updateWorkspaceSchema = z.object({
+  name: z.string().transform(value => value.trim()).refine(value => value.length > 0),
 });
 
 export function createBootstrapRoutes(db: Database.Database) {
@@ -38,6 +42,29 @@ export function createBootstrapRoutes(db: Database.Database) {
     );
     createAuditEvent(db, { actorUserId: request.auth.user.id, scopeType: 'workspace', scopeId: id, action: 'workspace.create', outcome: 'success' });
     response.status(201).json({ id, name: parsed.data.name, description: parsed.data.description, visibility: parsed.data.visibility });
+  });
+
+  router.patch('/:workspaceId', requireAuth, (request: AuthenticatedRequest, response) => {
+    const workspaceId = String(request.params.workspaceId);
+    const workspace = getWorkspaceById(db, workspaceId);
+    if (!workspace) {
+      response.status(404).json({ message: 'Workspace not found.' });
+      return;
+    }
+    if (!canManageWorkspace(request.auth!, workspaceId)) {
+      response.status(403).json({ message: 'Access denied.' });
+      return;
+    }
+
+    const parsed = updateWorkspaceSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Invalid workspace payload.' });
+      return;
+    }
+
+    db.prepare('UPDATE workspaces SET name = ? WHERE id = ?').run(parsed.data.name, workspaceId);
+    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'workspace', scopeId: workspaceId, action: 'workspace.update', outcome: 'success' });
+    response.json({ ...workspace, name: parsed.data.name });
   });
 
   router.delete('/:workspaceId', requireAuth, (request: AuthenticatedRequest, response) => {

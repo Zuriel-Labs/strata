@@ -77,6 +77,29 @@ describe('board CRUD routes', () => {
     expect(res2.body.starred).toBe(true);
   });
 
+  it('renames a board', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.patch('/api/boards/b1').send({ title: 'Platform Launch' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe('Platform Launch');
+    const row = db.prepare('SELECT title FROM boards WHERE id = ?').get('b1') as { title: string };
+    expect(row.title).toBe('Platform Launch');
+  });
+
+  it('rejects renaming a board with a blank title', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const res = await agent.patch('/api/boards/b1').send({ title: '   ' });
+
+    expect(res.status).toBe(400);
+  });
+
   it('returns 403 when creating board in inaccessible workspace', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
@@ -158,6 +181,29 @@ describe('board CRUD routes', () => {
 
 describe('workspace routes', () => {
   afterEach(() => { closeDatabase(); });
+
+  it('renames a workspace', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const response = await agent.patch('/api/workspaces/w1').send({ name: 'Operations' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.name).toBe('Operations');
+    const row = db.prepare('SELECT name FROM workspaces WHERE id = ?').get('w1') as { name: string };
+    expect(row.name).toBe('Operations');
+  });
+
+  it('rejects renaming a workspace with a blank name', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const response = await agent.patch('/api/workspaces/w1').send({ name: '   ' });
+
+    expect(response.status).toBe(400);
+  });
 
   it('deletes a workspace and cascades related records', async () => {
     const db = await createDatabase(':memory:');

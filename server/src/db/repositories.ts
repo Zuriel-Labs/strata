@@ -174,6 +174,19 @@ function selectWorkspaces(db: Database.Database, workspaceIds: string[]) {
   }));
 }
 
+export function getWorkspaceById(db: Database.Database, workspaceId: string): Workspace | null {
+  const row = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const memberIds = (db.prepare('SELECT user_id as userId FROM workspace_memberships WHERE workspace_id = ? ORDER BY created_at ASC').all(workspaceId) as Array<{ userId: string }>).map(rowValue => rowValue.userId);
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    description: String(row.description),
+    memberIds,
+    visibility: row.visibility as Workspace['visibility'],
+  };
+}
+
 function selectBoards(db: Database.Database, boardIds: string[]) {
   if (boardIds.length === 0) return [] as Board[];
   const placeholders = boardIds.map(() => '?').join(', ');
@@ -354,6 +367,10 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
 export function createBoard(db: Database.Database, id: string, title: string, workspaceId: string, visibility: string, color: string, labelsJson: string) {
   const timestamp = new Date().toISOString();
   db.prepare('INSERT INTO boards (id, title, workspace_id, visibility, color, starred, labels_json, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)').run(id, title, workspaceId, visibility, color, labelsJson, timestamp);
+}
+
+export function updateBoardTitle(db: Database.Database, boardId: string, title: string) {
+  db.prepare('UPDATE boards SET title = ? WHERE id = ?').run(title, boardId);
 }
 
 export function updateBoardStarred(db: Database.Database, boardId: string, starred: boolean) {

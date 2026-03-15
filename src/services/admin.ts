@@ -56,6 +56,13 @@ export function createWorkspace(input: { name: string; description: string; visi
   });
 }
 
+export function updateWorkspace(workspaceId: string, input: { name: string }) {
+  return apiRequest<{ id: string; name: string; description: string; visibility: string }>(`/api/workspaces/${workspaceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 export function deleteWorkspace(workspaceId: string) {
   return apiRequest<{ success: boolean }>(`/api/workspaces/${workspaceId}`, {
     method: 'DELETE',

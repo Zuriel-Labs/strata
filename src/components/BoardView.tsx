@@ -250,6 +250,21 @@ export function BoardView() {
     .filter(l => l.boardId === state.currentBoardId && !l.archived)
     .sort((a, b) => a.position - b.position);
 
+  const submitList = () => {
+    const title = newListTitle.trim();
+    if (!title || !state.currentBoardId) {
+      setAddingList(false);
+      setNewListTitle('');
+      return;
+    }
+
+    void createListApi({ boardId: state.currentBoardId, title }).then(list => {
+      dispatch({ type: 'ADD_LIST_FROM_API', payload: list });
+      setNewListTitle('');
+      setAddingList(false);
+    });
+  };
+
   return (
     <div className="flex gap-4 p-4 overflow-x-auto flex-1 items-start" style={{ height: 'calc(100% - 0px)' }}>
       {lists.map(l => <ListColumn key={l.id} list={l} />)}
@@ -261,36 +276,18 @@ export function BoardView() {
               autoFocus
               value={newListTitle}
               onChange={e => setNewListTitle(e.target.value)}
+              onBlur={submitList}
               onKeyDown={e => {
-                if (e.key === 'Enter' && newListTitle.trim() && state.currentBoardId) {
-                  createListApi({ boardId: state.currentBoardId, title: newListTitle.trim() }).then(list => {
-                    dispatch({ type: 'ADD_LIST_FROM_API', payload: list });
-                  });
-                  setNewListTitle('');
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  submitList();
                 }
                 if (e.key === 'Escape') { setAddingList(false); setNewListTitle(''); }
               }}
               placeholder="List title…"
-              className="w-full px-2 py-1.5 rounded-lg text-sm outline-none border mb-2"
+              className="w-full px-2 py-1.5 rounded-lg text-sm outline-none border"
               style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)', color: 'var(--text-primary)' }}
             />
-            <div className="flex gap-1">
-              <button
-                onClick={() => {
-                  if (newListTitle.trim() && state.currentBoardId) {
-                    createListApi({ boardId: state.currentBoardId, title: newListTitle.trim() }).then(list => {
-                      dispatch({ type: 'ADD_LIST_FROM_API', payload: list });
-                    });
-                    setNewListTitle('');
-                  }
-                }}
-                className="px-3 min-h-[44px] rounded text-xs font-medium text-white"
-                style={{ background: 'var(--accent)' }}
-              >
-                Add
-              </button>
-              <button onClick={() => { setAddingList(false); setNewListTitle(''); }} className="w-8 h-8 rounded-md flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>✕</button>
-            </div>
           </div>
         ) : (
           <button

@@ -7,6 +7,14 @@ import { useAuth } from '../lib/auth-context';
 
 type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
 
+function getUserDisplay(state: ReturnType<typeof useAppState>, userId: string) {
+  if (userId === 'system') {
+    return { name: 'System', initials: 'SY', color: '#64748b' };
+  }
+
+  return state.users.find(user => user.id === userId) ?? { name: 'Deleted user', initials: 'DU', color: '#6b7280' };
+}
+
 export function CardModal() {
   const state = useAppState();
   const dispatch = useDispatch();
@@ -596,13 +604,13 @@ export function CardModal() {
 
             <div className="space-y-4">
               {card.comments.slice().reverse().map(entry => {
-                const user = state.users.find(candidate => candidate.id === entry.userId);
+                const user = getUserDisplay(state, entry.userId);
                 return (
                   <div key={entry.id} className="flex gap-3">
-                    <AvatarBadge initials={user?.initials ?? '??'} color={user?.color ?? '#888'} />
+                    <AvatarBadge initials={user.initials} color={user.color} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{user?.name}</span>
+                        <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{user.name}</span>
                         <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(entry.createdAt).toLocaleString()}</span>
                       </div>
                       <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{entry.text}</p>
@@ -616,12 +624,12 @@ export function CardModal() {
                   <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--text-muted)' }}>Activity</p>
                   <div className="space-y-3">
                     {card.activity.slice().reverse().map(entry => {
-                      const user = state.users.find(candidate => candidate.id === entry.userId);
+                      const user = getUserDisplay(state, entry.userId);
                       return (
                         <div key={entry.id} className="flex items-start gap-3">
-                          <AvatarBadge initials={user?.initials ?? '??'} color={user?.color ?? '#888'} compact />
+                          <AvatarBadge initials={user.initials} color={user.color} compact />
                           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                            <strong style={{ color: 'var(--text-primary)' }}>{user?.name}</strong> {entry.action}
+                            <strong style={{ color: 'var(--text-primary)' }}>{user.name}</strong> {entry.action}
                             <span className="ml-2 text-xs" style={{ color: 'var(--text-muted)' }}>{new Date(entry.createdAt).toLocaleString()}</span>
                           </p>
                         </div>

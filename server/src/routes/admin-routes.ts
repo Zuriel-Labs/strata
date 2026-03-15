@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
-import { createManagedUser, listAdminUsers, updateManagedUser } from '../db/admin-repositories';
+import { createManagedUser, deleteManagedUser, listAdminUsers, updateManagedUser } from '../db/admin-repositories';
 import { getBoardMembershipsForUser, getWorkspaceMembershipsForUser, getUserById, listAuditEvents, upsertRecoveryKey } from '../db/repositories';
 import { hashPassword } from '../auth/passwords';
 import { randomBytes } from 'node:crypto';
@@ -115,6 +115,29 @@ export function createAdminRoutes(db: Database.Database) {
     upsertRecoveryKey(db, user.id, keyHash);
     audit(db, { actorUserId: request.auth.user.id, targetUserId: user.id, scopeType: 'auth', action: 'auth.admin_recovery_key_generate', outcome: 'success' });
     response.json({ recoveryKey: rawKey });
+  });
+
+  router.delete('/users/:userId', (request: AuthenticatedRequest, response) => {
+    if (!request.auth || !canManageUserPlatform(request.auth)) {
+      response.status(403).json({ message: 'Forbidden.' });
+      return;
+    }
+
+    try {
+      const deleted = deleteManagedUser(db, request.auth.user, String(request.params.userId));
+      if (!deleted) {
+        response.status(404).json({ message: 'User not found.' });
+        return;
+      }
+      response.json(deleted);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to delete user.';
+      if (message === 'Cannot delete the currently authenticated user.' || message === 'Cannot delete the last remaining system administrator.') {
+        response.status(409).json({ message });
+        return;
+      }
+      response.status(400).json({ message });
+    }
   });
 
   return router;

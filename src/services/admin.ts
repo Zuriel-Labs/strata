@@ -12,6 +12,13 @@ export interface ManagedUserInput {
   boardMemberships: Array<{ boardId: string; role: string }>;
 }
 
+export interface DeleteManagedUserResponse {
+  deletedUserId: string;
+  username: string;
+  removedCardAssignments: number;
+  remediatedAutomationRules: number;
+}
+
 export function fetchAdminDirectory() {
   return apiRequest<AdminDirectoryResponse>('/api/admin/users');
 }
@@ -33,6 +40,12 @@ export function updateManagedUser(userId: string, input: Partial<ManagedUserInpu
 export function generateRecoveryKeyForUser(userId: string) {
   return apiRequest<{ recoveryKey: string }>(`/api/admin/users/${userId}/generate-recovery-key`, {
     method: 'POST',
+  });
+}
+
+export function deleteManagedUser(userId: string) {
+  return apiRequest<DeleteManagedUserResponse>(`/api/admin/users/${userId}`, {
+    method: 'DELETE',
   });
 }
 

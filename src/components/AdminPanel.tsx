@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import type { AdminDirectoryResponse, AdminUserRecord } from '../types';
 import { useAuth } from '../lib/auth-context';
-import { createManagedUser, fetchAdminDirectory, generateRecoveryKeyForUser, updateManagedUser, type ManagedUserInput } from '../services/admin';
+import { createManagedUser, deleteManagedUser as deleteManagedUserRequest, fetchAdminDirectory, generateRecoveryKeyForUser, updateManagedUser, type ManagedUserInput } from '../services/admin';
 
 const workspaceRoleOptions = ['', 'workspace_admin', 'member'] as const;
 const boardRoleOptions = ['', 'board_admin', 'member', 'observer'] as const;
 
 type AdminTab = 'edit-users' | 'create-user' | 'audit';
+type DeleteFlowStep = 'warning' | 'confirm';
 
 function deriveForm(user?: AdminUserRecord | null): ManagedUserInput {
   return {
@@ -123,21 +124,40 @@ export function AdminPanel() {
 function EditUsersTab({ directory, reloadDirectory }: { directory: AdminDirectoryResponse | null; reloadDirectory: () => Promise<void> }) {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(directory?.users[0]?.id ?? null);
   const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [deleteFlowStep, setDeleteFlowStep] = useState<DeleteFlowStep | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deletePending, setDeletePending] = useState(false);
 
   const selectedUser = useMemo(() => directory?.users.find(user => user.id === selectedUserId) ?? null, [directory, selectedUserId]);
   const [form, setForm] = useState<ManagedUserInput>(deriveForm(selectedUser));
+
+  function resetDeleteFlow() {
+    setDeleteFlowStep(null);
+    setDeleteConfirmation('');
+    setDeletePending(false);
+  }
 
   useEffect(() => {
     setForm(deriveForm(selectedUser));
   }, [selectedUser]);
 
   useEffect(() => {
-    if (directory?.users.length && !selectedUserId) {
+    if (!directory?.users.length) {
+      if (selectedUserId) setSelectedUserId(null);
+      return;
+    }
+    if (!selectedUserId || !directory.users.some(user => user.id === selectedUserId)) {
       setSelectedUserId(directory.users[0]?.id ?? null);
     }
   }, [directory, selectedUserId]);
+
+  useEffect(() => {
+    setActionError(null);
+    resetDeleteFlow();
+  }, [selectedUserId]);
 
   function updateWorkspaceMembership(workspaceId: string, role: string) {
     setForm(current => ({
@@ -160,6 +180,7 @@ function EditUsersTab({ directory, reloadDirectory }: { directory: AdminDirector
   async function handleSave() {
     if (!selectedUser) return;
     await updateManagedUser(selectedUser.id, form);
+    setActionError(null);
     setMessage('User updated.');
     await reloadDirectory();
   }
@@ -176,6 +197,26 @@ function EditUsersTab({ directory, reloadDirectory }: { directory: AdminDirector
     setCopied(false);
   }
 
+  async function handleDeleteUser() {
+    if (!selectedUser || deleteConfirmation !== 'DELETE' || deletePending) return;
+
+    setDeletePending(true);
+
+    try {
+      const result = await deleteManagedUserRequest(selectedUser.id);
+      resetDeleteFlow();
+      setActionError(null);
+      setMessage(`Deleted ${result.username}.`);
+      closeRecoveryKeyOverlay();
+      setSelectedUserId(null);
+      await reloadDirectory();
+    } catch (error) {
+      resetDeleteFlow();
+      setMessage(null);
+      setActionError(error instanceof Error ? error.message : 'Unable to delete user.');
+    }
+  }
+
   return (
     <div>
       <div className="rounded-2xl border p-4" style={{ borderColor: '#26313c', background: '#16202a' }}>
@@ -184,6 +225,7 @@ function EditUsersTab({ directory, reloadDirectory }: { directory: AdminDirector
             <div className="flex items-center gap-2 mb-4">
               <span className="text-sm font-bold whitespace-nowrap">Editing:</span>
               <select
+                aria-label="Select user to edit"
                 value={selectedUserId ?? ''}
                 onChange={e => setSelectedUserId(e.target.value)}
                 className="text-sm font-bold rounded-lg px-2 py-1.5 outline-none cursor-pointer flex-1 min-w-0"
@@ -198,15 +240,21 @@ function EditUsersTab({ directory, reloadDirectory }: { directory: AdminDirector
             {selectedUser && (
               <>
                 <UserForm form={form} setForm={setForm} directory={directory} updateWorkspaceMembership={updateWorkspaceMembership} updateBoardMembership={updateBoardMembership} />
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#5aa7ff', color: '#0b1822' }} onClick={() => void handleSave()}>
-                    Save changes
-                  </button>
-                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#f59e0b', color: '#0b1822' }} onClick={() => void handleGenerateRecoveryKey()}>
-                    Generate recovery key
+                <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+                  <div className="flex flex-wrap gap-3">
+                    <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#5aa7ff', color: '#0b1822' }} onClick={() => void handleSave()}>
+                      Save changes
+                    </button>
+                    <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#f59e0b', color: '#0b1822' }} onClick={() => void handleGenerateRecoveryKey()}>
+                      Generate recovery key
+                    </button>
+                  </div>
+                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#dc2626', color: '#fff5f5' }} onClick={() => { setActionError(null); setMessage(null); setDeleteFlowStep('warning'); }}>
+                    Delete User
                   </button>
                 </div>
                 {message && <p className="mt-4 text-sm" style={{ color: '#d9f99d' }}>{message}</p>}
+                {actionError && <p className="mt-4 text-sm" style={{ color: '#ffb4b4' }}>{actionError}</p>}
               </>
             )}
           </>
@@ -241,6 +289,56 @@ function EditUsersTab({ directory, reloadDirectory }: { directory: AdminDirector
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {deleteFlowStep && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(6, 9, 14, 0.7)' }} onClick={event => { if (event.target === event.currentTarget) resetDeleteFlow(); }}>
+          <div className="w-full max-w-md rounded-2xl border p-6" style={{ borderColor: '#26313c', background: '#16202a' }}>
+            {deleteFlowStep === 'warning' ? (
+              <>
+                <h3 className="text-base font-bold" style={{ color: '#edf2f7' }}>Delete User</h3>
+                <p className="mt-3 text-sm leading-6" style={{ color: '#cbd5e1' }}>
+                  User {selectedUser.username} will be removed from Strata. This cannot be undone. Are you sure?
+                </p>
+                <div className="mt-6 flex justify-end gap-3">
+                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#5aa7ff', color: '#0b1822' }} onClick={resetDeleteFlow}>
+                    Nevermind
+                  </button>
+                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#dc2626', color: '#fff5f5' }} onClick={() => setDeleteFlowStep('confirm')}>
+                    YES
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-base font-bold" style={{ color: '#edf2f7' }}>Final confirmation</h3>
+                <p className="mt-3 text-sm leading-6" style={{ color: '#cbd5e1' }}>
+                  Type <strong>DELETE</strong> to confirm permanent removal of {selectedUser.username}.
+                </p>
+                <input
+                  value={deleteConfirmation}
+                  onChange={event => setDeleteConfirmation(event.target.value)}
+                  placeholder="Type DELETE to confirm"
+                  className="mt-4 w-full rounded-xl px-3 py-2"
+                  style={{ background: '#11161d', color: '#edf2f7' }}
+                />
+                <div className="mt-6 flex justify-end gap-3">
+                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#5aa7ff', color: '#0b1822' }} onClick={resetDeleteFlow}>
+                    CANCEL
+                  </button>
+                  <button
+                    className="rounded-xl px-4 py-2 font-semibold disabled:cursor-not-allowed"
+                    style={{ background: deleteConfirmation === 'DELETE' ? '#dc2626' : '#7f1d1d', color: '#fff5f5', opacity: deletePending ? 0.75 : 1 }}
+                    onClick={() => void handleDeleteUser()}
+                    disabled={deleteConfirmation !== 'DELETE' || deletePending}
+                  >
+                    {deletePending ? 'BOOM...' : 'BOOM'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

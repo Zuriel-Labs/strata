@@ -110,6 +110,50 @@ describe('board star toggle RBAC', () => {
   });
 });
 
+describe('board rename RBAC', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('allows board_admin to rename a board', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await login(app, 'marcus', 'BoardAdmin123!');
+
+    const res = await agent.patch('/api/boards/b1').send({ title: 'Board Admin Rename' });
+    expect(res.status).toBe(200);
+  });
+
+  it('denies board member from renaming a board', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await login(app, 'priya', 'Member12345!');
+
+    const res = await agent.patch('/api/boards/b1').send({ title: 'Should Fail' });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('workspace rename RBAC', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('allows workspace_admin to rename a workspace', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await login(app, 'alex', 'WorkspaceAdmin123!');
+
+    const res = await agent.patch('/api/workspaces/w1').send({ name: 'Workspace Admin Rename' });
+    expect(res.status).toBe(200);
+  });
+
+  it('denies workspace member from renaming a workspace', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await login(app, 'priya', 'Member12345!');
+
+    const res = await agent.patch('/api/workspaces/w1').send({ name: 'Should Fail' });
+    expect(res.status).toBe(403);
+  });
+});
+
 // ─── List CRUD (requires canManageBoard) ─────────────────────────────────
 
 describe('list CRUD RBAC', () => {

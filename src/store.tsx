@@ -437,6 +437,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'ADD_BOARD_FROM_API':
       return { ...state, boards: [...state.boards, action.payload], currentWorkspaceId: action.payload.workspaceId, currentBoardId: action.payload.id };
 
+    case 'UPDATE_BOARD_FROM_API':
+      return { ...state, boards: state.boards.map(board => board.id === action.payload.id ? action.payload : board) };
+
     case 'UPDATE_BOARD_LABELS': {
       const next = applyBoardLabelsToState(state, action.payload.boardId, action.payload.labels);
       return { ...state, ...next };
@@ -444,6 +447,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case 'ADD_WORKSPACE':
       return { ...state, workspaces: [...state.workspaces, action.payload], currentWorkspaceId: action.payload.id };
+
+    case 'UPDATE_WORKSPACE_FROM_API':
+      return { ...state, workspaces: state.workspaces.map(workspace => workspace.id === action.payload.id ? action.payload : workspace) };
 
     case 'TOGGLE_BOARD_STAR':
       return { ...state, boards: state.boards.map(board => board.id === action.payload ? { ...board, starred: !board.starred } : board) };

@@ -10,6 +10,10 @@ export function toggleBoardStarApi(boardId: string) {
   return apiRequest<{ starred: boolean }>(`/api/boards/${boardId}/star`, { method: 'PATCH' });
 }
 
+export function updateBoardApi(boardId: string, input: { title: string }) {
+  return apiRequest<Board>(`/api/boards/${boardId}`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
 export function updateBoardLabelsApi(boardId: string, labels: Label[]) {
   return apiRequest<{ boardId: string; labels: Label[] }>(`/api/boards/${boardId}/labels`, { method: 'PUT', body: JSON.stringify({ labels }) });
 }

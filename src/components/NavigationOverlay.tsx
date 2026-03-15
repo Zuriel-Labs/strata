@@ -2,9 +2,9 @@ import { useMemo, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
-import { createWorkspace, deleteWorkspace } from '../services/admin';
-import { createBoardApi, deleteBoardApi, toggleBoardStarApi, updateCardApi, deleteCardApi, restoreListApi } from '../services/data';
-import type { AutomationRule } from '../types';
+import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/admin';
+import { createBoardApi, deleteBoardApi, toggleBoardStarApi, updateBoardApi, updateCardApi, deleteCardApi, restoreListApi } from '../services/data';
+import type { AutomationRule, Board, Workspace } from '../types';
 import { createAutomationRuleApi, updateAutomationRuleApi, deleteAutomationRuleApi } from '../services/data';
 import {
   actionLabels,
@@ -48,7 +48,12 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
 
   if (!open || !canOpenNavigation) return null;
 
-  const selectedWorkspace = state.workspaces.find(workspace => workspace.id === selectedWorkspaceId) ?? state.workspaces.find(workspace => workspace.id === state.currentWorkspaceId);
+  const boardWorkspaceOptions = state.workspaces.filter(workspace => auth.canManageWorkspace(workspace.id) || state.boards.some(board => board.workspaceId === workspace.id && auth.canManageBoard(board.id)));
+  const selectedWorkspace = boardWorkspaceOptions.find(workspace => workspace.id === selectedWorkspaceId)
+    ?? boardWorkspaceOptions.find(workspace => workspace.id === state.currentWorkspaceId)
+    ?? boardWorkspaceOptions[0]
+    ?? state.workspaces.find(workspace => workspace.id === selectedWorkspaceId)
+    ?? state.workspaces.find(workspace => workspace.id === state.currentWorkspaceId);
   const boards = state.boards.filter(board => board.workspaceId === selectedWorkspace?.id);
   const canManageWorkspace = auth.canManageWorkspace(selectedWorkspace?.id ?? null);
   const boardColors = ['#6366f1', '#0891b2', '#059669', '#ea580c', '#dc2626', '#7c3aed', '#be185d'];
@@ -115,11 +120,6 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
               setAddingWorkspace={setAddingWorkspace}
               newWorkspaceName={newWorkspaceName}
               setNewWorkspaceName={setNewWorkspaceName}
-              selectedWorkspaceId={selectedWorkspaceId}
-              onSelectWorkspace={workspaceId => {
-                setSelectedWorkspaceId(workspaceId);
-                setActiveTab('boards');
-              }}
               onRequestDeleteWorkspace={workspace => {
                 setSelectedWorkspaceId(workspace.id);
                 setDeleteTarget({ kind: 'workspace', id: workspace.id, name: workspace.name });
@@ -138,6 +138,9 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
               newBoardName={newBoardName}
               setNewBoardName={setNewBoardName}
               boardColors={boardColors}
+              workspaceOptions={boardWorkspaceOptions}
+              selectedWorkspaceId={selectedWorkspace?.id ?? null}
+              onSelectWorkspace={workspaceId => setSelectedWorkspaceId(workspaceId)}
               canManageWorkspace={canManageWorkspace}
               onRequestDeleteBoard={board => {
                 setDeleteTarget({ kind: 'board', id: board.id, name: board.title });
@@ -205,19 +208,22 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
 /* ── Workspaces Tab ── */
 
 function WorkspacesContent({
-  addingWorkspace, setAddingWorkspace, newWorkspaceName, setNewWorkspaceName, selectedWorkspaceId, onSelectWorkspace, onRequestDeleteWorkspace,
+  addingWorkspace, setAddingWorkspace, newWorkspaceName, setNewWorkspaceName, onRequestDeleteWorkspace,
 }: {
   addingWorkspace: boolean; setAddingWorkspace: (v: boolean) => void;
   newWorkspaceName: string; setNewWorkspaceName: (v: string) => void;
-  selectedWorkspaceId: string | null;
-  onSelectWorkspace: (workspaceId: string) => void;
-  onRequestDeleteWorkspace: (workspace: ReturnType<typeof useAppState>['workspaces'][0]) => void;
+  onRequestDeleteWorkspace: (workspace: Workspace) => void;
 }) {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const workspaceSubmitRef = useRef(false);
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
+  const [workspaceRenameDraft, setWorkspaceRenameDraft] = useState('');
+  const [workspaceRenameError, setWorkspaceRenameError] = useState<{ id: string; message: string } | null>(null);
+  const [workspaceRenameSavingId, setWorkspaceRenameSavingId] = useState<string | null>(null);
+  const workspaceCreateSubmitRef = useRef(false);
+  const workspaceRenameSubmitRef = useRef(false);
 
   const resetWorkspaceDraft = () => {
     setAddingWorkspace(false);
@@ -225,8 +231,57 @@ function WorkspacesContent({
     setWorkspaceError(null);
   };
 
+  const resetWorkspaceRename = () => {
+    setEditingWorkspaceId(null);
+    setWorkspaceRenameDraft('');
+    setWorkspaceRenameError(null);
+    setWorkspaceRenameSavingId(null);
+  };
+
+  const beginWorkspaceRename = (workspace: Workspace) => {
+    if (!auth.canManageWorkspace(workspace.id)) return;
+    resetWorkspaceDraft();
+    setEditingWorkspaceId(workspace.id);
+    setWorkspaceRenameDraft(workspace.name);
+    setWorkspaceRenameError(null);
+  };
+
+  const submitWorkspaceRename = async (workspace: Workspace) => {
+    if (workspaceRenameSubmitRef.current || editingWorkspaceId !== workspace.id) return;
+
+    const name = workspaceRenameDraft.trim();
+    if (!name || name === workspace.name) {
+      resetWorkspaceRename();
+      return;
+    }
+
+    workspaceRenameSubmitRef.current = true;
+    setWorkspaceRenameSavingId(workspace.id);
+    setWorkspaceRenameError(null);
+
+    try {
+      const result = await updateWorkspace(workspace.id, { name });
+      dispatch({
+        type: 'UPDATE_WORKSPACE_FROM_API',
+        payload: {
+          id: result.id,
+          name: result.name,
+          description: result.description,
+          memberIds: workspace.memberIds,
+          visibility: result.visibility as Workspace['visibility'],
+        },
+      });
+      resetWorkspaceRename();
+    } catch (error) {
+      setWorkspaceRenameError({ id: workspace.id, message: error instanceof Error ? error.message : 'Unable to rename workspace.' });
+      setWorkspaceRenameSavingId(null);
+    } finally {
+      workspaceRenameSubmitRef.current = false;
+    }
+  };
+
   const submitWorkspaceDraft = async () => {
-    if (workspaceSubmitRef.current) return;
+    if (workspaceCreateSubmitRef.current) return;
 
     const name = newWorkspaceName.trim();
     if (!name) {
@@ -234,7 +289,7 @@ function WorkspacesContent({
       return;
     }
 
-    workspaceSubmitRef.current = true;
+    workspaceCreateSubmitRef.current = true;
     setWorkspaceError(null);
 
     try {
@@ -245,53 +300,90 @@ function WorkspacesContent({
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to create workspace.');
     } finally {
-      workspaceSubmitRef.current = false;
+      workspaceCreateSubmitRef.current = false;
     }
   };
 
   return (
     <div className="space-y-2">
-      {state.workspaces.map(w => (
-        <div
-          key={w.id}
-          className="flex items-center gap-2"
-        >
-          <button
-            type="button"
-            aria-pressed={selectedWorkspaceId === w.id}
-            onClick={() => onSelectWorkspace(w.id)}
-            className="flex min-h-[52px] flex-1 items-center gap-3 rounded-xl px-4 text-left transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/15"
-            style={{
-              background: 'transparent',
-              color: 'var(--text-primary)',
-              border: '1px solid transparent',
-            }}
-          >
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: '#6366f1' }}>
-              {w.name.charAt(0)}
+      {state.workspaces.map(w => {
+        const canEdit = auth.canManageWorkspace(w.id);
+        const isEditing = editingWorkspaceId === w.id;
+        return (
+          <div key={w.id} className="space-y-1">
+            <div className="flex items-center gap-2">
+              {isEditing ? (
+                <div className="flex min-h-[52px] flex-1 items-center gap-3 rounded-xl border px-4" style={{ background: 'var(--card-bg)', borderColor: 'var(--accent)' }}>
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: '#6366f1' }}>
+                    {(workspaceRenameDraft.trim() || w.name).charAt(0)}
+                  </div>
+                  <input
+                    autoFocus
+                    value={workspaceRenameDraft}
+                    onChange={event => setWorkspaceRenameDraft(event.target.value)}
+                    onBlur={() => {
+                      void submitWorkspaceRename(w);
+                    }}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void submitWorkspaceRename(w);
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault();
+                        resetWorkspaceRename();
+                      }
+                    }}
+                    placeholder="Workspace name…"
+                    className="min-h-[44px] flex-1 bg-transparent text-sm font-semibold outline-none"
+                    style={{ color: 'var(--text-primary)' }}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => beginWorkspaceRename(w)}
+                  disabled={!canEdit}
+                  className="flex min-h-[52px] flex-1 items-center gap-3 rounded-xl px-4 text-left transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/15 disabled:cursor-default disabled:opacity-80"
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--text-primary)',
+                    border: '1px solid transparent',
+                  }}
+                >
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: '#6366f1' }}>
+                    {w.name.charAt(0)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{w.name}</p>
+                    {w.description && <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{w.description}</p>}
+                  </div>
+                </button>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  aria-label={`Delete workspace ${w.name}`}
+                  onClick={() => onRequestDeleteWorkspace(w)}
+                  className="flex h-10 w-10 items-center justify-center rounded-full"
+                  style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold truncate">{w.name}</p>
-              {w.description && <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{w.description}</p>}
-            </div>
-          </button>
-          {auth.canManageWorkspace(w.id) && (
-            <button
-              type="button"
-              aria-label={`Delete workspace ${w.name}`}
-              onClick={() => onRequestDeleteWorkspace(w)}
-              className="flex h-10 w-10 items-center justify-center rounded-full"
-              style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
-        </div>
-      ))}
+            {workspaceRenameError?.id === w.id && <p className="pl-4 text-xs" style={{ color: '#ffb4b4' }}>{workspaceRenameError.message}</p>}
+            {workspaceRenameSavingId === w.id && <p className="pl-4 text-[11px]" style={{ color: 'var(--text-muted)' }}>Saving workspace name…</p>}
+          </div>
+        );
+      })}
 
       {auth.session?.permissions.isSystemAdmin && !addingWorkspace && (
         <button
-          onClick={() => setAddingWorkspace(true)}
+          onClick={() => {
+            resetWorkspaceRename();
+            setAddingWorkspace(true);
+          }}
           className="w-full px-4 min-h-[44px] flex items-center justify-center rounded-xl text-xs font-medium border border-dashed transition-colors"
           style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
         >
@@ -332,33 +424,118 @@ function WorkspacesContent({
 /* ── Boards Tab ── */
 
 function BoardsContent({
-  boards, currentWs, addingBoard, setAddingBoard, newBoardName, setNewBoardName, boardColors, canManageWorkspace, onRequestDeleteBoard,
+  boards, currentWs, addingBoard, setAddingBoard, newBoardName, setNewBoardName, boardColors, workspaceOptions, selectedWorkspaceId, onSelectWorkspace, canManageWorkspace, onRequestDeleteBoard,
 }: {
-  boards: ReturnType<typeof useAppState>['boards'];
-  currentWs: ReturnType<typeof useAppState>['workspaces'][0] | undefined;
+  boards: Board[];
+  currentWs: Workspace | undefined;
   addingBoard: boolean; setAddingBoard: (v: boolean) => void;
   newBoardName: string; setNewBoardName: (v: string) => void;
   boardColors: string[];
+  workspaceOptions: Workspace[];
+  selectedWorkspaceId: string | null;
+  onSelectWorkspace: (workspaceId: string) => void;
   canManageWorkspace: boolean;
-  onRequestDeleteBoard: (board: ReturnType<typeof useAppState>['boards'][0]) => void;
+  onRequestDeleteBoard: (board: Board) => void;
 }) {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
+  const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
+  const [boardRenameDraft, setBoardRenameDraft] = useState('');
+  const [boardRenameError, setBoardRenameError] = useState<{ id: string; message: string } | null>(null);
+  const [boardRenameSavingId, setBoardRenameSavingId] = useState<string | null>(null);
+  const boardRenameSubmitRef = useRef(false);
 
   const starred = boards.filter(b => b.starred);
   const unstarred = boards.filter(b => !b.starred);
 
+  const resetBoardRename = () => {
+    setEditingBoardId(null);
+    setBoardRenameDraft('');
+    setBoardRenameError(null);
+    setBoardRenameSavingId(null);
+  };
+
+  const beginBoardRename = (board: Board) => {
+    if (!auth.canManageBoard(board.id)) return;
+    setAddingBoard(false);
+    setNewBoardName('');
+    setEditingBoardId(board.id);
+    setBoardRenameDraft(board.title);
+    setBoardRenameError(null);
+  };
+
+  const submitBoardRename = async (board: Board) => {
+    if (boardRenameSubmitRef.current || editingBoardId !== board.id) return;
+
+    const title = boardRenameDraft.trim();
+    if (!title || title === board.title) {
+      resetBoardRename();
+      return;
+    }
+
+    boardRenameSubmitRef.current = true;
+    setBoardRenameSavingId(board.id);
+    setBoardRenameError(null);
+
+    try {
+      const result = await updateBoardApi(board.id, { title });
+      dispatch({ type: 'UPDATE_BOARD_FROM_API', payload: result });
+      resetBoardRename();
+    } catch (error) {
+      setBoardRenameError({ id: board.id, message: error instanceof Error ? error.message : 'Unable to rename board.' });
+      setBoardRenameSavingId(null);
+    } finally {
+      boardRenameSubmitRef.current = false;
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {currentWs && <p className="text-sm font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>Workspace: <span style={{ color: '#f4f6fb' }}>{currentWs.name}</span></p>}
+      {currentWs && (
+        <p className="text-sm font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>
+          Workspace:{' '}
+          {workspaceOptions.length > 1 ? (
+            <select
+              aria-label="Board workspace"
+              value={selectedWorkspaceId ?? currentWs.id}
+              onChange={event => onSelectWorkspace(event.target.value)}
+              className="min-h-[40px] rounded-md border px-3 text-sm font-semibold outline-none"
+              style={{ background: '#2a2d36', borderColor: 'transparent', color: 'var(--text-primary)' }}
+            >
+              {workspaceOptions.map(workspace => (
+                <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+              ))}
+            </select>
+          ) : (
+            <span style={{ color: '#f4f6fb' }}>{currentWs.name}</span>
+          )}
+        </p>
+      )}
 
       {starred.length > 0 && (
         <div>
           <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>★ Starred</p>
           <div className="space-y-1">
             {starred.map(b => (
-              <BoardRow key={b.id} board={b} isCurrent={state.currentBoardId === b.id} onToggleStar={() => { dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); toggleBoardStarApi(b.id); }} onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined} />
+              <BoardRow
+                key={b.id}
+                board={b}
+                isCurrent={state.currentBoardId === b.id}
+                canEdit={auth.canManageBoard(b.id)}
+                isEditing={editingBoardId === b.id}
+                draftTitle={editingBoardId === b.id ? boardRenameDraft : b.title}
+                renameError={boardRenameError?.id === b.id ? boardRenameError.message : null}
+                renameSaving={boardRenameSavingId === b.id}
+                onDraftTitleChange={setBoardRenameDraft}
+                onStartEdit={() => beginBoardRename(b)}
+                onSubmitEdit={() => {
+                  void submitBoardRename(b);
+                }}
+                onCancelEdit={resetBoardRename}
+                onToggleStar={() => { dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); void toggleBoardStarApi(b.id); }}
+                onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined}
+              />
             ))}
           </div>
         </div>
@@ -368,7 +545,24 @@ function BoardsContent({
         {starred.length > 0 && <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>All Boards</p>}
         <div className="space-y-1">
           {unstarred.map(b => (
-            <BoardRow key={b.id} board={b} isCurrent={state.currentBoardId === b.id} onToggleStar={() => { dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); toggleBoardStarApi(b.id); }} onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined} />
+            <BoardRow
+              key={b.id}
+              board={b}
+              isCurrent={state.currentBoardId === b.id}
+              canEdit={auth.canManageBoard(b.id)}
+              isEditing={editingBoardId === b.id}
+              draftTitle={editingBoardId === b.id ? boardRenameDraft : b.title}
+              renameError={boardRenameError?.id === b.id ? boardRenameError.message : null}
+              renameSaving={boardRenameSavingId === b.id}
+              onDraftTitleChange={setBoardRenameDraft}
+              onStartEdit={() => beginBoardRename(b)}
+              onSubmitEdit={() => {
+                void submitBoardRename(b);
+              }}
+              onCancelEdit={resetBoardRename}
+              onToggleStar={() => { dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); void toggleBoardStarApi(b.id); }}
+              onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined}
+            />
           ))}
         </div>
       </div>
@@ -410,39 +604,99 @@ function BoardsContent({
   );
 }
 
-function BoardRow({ board, isCurrent, onToggleStar, onDelete }: { board: ReturnType<typeof useAppState>['boards'][0]; isCurrent: boolean; onToggleStar: () => void; onDelete?: () => void }) {
+function BoardRow({
+  board,
+  isCurrent,
+  canEdit,
+  isEditing,
+  draftTitle,
+  renameError,
+  renameSaving,
+  onDraftTitleChange,
+  onStartEdit,
+  onSubmitEdit,
+  onCancelEdit,
+  onToggleStar,
+  onDelete,
+}: {
+  board: Board;
+  isCurrent: boolean;
+  canEdit: boolean;
+  isEditing: boolean;
+  draftTitle: string;
+  renameError: string | null;
+  renameSaving: boolean;
+  onDraftTitleChange: (value: string) => void;
+  onStartEdit: () => void;
+  onSubmitEdit: () => void;
+  onCancelEdit: () => void;
+  onToggleStar: () => void;
+  onDelete?: () => void;
+}) {
   return (
-    <div className="flex items-center group">
-      <div
-        className="flex-1 flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-left transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/15"
-        style={{
-          background: 'transparent',
-          color: isCurrent ? 'var(--text-primary)' : 'var(--text-secondary)',
-        }}
-      >
-        <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: board.color }} />
-        <span className="truncate">{board.title}</span>
-      </div>
-      <button
-        type="button"
-        aria-label={`${board.starred ? 'Unstar' : 'Star'} ${board.title}`}
-        onClick={e => { e.stopPropagation(); onToggleStar(); }}
-        className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-md flex items-center justify-center text-sm transition-opacity"
-        style={{ color: board.starred ? '#eab308' : 'var(--text-muted)' }}
-      >
-        {board.starred ? '★' : '☆'}
-      </button>
-      {onDelete && (
+    <div className="space-y-1">
+      <div className="flex items-center group">
+        {isEditing ? (
+          <div className="flex flex-1 items-center gap-3 rounded-lg border px-3" style={{ background: 'var(--card-bg)', borderColor: 'var(--accent)' }}>
+            <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: board.color }} />
+            <input
+              autoFocus
+              value={draftTitle}
+              onChange={event => onDraftTitleChange(event.target.value)}
+              onBlur={onSubmitEdit}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  onSubmitEdit();
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  onCancelEdit();
+                }
+              }}
+              placeholder="Board name…"
+              className="min-h-[44px] flex-1 bg-transparent text-sm font-semibold outline-none"
+              style={{ color: 'var(--text-primary)' }}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onStartEdit}
+            disabled={!canEdit}
+            className="flex-1 flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-left transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/15 disabled:cursor-default disabled:opacity-80"
+            style={{
+              background: 'transparent',
+              color: isCurrent ? 'var(--text-primary)' : 'var(--text-secondary)',
+            }}
+          >
+            <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: board.color }} />
+            <span className="truncate">{board.title}</span>
+          </button>
+        )}
         <button
           type="button"
-          aria-label={`Delete board ${board.title}`}
-          onClick={event => { event.stopPropagation(); onDelete(); }}
-          className="ml-1 flex h-10 w-10 items-center justify-center rounded-full"
-          style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
+          aria-label={`${board.starred ? 'Unstar' : 'Star'} ${board.title}`}
+          onClick={event => { event.stopPropagation(); onToggleStar(); }}
+          className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-md flex items-center justify-center text-sm transition-opacity"
+          style={{ color: board.starred ? '#eab308' : 'var(--text-muted)' }}
         >
-          <Trash2 size={16} />
+          {board.starred ? '★' : '☆'}
         </button>
-      )}
+        {onDelete && (
+          <button
+            type="button"
+            aria-label={`Delete board ${board.title}`}
+            onClick={event => { event.stopPropagation(); onDelete(); }}
+            className="ml-1 flex h-10 w-10 items-center justify-center rounded-full"
+            style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+      </div>
+      {renameError && <p className="pl-3 text-xs" style={{ color: '#ffb4b4' }}>{renameError}</p>}
+      {renameSaving && <p className="pl-3 text-[11px]" style={{ color: 'var(--text-muted)' }}>Saving board name…</p>}
     </div>
   );
 }

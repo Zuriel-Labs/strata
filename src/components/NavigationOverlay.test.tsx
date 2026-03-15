@@ -2,18 +2,19 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NavigationOverlay } from './NavigationOverlay';
 import { AppProvider, initialState } from '../store';
-import { createWorkspace, deleteWorkspace } from '../services/admin';
-import { createBoardApi, deleteBoardApi } from '../services/data';
+import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/admin';
+import { createBoardApi, deleteBoardApi, updateBoardApi } from '../services/data';
 
-const { createAutomationRuleApiMock, createBoardApiMock, deleteBoardApiMock, authState } = vi.hoisted(() => ({
+const { createAutomationRuleApiMock, createBoardApiMock, updateBoardApiMock, deleteBoardApiMock, authState } = vi.hoisted(() => ({
   createAutomationRuleApiMock: vi.fn(),
   createBoardApiMock: vi.fn(),
+  updateBoardApiMock: vi.fn(),
   deleteBoardApiMock: vi.fn(),
   authState: {
     session: { permissions: { isSystemAdmin: false } },
-    canManageWorkspace: vi.fn(() => true),
-    canManageBoard: vi.fn(() => true),
-    canManageAutomation: vi.fn(() => true),
+    canManageWorkspace: vi.fn<(workspaceId: string | null) => boolean>(() => true),
+    canManageBoard: vi.fn<(boardId: string | null) => boolean>(() => true),
+    canManageAutomation: vi.fn<(boardId: string | null) => boolean>(() => true),
     refresh: vi.fn(async () => {}),
   },
 }));
@@ -21,6 +22,7 @@ const { createAutomationRuleApiMock, createBoardApiMock, deleteBoardApiMock, aut
 vi.mock('../services/admin', () => ({
   createWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
+  updateWorkspace: vi.fn(),
 }));
 
 vi.mock('../services/data', async () => {
@@ -29,6 +31,7 @@ vi.mock('../services/data', async () => {
     ...actual,
     createAutomationRuleApi: createAutomationRuleApiMock,
     createBoardApi: createBoardApiMock,
+    updateBoardApi: updateBoardApiMock,
     deleteBoardApi: deleteBoardApiMock,
   };
 });
@@ -39,7 +42,9 @@ vi.mock('../lib/auth-context', () => ({
 
 const createWorkspaceMock = vi.mocked(createWorkspace);
 const deleteWorkspaceMockInstance = vi.mocked(deleteWorkspace);
+const updateWorkspaceMock = vi.mocked(updateWorkspace);
 const createBoardApiMockInstance = vi.mocked(createBoardApi);
+const updateBoardApiMockInstance = vi.mocked(updateBoardApi);
 const deleteBoardApiMockInstance = vi.mocked(deleteBoardApi);
 
 function renderOverlay(appState = initialState) {
@@ -61,7 +66,9 @@ describe('NavigationOverlay automations', () => {
     createAutomationRuleApiMock.mockReset();
     createWorkspaceMock.mockReset();
     deleteWorkspaceMockInstance.mockReset();
+    updateWorkspaceMock.mockReset();
     createBoardApiMockInstance.mockReset();
+    updateBoardApiMockInstance.mockReset();
     deleteBoardApiMockInstance.mockReset();
     authState.session = { permissions: { isSystemAdmin: false } };
     authState.canManageWorkspace.mockReset();
@@ -74,8 +81,7 @@ describe('NavigationOverlay automations', () => {
     authState.refresh.mockResolvedValue(undefined);
   });
 
-  it('defaults to the leftmost accessible tab and hides board-admin-inaccessible tabs', async () => {
-    const user = userEvent.setup();
+  it('defaults to the leftmost accessible tab and hides board-admin-inaccessible tabs', () => {
     authState.canManageWorkspace.mockReturnValue(false);
     authState.canManageBoard.mockReturnValue(true);
 
@@ -87,9 +93,69 @@ describe('NavigationOverlay automations', () => {
     expect(screen.getByRole('button', { name: 'Boards' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Automations' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Acme Engineering/i }));
-    expect(screen.getByText((_, element) => element?.textContent === `Workspace: ${initialState.workspaces[0].name}`)).toBeInTheDocument();
-    expect(screen.queryByText('workspace')).not.toBeInTheDocument();
+  });
+
+  it('renames a workspace inline on Enter without switching tabs', async () => {
+    const user = userEvent.setup();
+    authState.session = { permissions: { isSystemAdmin: true } };
+    updateWorkspaceMock.mockResolvedValue({
+      id: 'w1',
+      name: 'Platform Ops',
+      description: initialState.workspaces[0].description,
+      visibility: initialState.workspaces[0].visibility,
+    });
+
+    renderOverlay();
+
+    await user.click(screen.getAllByRole('button', { name: /Acme Engineering/i })[0]);
+    const input = screen.getByDisplayValue('Acme Engineering');
+    await user.clear(input);
+    await user.type(input, 'Platform Ops{enter}');
+
+    await waitFor(() => {
+      expect(updateWorkspaceMock).toHaveBeenCalledWith('w1', { name: 'Platform Ops' });
+    });
+    expect(screen.getByText('Platform Ops')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Board workspace')).not.toBeInTheDocument();
+  });
+
+  it('renames a workspace inline when the field blurs', async () => {
+    const user = userEvent.setup();
+    authState.session = { permissions: { isSystemAdmin: true } };
+    updateWorkspaceMock.mockResolvedValue({
+      id: 'w1',
+      name: 'Customer Success',
+      description: initialState.workspaces[0].description,
+      visibility: initialState.workspaces[0].visibility,
+    });
+
+    renderOverlay();
+
+    await user.click(screen.getAllByRole('button', { name: /Acme Engineering/i })[0]);
+    const input = screen.getByDisplayValue('Acme Engineering');
+    await user.clear(input);
+    await user.type(input, 'Customer Success');
+    await user.click(screen.getByRole('button', { name: 'Boards' }));
+
+    await waitFor(() => {
+      expect(updateWorkspaceMock).toHaveBeenCalledWith('w1', { name: 'Customer Success' });
+    });
+  });
+
+  it('cancels a workspace rename on Escape', async () => {
+    const user = userEvent.setup();
+    authState.session = { permissions: { isSystemAdmin: true } };
+
+    renderOverlay();
+
+    await user.click(screen.getAllByRole('button', { name: /Acme Engineering/i })[0]);
+    const input = screen.getByDisplayValue('Acme Engineering');
+    await user.clear(input);
+    await user.type(input, 'Do Not Save');
+    await user.keyboard('{Escape}');
+
+    expect(updateWorkspaceMock).not.toHaveBeenCalled();
+    expect(screen.getByText('Acme Engineering')).toBeInTheDocument();
   });
 
   it('deletes a board after DELETE confirmation', async () => {
@@ -155,6 +221,69 @@ describe('NavigationOverlay automations', () => {
     expect(screen.getByText('New Launch Board')).toBeInTheDocument();
     expect(screen.getByText('Management')).toBeInTheDocument();
     expect(screen.getByText('Platform Sprint 24')).toBeInTheDocument();
+  });
+
+  it('renames a board inline on Enter', async () => {
+    const user = userEvent.setup();
+    updateBoardApiMockInstance.mockResolvedValue({
+      ...initialState.boards[0],
+      title: 'Platform Launch',
+    });
+
+    renderOverlay();
+
+    await user.click(screen.getByRole('button', { name: 'Boards' }));
+    await user.click(screen.getByRole('button', { name: 'Platform Sprint 24' }));
+    const input = screen.getByDisplayValue('Platform Sprint 24');
+    await user.clear(input);
+    await user.type(input, 'Platform Launch{enter}');
+
+    await waitFor(() => {
+      expect(updateBoardApiMockInstance).toHaveBeenCalledWith('b1', { title: 'Platform Launch' });
+    });
+    expect(screen.getByText('Platform Launch')).toBeInTheDocument();
+  });
+
+  it('renames a board inline when the field blurs', async () => {
+    const user = userEvent.setup();
+    updateBoardApiMockInstance.mockResolvedValue({
+      ...initialState.boards[0],
+      title: 'Platform Ready',
+    });
+
+    renderOverlay();
+
+    await user.click(screen.getByRole('button', { name: 'Boards' }));
+    await user.click(screen.getByRole('button', { name: 'Platform Sprint 24' }));
+    const input = screen.getByDisplayValue('Platform Sprint 24');
+    await user.clear(input);
+    await user.type(input, 'Platform Ready');
+    await user.click(screen.getByRole('button', { name: 'Workspaces' }));
+
+    await waitFor(() => {
+      expect(updateBoardApiMockInstance).toHaveBeenCalledWith('b1', { title: 'Platform Ready' });
+    });
+  });
+
+  it('shows a workspace selector in Boards when multiple editable workspaces are available', async () => {
+    const user = userEvent.setup();
+
+    renderOverlay();
+
+    await user.click(screen.getByRole('button', { name: 'Boards' }));
+    expect(screen.getByLabelText('Board workspace')).toBeInTheDocument();
+  });
+
+  it('keeps the Boards workspace header static when only one editable workspace exists', async () => {
+    const user = userEvent.setup();
+    authState.canManageWorkspace.mockImplementation(workspaceId => workspaceId === 'w1');
+    authState.canManageBoard.mockImplementation(boardId => boardId === 'b1' || boardId === 'b2');
+
+    renderOverlay();
+
+    await user.click(screen.getByRole('button', { name: 'Boards' }));
+    expect(screen.queryByLabelText('Board workspace')).not.toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent === 'Workspace: Acme Engineering')).toBeInTheDocument();
   });
 
   it('shows a board selector in Automations when multiple manageable boards are available', async () => {

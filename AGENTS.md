@@ -25,3 +25,10 @@ TypeScript 5.9, React 19, Express, better-sqlite3, bcryptjs, Zod v4, Vite, Vites
 - RBAC enforced via policy functions from `server/src/rbac/policies.ts`.
 - Tailwind CSS + shadcn/ui components in `src/components/ui/`.
 - Prefer `async/await`; no callbacks. Error responses: `{ message: string }`.
+
+## Active Technologies
+- TypeScript 5.9 on React 19 for the client and Node.js 20+ with Express for the server + React, Vite, Express, better-sqlite3, Zod, Vitest, Testing Library (006-delete-user-workflow)
+- SQLite accessed through existing repository helpers and JSON-backed card or automation columns (006-delete-user-workflow)
+
+## Recent Changes
+- 006-delete-user-workflow: Added TypeScript 5.9 on React 19 for the client and Node.js 20+ with Express for the server + React, Vite, Express, better-sqlite3, Zod, Vitest, Testing Library

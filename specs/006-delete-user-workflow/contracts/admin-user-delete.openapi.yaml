@@ -1,0 +1,67 @@
+openapi: 3.1.0
+info:
+  title: Strata Admin User Delete API
+  version: 1.0.0
+paths:
+  /api/admin/users/{userId}:
+    delete:
+      summary: Permanently delete a managed user
+      operationId: deleteManagedUser
+      tags:
+        - Admin Users
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User deleted and cleanup completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - deletedUserId
+                  - username
+                  - removedCardAssignments
+                  - remediatedAutomationRules
+                properties:
+                  deletedUserId:
+                    type: string
+                  username:
+                    type: string
+                  removedCardAssignments:
+                    type: integer
+                    minimum: 0
+                  remediatedAutomationRules:
+                    type: integer
+                    minimum: 0
+        '403':
+          description: Caller lacks system-admin permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Target user was not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Delete request violates a safety guardrail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string

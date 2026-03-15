@@ -19,6 +19,46 @@ type MembershipInput = {
   boardMemberships: Array<{ boardId: string; role: BoardMembershipRecord['role'] }>;
 };
 
+export interface DeleteManagedUserResult {
+  deletedUserId: string;
+  username: string;
+  removedCardAssignments: number;
+  remediatedAutomationRules: number;
+}
+
+function removeUserFromCardMemberships(db: Database.Database, userId: string) {
+  const rows = db.prepare('SELECT id, member_ids_json FROM cards').all() as Array<{ id: string; member_ids_json: string }>;
+  const updateCardMembers = db.prepare('UPDATE cards SET member_ids_json = ? WHERE id = ?');
+  let removedAssignments = 0;
+
+  for (const row of rows) {
+    const memberIds = JSON.parse(row.member_ids_json) as string[];
+    if (!memberIds.includes(userId)) continue;
+    const nextMemberIds = memberIds.filter(memberId => memberId !== userId);
+    removedAssignments += memberIds.length - nextMemberIds.length;
+    updateCardMembers.run(JSON.stringify(nextMemberIds), row.id);
+  }
+
+  return removedAssignments;
+}
+
+function remediateAutomationAssignments(db: Database.Database, userId: string) {
+  const rows = db.prepare("SELECT id, action_config_json FROM automation_rules WHERE action = 'assign_member'").all() as Array<{ id: string; action_config_json: string }>;
+  const updateRule = db.prepare('UPDATE automation_rules SET action_config_json = ?, enabled = 0 WHERE id = ?');
+  let remediatedRules = 0;
+
+  for (const row of rows) {
+    const actionConfig = JSON.parse(row.action_config_json) as Record<string, string>;
+    if (actionConfig.memberId !== userId) continue;
+    const nextActionConfig = { ...actionConfig };
+    delete nextActionConfig.memberId;
+    updateRule.run(JSON.stringify(nextActionConfig), row.id);
+    remediatedRules += 1;
+  }
+
+  return remediatedRules;
+}
+
 export function listAdminUsers(db: Database.Database) {
   return listUsers(db).map(user => ({
     id: user.id,
@@ -104,4 +144,42 @@ export function updateManagedUser(db: Database.Database, actor: UserRecord, user
   }
   createAuditEvent(db, { actorUserId: actor.id, targetUserId: userId, scopeType: 'platform', action: 'user.update', outcome: 'success' });
   return getUserById(db, userId);
+}
+
+export function deleteManagedUser(db: Database.Database, actor: UserRecord, userId: string): DeleteManagedUserResult | null {
+  const current = getUserById(db, userId);
+  if (!current) return null;
+  if (actor.id === userId) {
+    throw new Error('Cannot delete the currently authenticated user.');
+  }
+  if (current.platformRole === 'system_admin' && current.active && countSystemAdmins(db) <= 1) {
+    throw new Error('Cannot delete the last remaining system administrator.');
+  }
+
+  const deleteUserTransaction = db.transaction(() => {
+    const removedCardAssignments = removeUserFromCardMemberships(db, userId);
+    const remediatedAutomationRules = remediateAutomationAssignments(db, userId);
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    createAuditEvent(db, {
+      actorUserId: actor.id,
+      targetUserId: userId,
+      scopeType: 'platform',
+      action: 'user.delete',
+      outcome: 'success',
+      metadata: {
+        username: current.username,
+        removedCardAssignments,
+        remediatedAutomationRules,
+      },
+    });
+
+    return {
+      deletedUserId: userId,
+      username: current.username,
+      removedCardAssignments,
+      remediatedAutomationRules,
+    } satisfies DeleteManagedUserResult;
+  });
+
+  return deleteUserTransaction();
 }

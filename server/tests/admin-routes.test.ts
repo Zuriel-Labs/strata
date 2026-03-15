@@ -5,6 +5,8 @@ import request from 'supertest';
 import { createDatabase } from '../src/db/database';
 import { createApp } from '../src/app';
 import { closeDatabase } from '../src/db/database';
+import { createAutomationRuleWithConditions, createNotification, createSession, getAutomationRuleById, getCardById, getRecoveryKeyByUserId, getSession, getUserById, updateCard, upsertPasswordReset, upsertRecoveryKey } from '../src/db/repositories';
+import { deleteManagedUser } from '../src/db/admin-repositories';
 
 beforeAll(() => {
   process.env.SEED_DATA = 'true';
@@ -59,5 +61,104 @@ describe('admin routes', () => {
     expect(recoveryResponse.status).toBe(200);
     expect(recoveryResponse.body.recoveryKey).toBeTruthy();
     expect(recoveryResponse.body.recoveryKey).toHaveLength(64);
+  });
+
+  it('deletes a managed user and scrubs live references while preserving history', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAsAdmin(app);
+
+    const createResponse = await agent.post('/api/admin/users').send({
+      name: 'Jordan Lee',
+      initials: 'JL',
+      color: '#2563eb',
+      username: 'jordan',
+      platformRole: 'user',
+      active: true,
+      workspaceMemberships: [{ workspaceId: 'w1', role: 'member' }],
+      boardMemberships: [{ boardId: 'b1', role: 'observer' }],
+    });
+
+    expect(createResponse.status).toBe(201);
+    const deletedUserId = createResponse.body.user.id as string;
+
+    const targetSession = createSession(db, deletedUserId);
+    upsertRecoveryKey(db, deletedUserId, 'recovery-hash');
+    upsertPasswordReset(db, deletedUserId, 'u1', 'temporary-hash');
+    createNotification(db, 'n-delete-user', deletedUserId, 'c1', 'b1', 'Please review this card');
+
+    const card = getCardById(db, 'c1');
+    expect(card).not.toBeNull();
+    updateCard(db, 'c1', {
+      memberIds: [...(card?.memberIds ?? []), deletedUserId],
+      comments: [...(card?.comments ?? []), { id: 'cm-delete-user', userId: deletedUserId, text: 'Keep this comment', createdAt: new Date().toISOString() }],
+      activity: [...(card?.activity ?? []), { id: 'ac-delete-user', userId: deletedUserId, action: 'added this note', createdAt: new Date().toISOString() }],
+    });
+
+    createAutomationRuleWithConditions(
+      db,
+      'rule-delete-user',
+      'b1',
+      'Assign Jordan',
+      'card_created',
+      {},
+      { listId: null, labelId: null },
+      'assign_member',
+      { memberId: deletedUserId },
+      true,
+      null,
+    );
+
+    const deleteResponse = await agent.delete(`/api/admin/users/${deletedUserId}`);
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body).toMatchObject({
+      deletedUserId,
+      username: 'jordan',
+      remediatedAutomationRules: 1,
+    });
+    expect(deleteResponse.body.removedCardAssignments).toBeGreaterThanOrEqual(1);
+    expect(getUserById(db, deletedUserId)).toBeNull();
+    expect(getSession(db, targetSession.id)).toBeNull();
+    expect(getRecoveryKeyByUserId(db, deletedUserId)).toBeNull();
+    expect(db.prepare('SELECT * FROM password_resets WHERE user_id = ?').get(deletedUserId)).toBeUndefined();
+    expect(db.prepare('SELECT * FROM notifications WHERE user_id = ?').get(deletedUserId)).toBeUndefined();
+
+    const updatedCard = getCardById(db, 'c1');
+    expect(updatedCard?.memberIds).not.toContain(deletedUserId);
+    expect(updatedCard?.comments.some(comment => comment.userId === deletedUserId)).toBe(true);
+    expect(updatedCard?.activity.some(entry => entry.userId === deletedUserId)).toBe(true);
+
+    const updatedRule = getAutomationRuleById(db, 'rule-delete-user');
+    expect(updatedRule?.enabled).toBe(false);
+    expect(updatedRule?.actionConfig.memberId).toBeUndefined();
+
+    const deleteAudit = db.prepare("SELECT metadata_json FROM audit_events WHERE action = 'user.delete' ORDER BY created_at DESC LIMIT 1").get() as { metadata_json: string } | undefined;
+    expect(deleteAudit).toBeDefined();
+    expect(JSON.parse(deleteAudit?.metadata_json ?? '{}')).toMatchObject({
+      username: 'jordan',
+      remediatedAutomationRules: 1,
+    });
+  });
+
+  it('rejects self-delete through the admin route', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAsAdmin(app);
+
+    const response = await agent.delete('/api/admin/users/u1');
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe('Cannot delete the currently authenticated user.');
+    expect(getUserById(db, 'u1')).not.toBeNull();
+  });
+
+  it('rejects deleting the last remaining system administrator in repository safeguards', async () => {
+    const db = await createDatabase(':memory:');
+    const onlyAdmin = getUserById(db, 'u1');
+    expect(onlyAdmin).not.toBeNull();
+
+    expect(() => deleteManagedUser(db, { ...onlyAdmin!, id: 'external-admin' }, 'u1')).toThrow('Cannot delete the last remaining system administrator.');
+    expect(getUserById(db, 'u1')).not.toBeNull();
   });
 });

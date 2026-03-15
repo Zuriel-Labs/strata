@@ -26,6 +26,11 @@ export function Header() {
   const unreadCount = currentUserNotifications.filter(n => !n.read).length;
   const dueFilterOptions: Array<[typeof state.filterDue, string]> = [['all', 'Any'], ['overdue', 'Overdue'], ['week', 'This Week'], ['month', 'This Month'], ['none', 'No Date']];
   const canManageLabels = auth.canManageBoardLabels(state.currentBoardId);
+  const canOpenNavigation = Boolean(
+    auth.session?.permissions.isSystemAdmin
+    || auth.canManageWorkspace(state.currentWorkspaceId)
+    || auth.canManageBoard(state.currentBoardId),
+  );
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -80,9 +85,11 @@ export function Header() {
         {/* Row 2: All actions */}
         <div className="h-10 flex items-center justify-between px-4 border-t" style={{ borderColor: 'var(--border)' }}>
           {/* Left: Hamburger */}
-          <button aria-label="Open navigation" onClick={() => setNavOpen(true)} className="w-8 h-8 rounded-md flex items-center justify-center hover:opacity-70 transition-opacity shrink-0" style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-          </button>
+          {canOpenNavigation ? (
+            <button aria-label="Open navigation" onClick={() => setNavOpen(true)} className="w-8 h-8 rounded-md flex items-center justify-center hover:opacity-70 transition-opacity shrink-0" style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            </button>
+          ) : <div className="w-8 h-8 shrink-0" aria-hidden="true" />}
 
           {/* Center/Right: View, Filter, Search, Notifications, Admin, Profile */}
           <div className="flex items-center gap-1.5">

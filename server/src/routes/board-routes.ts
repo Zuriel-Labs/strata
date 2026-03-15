@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createBoard, createAuditEvent, updateBoardStarred, getBoardById, updateBoardLabels } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { canManageWorkspace, canAccessBoard, canManageBoardLabels } from '../rbac/permissions';
+import { canManageWorkspace, canAccessBoard, canManageBoard, canManageBoardLabels } from '../rbac/permissions';
 
 const labelSchema = z.object({
   id: z.string().min(1),
@@ -86,6 +86,23 @@ export function createBoardRoutes(db: Database.Database) {
     updateBoardLabels(db, boardId, parsed.data.labels);
     createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.labels.update', outcome: 'success' });
     response.json({ boardId, labels: parsed.data.labels });
+  });
+
+  router.delete('/:boardId', requireAuth, (request: AuthenticatedRequest, response) => {
+    const boardId = String(request.params.boardId);
+    const board = getBoardById(db, boardId);
+    if (!board) {
+      response.status(404).json({ message: 'Board not found.' });
+      return;
+    }
+    if (!canManageBoard(db, request.auth!, boardId)) {
+      response.status(403).json({ message: 'Access denied.' });
+      return;
+    }
+
+    db.prepare('DELETE FROM boards WHERE id = ?').run(boardId);
+    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.delete', outcome: 'success' });
+    response.json({ success: true });
   });
 
   return router;

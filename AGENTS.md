@@ -25,6 +25,7 @@ TypeScript 5.9, React 19, Express, better-sqlite3, bcryptjs, Zod v4, Vite, Vites
 - RBAC enforced via policy functions from `server/src/rbac/policies.ts`.
 - Tailwind CSS + shadcn/ui components in `src/components/ui/`.
 - Prefer `async/await`; no callbacks. Error responses: `{ message: string }`.
+- Any database schema or structural change MUST ship with a startup migration path. Add or update a migration script that checks whether the live SQLite schema is behind the expected structure, applies the required fix-up in sequence during startup, and skips migration work when the database is already current.
 
 ## Active Technologies
 - TypeScript 5.9 on React 19 for the client and Node.js 20+ with Express for the server + React, Vite, Express, better-sqlite3, Zod, Vitest, Testing Library (006-delete-user-workflow)

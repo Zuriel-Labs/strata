@@ -1,11 +1,50 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { AlignLeft, Circle, Clock3, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Users, X } from 'lucide-react';
+import { AlignLeft, Clock3, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
 import { uid } from '../data';
-import { updateCardApi, moveCardApi } from '../services/data';
+import { deleteCardApi, updateCardApi, moveCardApi } from '../services/data';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
+import type { Attachment } from '../types';
+import { toast } from '../hooks/use-toast';
 
 type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
+
+const INLINE_ATTACHMENT_MIME_TYPES = new Set([
+  'application/json',
+  'application/pdf',
+  'application/xml',
+]);
+
+const INLINE_ATTACHMENT_MIME_PREFIXES = ['audio/', 'image/', 'text/', 'video/'];
+
+function hasFilePayload(attachment: Attachment) {
+  return attachment.kind === 'file' && Boolean(attachment.url);
+}
+
+function canViewFileAttachment(attachment: Attachment) {
+  if (!hasFilePayload(attachment) || !attachment.mimeType) return false;
+
+  return INLINE_ATTACHMENT_MIME_PREFIXES.some(prefix => attachment.mimeType?.startsWith(prefix))
+    || INLINE_ATTACHMENT_MIME_TYPES.has(attachment.mimeType);
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error(`Unable to read file payload for ${file.name}.`));
+    };
+
+    reader.onerror = () => reject(reader.error ?? new Error(`Unable to read file payload for ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
 
 function getUserDisplay(state: ReturnType<typeof useAppState>, userId: string) {
   if (userId === 'system') {
@@ -32,6 +71,9 @@ export function CardModal() {
   const [draftTitle, setDraftTitle] = useState('');
   const [labelPickerOpen, setLabelPickerOpen] = useState(false);
   const [labelQuery, setLabelQuery] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
   const [revealedSections, setRevealedSections] = useState<Record<OptionalSectionKey, boolean>>({
     members: false,
     labels: false,
@@ -59,6 +101,7 @@ export function CardModal() {
     .sort((a, b) => a.position - b.position);
   const currentUser = state.users.find(user => user.id === state.currentUserId) ?? state.users[0] ?? null;
   const canEditCard = auth.canEditBoardCards(card.boardId);
+  const canDeleteCard = auth.canManageBoard(card.boardId);
   const hiddenSectionButtons = [
     { key: 'members' as const, label: 'Members', icon: Users, visible: card.memberIds.length > 0 || revealedSections.members },
     { key: 'dueDate' as const, label: 'Dates', icon: Clock3, visible: Boolean(card.dueDate) || revealedSections.dueDate },
@@ -86,6 +129,40 @@ export function CardModal() {
 
   const revealSection = (section: OptionalSectionKey) => {
     setRevealedSections(current => ({ ...current, [section]: true }));
+  };
+
+  const restoreFromServer = async (title: string, description: string) => {
+    toast({
+      title,
+      description,
+      variant: 'destructive',
+    });
+    await auth.refresh();
+  };
+
+  const closeDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setDeleteConfirmation('');
+    setDeletePending(false);
+  };
+
+  const handleDeleteCard = async () => {
+    if (!canDeleteCard || deletePending || deleteConfirmation !== 'DELETE') return;
+
+    setDeletePending(true);
+
+    try {
+      await deleteCardApi(card.id);
+      dispatch({ type: 'DELETE_CARD', payload: card.id });
+      closeDeleteDialog();
+    } catch (error) {
+      setDeletePending(false);
+      toast({
+        title: 'Card not deleted',
+        description: error instanceof Error ? error.message : 'The card could not be deleted.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleMoveList = (nextListId: string) => {
@@ -137,7 +214,7 @@ export function CardModal() {
     persistCard({ memberIds: nextMemberIds, watching: getWatchingForMemberChange(nextMemberIds) });
   };
 
-  const handleLinkAttachment = () => {
+  const handleLinkAttachment = async () => {
     const value = attachmentLink.trim();
     if (!value) return;
 
@@ -154,22 +231,31 @@ export function CardModal() {
       type: 'ADD_ATTACHMENT',
       payload: { cardId: card.id, attachment },
     });
-    updateCardApi(card.id, { attachments: [...card.attachments, attachment] });
-    setAttachmentLink('');
     revealSection('attachments');
+    try {
+      await updateCardApi(card.id, { attachments: [...card.attachments, attachment] });
+    } catch (error) {
+      await restoreFromServer(
+        'Attachment not saved',
+        error instanceof Error ? error.message : 'The link attachment could not be saved.',
+      );
+      return;
+    }
+    setAttachmentLink('');
   };
 
-  const handleFileAttachment = (files: FileList | null) => {
+  const handleFileAttachment = async (files: FileList | null) => {
     if (!files) return;
 
-    const newAttachments = Array.from(files).map(file => ({
+    const newAttachments = await Promise.all(Array.from(files).map(async file => ({
       id: uid(),
       name: file.name,
       kind: 'file' as const,
+      url: await readFileAsDataUrl(file),
       size: file.size,
-      mimeType: file.type,
+      mimeType: file.type || undefined,
       createdAt: new Date().toISOString(),
-    }));
+    })));
 
     newAttachments.forEach(attachment => {
       dispatch({
@@ -177,9 +263,17 @@ export function CardModal() {
         payload: { cardId: card.id, attachment },
       });
     });
-    updateCardApi(card.id, { attachments: [...card.attachments, ...newAttachments] });
-    if (fileInputRef.current) fileInputRef.current.value = '';
     revealSection('attachments');
+    try {
+      await updateCardApi(card.id, { attachments: [...card.attachments, ...newAttachments] });
+    } catch (error) {
+      await restoreFromServer(
+        'Upload not saved',
+        error instanceof Error ? error.message : 'The uploaded files could not be saved.',
+      );
+      return;
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
@@ -209,6 +303,19 @@ export function CardModal() {
           </select>
 
           <div className="flex items-center gap-2">
+            {canDeleteCard && (
+              <button
+                aria-label="Delete card"
+                onClick={() => {
+                  setDeleteDialogOpen(true);
+                  setDeleteConfirmation('');
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
             <button
               aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
               onClick={handleToggleWatch}
@@ -229,37 +336,32 @@ export function CardModal() {
         </div>
 
         <div className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6">
-          <div className="mb-5 flex items-start gap-3">
-            <div className="pt-1" style={{ color: 'var(--text-muted)' }}>
-              <Circle size={18} />
-            </div>
-            <div className="min-w-0 flex-1">
-              {titleEditing ? (
-                <input
-                  ref={titleInputRef}
-                  value={draftTitle}
-                  onChange={event => setDraftTitle(event.target.value)}
-                  onBlur={commitTitle}
-                  onKeyDown={handleTitleKeyDown}
-                  className="w-full border-none bg-transparent text-[2rem] font-bold leading-tight outline-none"
-                  style={{ color: 'var(--text-primary)' }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={beginTitleEdit}
-                  className="w-full text-left text-[2rem] font-bold leading-tight"
-                  style={{ color: 'var(--text-primary)' }}
-                >
-                  {card.title}
-                </button>
-              )}
-              {list && (
-                <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  In list <span style={{ color: 'var(--text-primary)' }}>{list.title}</span>
-                </p>
-              )}
-            </div>
+          <div className="mb-5 min-w-0">
+            {titleEditing ? (
+              <input
+                ref={titleInputRef}
+                value={draftTitle}
+                onChange={event => setDraftTitle(event.target.value)}
+                onBlur={commitTitle}
+                onKeyDown={handleTitleKeyDown}
+                className="w-full border-none bg-transparent text-[2rem] font-bold leading-tight outline-none"
+                style={{ color: 'var(--text-primary)' }}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={beginTitleEdit}
+                className="w-full text-left text-[2rem] font-bold leading-tight"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                {card.title}
+              </button>
+            )}
+            {list && (
+              <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                In list <span style={{ color: 'var(--text-primary)' }}>{list.title}</span>
+              </p>
+            )}
           </div>
 
           <div className="mb-6 flex flex-wrap gap-2">
@@ -500,7 +602,9 @@ export function CardModal() {
                   type="file"
                   multiple
                   className="hidden"
-                  onChange={event => handleFileAttachment(event.target.files)}
+                  onChange={event => {
+                    void handleFileAttachment(event.target.files);
+                  }}
                 />
                 <button
                   type="button"
@@ -543,7 +647,7 @@ export function CardModal() {
                 {card.attachments.map(attachment => (
                   <div key={attachment.id} className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3" style={{ background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.04)' }}>
                     <div className="min-w-0 flex-1">
-                      {attachment.url ? (
+                      {attachment.kind === 'link' && attachment.url ? (
                         <a href={attachment.url} target="_blank" rel="noreferrer" className="block truncate text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                           {attachment.name}
                         </a>
@@ -554,17 +658,50 @@ export function CardModal() {
                         {attachment.kind === 'link' ? 'Link attachment' : `${attachment.mimeType || 'File'}${attachment.size ? ` • ${Math.max(1, Math.round(attachment.size / 1024))} KB` : ''}`}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        dispatch({ type: 'REMOVE_ATTACHMENT', payload: { cardId: card.id, attachmentId: attachment.id } });
-                        updateCardApi(card.id, { attachments: card.attachments.filter(item => item.id !== attachment.id) });
-                      }}
-                      className="min-h-[44px] text-sm"
-                      style={{ color: '#ef4444' }}
-                    >
-                      Remove
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {hasFilePayload(attachment) && (
+                        <a
+                          href={attachment.url}
+                          download={attachment.name}
+                          aria-label={`Download ${attachment.name}`}
+                          className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                          style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}
+                        >
+                          <Download size={16} />
+                        </a>
+                      )}
+                      {canViewFileAttachment(attachment) && (
+                        <a
+                          href={attachment.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`View ${attachment.name}`}
+                          className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                          style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}
+                        >
+                          <Eye size={16} />
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${attachment.name}`}
+                        onClick={async () => {
+                          dispatch({ type: 'REMOVE_ATTACHMENT', payload: { cardId: card.id, attachmentId: attachment.id } });
+                          try {
+                            await updateCardApi(card.id, { attachments: card.attachments.filter(item => item.id !== attachment.id) });
+                          } catch (error) {
+                            await restoreFromServer(
+                              'Attachment removal failed',
+                              error instanceof Error ? error.message : 'The attachment could not be removed.',
+                            );
+                          }
+                        }}
+                        className="flex h-10 w-10 items-center justify-center rounded-full"
+                        style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -641,6 +778,43 @@ export function CardModal() {
             </div>
           </section>
         </div>
+        {deleteDialogOpen && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center px-4" style={{ background: 'rgba(5, 7, 12, 0.78)' }}>
+            <div className="w-full max-w-md rounded-2xl border p-5" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)' }}>
+              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Delete card</h3>
+              <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Card <strong style={{ color: 'var(--text-primary)' }}>{card.title}</strong> will be permanently deleted. Type <strong style={{ color: 'var(--text-primary)' }}>DELETE</strong> to enable confirmation.
+              </p>
+              <input
+                autoFocus
+                value={deleteConfirmation}
+                onChange={event => setDeleteConfirmation(event.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="mt-4 w-full rounded-lg border px-3 min-h-[44px] text-sm outline-none"
+                style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeDeleteDialog}
+                  className="rounded-xl px-4 min-h-[44px] text-sm font-semibold"
+                  style={{ background: '#2563eb', color: '#eff6ff' }}
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void handleDeleteCard(); }}
+                  disabled={deleteConfirmation !== 'DELETE' || deletePending}
+                  className="rounded-xl px-4 min-h-[44px] text-sm font-semibold"
+                  style={{ background: deleteConfirmation === 'DELETE' ? '#dc2626' : '#7f1d1d', color: '#fff5f5', opacity: deletePending ? 0.75 : 1 }}
+                >
+                  YES
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -12,13 +12,15 @@ import { createListRoutes } from './routes/list-routes';
 import { createCardRoutes } from './routes/card-routes';
 import { createAutomationRoutes, createNotificationRoutes } from './routes/automation-routes';
 
+const JSON_BODY_LIMIT = '12mb';
+
 export function createApp(db: Database.Database) {
   const app = express();
   const clientDistPath = path.resolve(process.cwd(), 'dist');
   const clientIndexPath = path.join(clientDistPath, 'index.html');
   const hasClientBuild = fs.existsSync(clientIndexPath);
 
-  app.use(express.json());
+  app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());
   app.use(attachAuth(db));
 
@@ -55,6 +57,14 @@ export function createApp(db: Database.Database) {
 
   app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
     void next;
+
+    if (typeof error === 'object' && error && 'type' in error && error.type === 'entity.too.large') {
+      response.status(413).json({
+        message: 'Request payload is too large.',
+      });
+      return;
+    }
+
     response.status(500).json({
       message: error instanceof Error ? error.message : 'Unexpected server error.',
     });

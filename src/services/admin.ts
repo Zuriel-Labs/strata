@@ -55,3 +55,9 @@ export function createWorkspace(input: { name: string; description: string; visi
     body: JSON.stringify(input),
   });
 }
+
+export function deleteWorkspace(workspaceId: string) {
+  return apiRequest<{ success: boolean }>(`/api/workspaces/${workspaceId}`, {
+    method: 'DELETE',
+  });
+}

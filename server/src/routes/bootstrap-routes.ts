@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { buildSessionPayload, createAuditEvent } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { isSystemAdmin } from '../rbac/permissions';
+import { canManageWorkspace, isSystemAdmin } from '../rbac/permissions';
 
 const workspaceSchema = z.object({
   name: z.string().min(1),
@@ -38,6 +38,23 @@ export function createBootstrapRoutes(db: Database.Database) {
     );
     createAuditEvent(db, { actorUserId: request.auth.user.id, scopeType: 'workspace', scopeId: id, action: 'workspace.create', outcome: 'success' });
     response.status(201).json({ id, name: parsed.data.name, description: parsed.data.description, visibility: parsed.data.visibility });
+  });
+
+  router.delete('/:workspaceId', requireAuth, (request: AuthenticatedRequest, response) => {
+    const workspaceId = String(request.params.workspaceId);
+    const workspace = db.prepare('SELECT id, name FROM workspaces WHERE id = ?').get(workspaceId) as { id: string; name: string } | undefined;
+    if (!workspace) {
+      response.status(404).json({ message: 'Workspace not found.' });
+      return;
+    }
+    if (!canManageWorkspace(request.auth!, workspaceId)) {
+      response.status(403).json({ message: 'Access denied.' });
+      return;
+    }
+
+    db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
+    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'workspace', scopeId: workspaceId, action: 'workspace.delete', outcome: 'success' });
+    response.json({ success: true });
   });
 
   return router;

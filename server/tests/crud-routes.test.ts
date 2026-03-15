@@ -137,6 +137,42 @@ describe('board CRUD routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.labels[0]).toEqual({ id: 'lb1', name: '', color: '#ef4444' });
   });
+
+  it('deletes a board and cascades its content', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const board = await agent.post('/api/boards').send({ workspaceId: 'w1', title: 'Disposable Board', color: '#3b82f6' });
+    const list = await agent.post('/api/lists').send({ boardId: board.body.id, title: 'Disposable List' });
+    const card = await agent.post('/api/cards').send({ boardId: board.body.id, listId: list.body.id, title: 'Disposable Card' });
+
+    const response = await agent.delete(`/api/boards/${board.body.id}`).send();
+    expect(response.status).toBe(200);
+
+    expect(db.prepare('SELECT id FROM boards WHERE id = ?').get(board.body.id)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(list.body.id)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM cards WHERE id = ?').get(card.body.id)).toBeUndefined();
+  });
+});
+
+describe('workspace routes', () => {
+  afterEach(() => { closeDatabase(); });
+
+  it('deletes a workspace and cascades related records', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const workspace = await agent.post('/api/workspaces').send({ name: 'Disposable Workspace', description: '', visibility: 'private' });
+    const board = await agent.post('/api/boards').send({ workspaceId: workspace.body.id, title: 'Workspace Board', color: '#10b981' });
+
+    const response = await agent.delete(`/api/workspaces/${workspace.body.id}`).send();
+    expect(response.status).toBe(200);
+
+    expect(db.prepare('SELECT id FROM workspaces WHERE id = ?').get(workspace.body.id)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM boards WHERE id = ?').get(board.body.id)).toBeUndefined();
+  });
 });
 
 describe('list CRUD routes', () => {
@@ -289,6 +325,36 @@ describe('card CRUD routes', () => {
     // Archive
     const r11 = await agent.patch(`/api/cards/${cardId}`).send({ archived: true });
     expect(r11.body.archived).toBe(true);
+  });
+
+  it('persists large uploaded attachment payloads', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const list = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Attachment List' });
+    const card = await agent.post('/api/cards').send({ boardId: 'b1', listId: list.body.id, title: 'Attachment Card' });
+    const cardId = card.body.id;
+
+    const largePayload = 'a'.repeat(220_000);
+    const attachments = [{
+      id: 'at-large',
+      name: 'diagram.png',
+      kind: 'file' as const,
+      url: `data:image/png;base64,${largePayload}`,
+      size: 165000,
+      mimeType: 'image/png',
+      createdAt: new Date().toISOString(),
+    }];
+
+    const response = await agent.patch(`/api/cards/${cardId}`).send({ attachments });
+    expect(response.status).toBe(200);
+    expect(response.body.attachments).toEqual(attachments);
+
+    const session = await agent.get('/api/auth/session');
+    expect(session.status).toBe(200);
+    const persistedCard = session.body.appState.cards.find((candidate: { id: string }) => candidate.id === cardId);
+    expect(persistedCard?.attachments).toEqual(attachments);
   });
 
   it('moves a card between lists', async () => {

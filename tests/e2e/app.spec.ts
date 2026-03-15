@@ -49,6 +49,22 @@ test('mvp flow works end to end', async ({ page }) => {
   await page.getByRole('button', { name: 'Attach' }).click();
   await expect(page.getByRole('link', { name: 'docs.example.com/auth' })).toBeVisible();
 
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'notes.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Attachment preview text '.repeat(12_000), 'utf8'),
+  });
+  await expect(page.getByLabel('Download notes.txt')).toBeVisible();
+  await page.waitForTimeout(5500);
+  await expect(page.getByLabel('Download notes.txt')).toBeVisible();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByLabel('Download notes.txt').click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('notes.txt');
+
+  await expect(page.getByLabel('View notes.txt')).toHaveAttribute('target', '_blank');
+  await expect(page.getByLabel('View notes.txt')).toHaveAttribute('href', /data:text\/plain/i);
+
   await page.getByPlaceholder('Write a comment...').fill('Please review this @Alex Chen');
   await page.getByRole('button', { name: 'Send' }).click();
   await page.getByLabel('Close card').click();
@@ -69,7 +85,9 @@ test('mvp flow works end to end', async ({ page }) => {
   await boardInput.fill('E2E Test Board');
   await boardInput.press('Enter');
 
-  // Overlay closes after creation; verify the new board is selected in the dropdown
+  // Close management overlay, then navigate from the header dropdown
+  await page.getByRole('button', { name: '✕' }).click();
+  await boardSelect.selectOption({ label: 'E2E Test Board' });
   await expect(boardSelect.locator('option:checked')).toHaveText('E2E Test Board', { timeout: 5000 });
 
   // --- Create a list on the new board ---

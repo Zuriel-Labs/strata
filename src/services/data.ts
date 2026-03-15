@@ -14,6 +14,10 @@ export function updateBoardLabelsApi(boardId: string, labels: Label[]) {
   return apiRequest<{ boardId: string; labels: Label[] }>(`/api/boards/${boardId}/labels`, { method: 'PUT', body: JSON.stringify({ labels }) });
 }
 
+export function deleteBoardApi(boardId: string) {
+  return apiRequest<{ success: boolean }>(`/api/boards/${boardId}`, { method: 'DELETE' });
+}
+
 // ── List API ─────────────────────────────────────────────────────────
 export function createListApi(input: { boardId: string; title: string }) {
   return apiRequest<List>('/api/lists', { method: 'POST', body: JSON.stringify(input) });

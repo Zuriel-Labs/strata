@@ -10,6 +10,7 @@ import { AccessDenied } from './components/AccessDenied';
 import { AuthScreen } from './components/AuthScreen';
 import { AuthProvider, useAuth } from './lib/auth-context';
 import { consumeRecoveryKey } from './services/session';
+import { Toaster } from './components/ui/toaster';
 
 const themeVars = {
   '--bg': '#0e0f13',
@@ -63,6 +64,7 @@ function AppInner() {
       <SearchOverlay />
       <AdminPanel />
       <AccessDenied />
+      <Toaster />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { SessionPayload, SessionResponse } from '../types';
+import type { SessionPayload, SessionResponse, ThemePreference } from '../types';
 import { ApiError } from '../services/api';
-import { changePassword, checkBootstrap, fetchSession, isAuthenticatedSession, isPasswordChangeRequired, login as loginRequest, logout as logoutRequest, submitBootstrap as submitBootstrapRequest } from '../services/session';
+import { changePassword, checkBootstrap, fetchSession, isAuthenticatedSession, isPasswordChangeRequired, login as loginRequest, logout as logoutRequest, submitBootstrap as submitBootstrapRequest, updatePreferences as updatePreferencesRequest, updateProfile as updateProfileRequest } from '../services/session';
 
 type AuthStatus = 'loading' | 'needs-bootstrap' | 'anonymous' | 'password-change-required' | 'authenticated';
 
@@ -16,6 +16,8 @@ interface AuthContextValue {
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  updateProfile: (name: string, initials: string, color: string) => Promise<void>;
+  updatePreferences: (themePreference: ThemePreference) => Promise<void>;
   changePassword: (currentPassword: string, nextPassword: string, confirmPassword: string) => Promise<void>;
   bootstrap: (username: string, password: string, confirmPassword: string) => Promise<void>;
   setAdminOpen: (open: boolean) => void;
@@ -126,6 +128,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  const updateProfile = useCallback(async (name: string, initials: string, color: string) => {
+    await updateProfileRequest(name, initials, color);
+    await refresh();
+  }, [refresh]);
+
+  const updatePreferences = useCallback(async (themePreference: ThemePreference) => {
+    await updatePreferencesRequest(themePreference);
+    await refresh();
+  }, [refresh]);
+
   const value = useMemo<AuthContextValue>(() => ({
     status,
     session,
@@ -137,6 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     logout,
     refresh,
+    updateProfile,
+    updatePreferences,
     changePassword: updatePassword,
     bootstrap: bootstrapFn,
     setAdminOpen,
@@ -185,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const board = session.appState.boards.find(candidate => candidate.id === boardId);
         return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
       },
-    }), [accessDenied, adminOpen, appKey, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword]);
+    }), [accessDenied, adminOpen, appKey, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword, updatePreferences, updateProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

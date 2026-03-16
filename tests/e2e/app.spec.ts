@@ -102,9 +102,36 @@ test('mvp flow works end to end', async ({ page }) => {
     await expect(page.getByText('E2E List')).toBeVisible();
   }
 
-  // --- Logout via profile overlay ---
+  // --- Account settings overlay flows ---
   await page.getByRole('button', { name: 'Open profile menu' }).click();
-  await page.getByRole('button', { name: 'Sign out' }).click();
+
+  await page.getByRole('button', { name: /^Profile/ }).click();
+  await page.getByLabel('Display name').fill('System Admin Prime');
+  await page.getByLabel('Initials').fill('SP');
+  await page.getByRole('button', { name: 'Save Profile' }).click();
+  await expect(page.getByRole('button', { name: 'Open profile menu' })).toHaveText('SP');
+
+  await page.getByRole('button', { name: 'Back to account menu' }).click();
+  await page.getByRole('button', { name: /^Preferences/ }).click();
+  await page.getByRole('radio', { name: /Light mode/ }).check();
+  await page.getByRole('button', { name: 'Save Preferences' }).click();
+  await expect.poll(async () => page.locator('html').evaluate(node => node.getAttribute('data-theme'))).toBe('light');
+
+  await page.getByRole('button', { name: 'Back to account menu' }).click();
+  await page.getByRole('button', { name: /^Security/ }).click();
+  await page.getByRole('button', { name: 'Generate Recovery Key' }).click();
+  await expect(page.getByText('Keep this key safe. Anyone with this key can use it to recover your account.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy to clipboard' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close recovery key' }).click();
+  await page.getByLabel('Current password').fill('ChangeThisNow123!');
+  await page.getByLabel('New password', { exact: true }).fill('PasswordChange123!');
+  await page.getByLabel('Confirm new password').fill('PasswordChange123?');
+  await page.getByRole('button', { name: 'Change' }).click();
+  await expect(page.getByText('New passwords do not match.')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+
+  // --- Logout via profile overlay ---
+  await page.getByRole('button', { name: /^Sign Out/ }).click();
   await expect(page.getByLabel('Username')).toBeVisible({ timeout: 5000 });
 
   // --- Login again and verify persistence ---
@@ -115,6 +142,7 @@ test('mvp flow works end to end', async ({ page }) => {
   // Seeded boards should still be present in the board dropdown
   const boardSelectAfterLogin = page.getByRole('combobox').nth(1);
   await expect(boardSelectAfterLogin).toBeVisible({ timeout: 10000 });
+  await expect.poll(async () => page.locator('html').evaluate(node => node.getAttribute('data-theme'))).toBe('light');
   // The E2E-created board should persist as an option
   await expect(boardSelectAfterLogin.locator('option', { hasText: 'E2E Test Board' })).toBeAttached();
 });

@@ -2,6 +2,7 @@ export type Visibility = 'private' | 'workspace' | 'public';
 export type PlatformRole = 'system_admin' | 'user';
 export type WorkspaceRole = 'workspace_admin' | 'member';
 export type BoardRole = 'board_admin' | 'member' | 'observer';
+export type ThemePreference = 'dark' | 'light';
 
 export interface User {
   id: string;
@@ -166,6 +167,7 @@ export interface BoardMembership {
 export interface SessionUser extends User {
   platformRole: PlatformRole;
   mustChangePassword: boolean;
+  themePreference: ThemePreference;
 }
 
 export interface PermissionSnapshot {

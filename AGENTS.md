@@ -30,6 +30,8 @@ TypeScript 5.9, React 19, Express, better-sqlite3, bcryptjs, Zod v4, Vite, Vites
 ## Active Technologies
 - TypeScript 5.9 on React 19 for the client and Node.js 20+ with Express for the server + React, Vite, Express, better-sqlite3, Zod, Vitest, Testing Library (006-delete-user-workflow)
 - SQLite accessed through existing repository helpers and JSON-backed card or automation columns (006-delete-user-workflow)
+- TypeScript 5.9 on React 19 for the client and Node.js 20+ with Express for the server + React, Vite, Express, better-sqlite3, bcryptjs, Zod v4, Vitest, Playwright, Tailwind utility classes, shadcn/ui primitives already present in the repo (009-profile-theme-settings)
+- SQLite user records and session payloads built through existing repository helpers, plus in-memory client state hydrated from authenticated session data (009-profile-theme-settings)
 
 ## Recent Changes
 - 006-delete-user-workflow: Added TypeScript 5.9 on React 19 for the client and Node.js 20+ with Express for the server + React, Vite, Express, better-sqlite3, Zod, Vitest, Testing Library

@@ -1,4 +1,4 @@
-import type { PasswordChangeRequiredPayload, SessionPayload, SessionResponse } from '../types';
+import type { PasswordChangeRequiredPayload, SessionPayload, SessionResponse, SessionUser, ThemePreference } from '../types';
 import { apiRequest } from './api';
 
 export function fetchSession() {
@@ -31,6 +31,20 @@ export function changePassword(currentPassword: string, nextPassword: string, co
   return apiRequest<void>('/api/auth/password/change', {
     method: 'POST',
     body: JSON.stringify({ currentPassword, nextPassword, confirmPassword }),
+  });
+}
+
+export function updateProfile(name: string, initials: string, color: string) {
+  return apiRequest<{ user: SessionUser }>('/api/auth/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({ name, initials, color }),
+  });
+}
+
+export function updatePreferences(themePreference: ThemePreference) {
+  return apiRequest<{ user: SessionUser }>('/api/auth/preferences', {
+    method: 'PATCH',
+    body: JSON.stringify({ themePreference }),
   });
 }
 

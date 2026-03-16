@@ -3,15 +3,42 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
 import { clearSessionCookie, createUserSession, destroyUserSession } from '../auth/session';
-import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, upsertRecoveryKey } from '../db/repositories';
+import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserProfile, updateUserThemePreference, upsertRecoveryKey } from '../db/repositories';
 import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { randomUUID, randomBytes } from 'node:crypto';
+import type { UserRecord } from '../types';
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 const passwordChangeSchema = z.object({ currentPassword: z.string().min(1), nextPassword: z.string().min(10), confirmPassword: z.string().min(1) });
 const bootstrapSchema = z.object({ username: z.string().min(1), password: z.string().min(10), confirmPassword: z.string().min(1) });
 const recoveryConsumeSchema = z.object({ username: z.string().min(1), recoveryKey: z.string().min(1), newPassword: z.string().min(10), confirmPassword: z.string().min(1) });
+const profileUpdateSchema = z.object({
+  name: z.string().trim().min(1),
+  initials: z.string().trim().min(1).max(4),
+  color: z.string().trim().min(4),
+});
+const preferencesUpdateSchema = z.object({
+  themePreference: z.enum(['dark', 'light']),
+});
+
+function buildSessionUser(user: UserRecord) {
+  return {
+    id: user.id,
+    name: user.name,
+    initials: user.initials,
+    color: user.color,
+    themePreference: user.themePreference,
+    username: user.username,
+    platformRole: user.platformRole,
+    mustChangePassword: user.mustChangePassword,
+  };
+}
+
+function buildValidationMessage(error: z.ZodError, fallback: string) {
+  const first = error.issues[0];
+  return first?.message ?? fallback;
+}
 
 export function createAuthRoutes(db: Database.Database) {
   const router = Router();
@@ -88,15 +115,7 @@ export function createAuthRoutes(db: Database.Database) {
     if (refreshedUser.mustChangePassword) {
       response.json({
         status: 'password-change-required',
-        user: {
-          id: refreshedUser.id,
-          name: refreshedUser.name,
-          initials: refreshedUser.initials,
-          color: refreshedUser.color,
-          username: refreshedUser.username,
-          platformRole: refreshedUser.platformRole,
-          mustChangePassword: true,
-        },
+        user: buildSessionUser({ ...refreshedUser, mustChangePassword: true }),
       });
       return;
     }
@@ -122,20 +141,51 @@ export function createAuthRoutes(db: Database.Database) {
     if (request.auth.user.mustChangePassword) {
       response.json({
         status: 'password-change-required',
-        user: {
-          id: request.auth.user.id,
-          name: request.auth.user.name,
-          initials: request.auth.user.initials,
-          color: request.auth.user.color,
-          username: request.auth.user.username,
-          platformRole: request.auth.user.platformRole,
-          mustChangePassword: true,
-        },
+        user: buildSessionUser({ ...request.auth.user, mustChangePassword: true }),
       });
       return;
     }
 
     response.json(buildSessionPayload(db, request.auth.user));
+  });
+
+  router.patch('/profile', requireAuth, (request: AuthenticatedRequest, response) => {
+    const parsed = profileUpdateSchema.safeParse(request.body);
+    if (!parsed.success || !request.auth) {
+      response.status(400).json({ message: parsed.success ? 'Invalid profile update payload.' : buildValidationMessage(parsed.error, 'Invalid profile update payload.') });
+      return;
+    }
+
+    const updated = updateUserProfile(db, request.auth.user.id, {
+      name: parsed.data.name.trim(),
+      initials: parsed.data.initials.trim().slice(0, 4).toUpperCase(),
+      color: parsed.data.color.trim(),
+    });
+
+    if (!updated) {
+      response.status(404).json({ message: 'User not found.' });
+      return;
+    }
+
+    audit(db, { actorUserId: updated.id, scopeType: 'auth', action: 'auth.profile_update', outcome: 'success' });
+    response.json({ user: buildSessionUser(updated) });
+  });
+
+  router.patch('/preferences', requireAuth, (request: AuthenticatedRequest, response) => {
+    const parsed = preferencesUpdateSchema.safeParse(request.body);
+    if (!parsed.success || !request.auth) {
+      response.status(400).json({ message: parsed.success ? 'Invalid preferences payload.' : buildValidationMessage(parsed.error, 'Invalid preferences payload.') });
+      return;
+    }
+
+    const updated = updateUserThemePreference(db, request.auth.user.id, parsed.data.themePreference);
+    if (!updated) {
+      response.status(404).json({ message: 'User not found.' });
+      return;
+    }
+
+    audit(db, { actorUserId: updated.id, scopeType: 'auth', action: 'auth.preferences_update', outcome: 'success', metadata: { themePreference: updated.themePreference } });
+    response.json({ user: buildSessionUser(updated) });
   });
 
   router.post('/password/change', requireAuth, async (request: AuthenticatedRequest, response) => {

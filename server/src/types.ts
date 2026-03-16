@@ -3,12 +3,14 @@ import type { AppState } from '../../src/types';
 export type PlatformRole = 'system_admin' | 'user';
 export type WorkspaceRole = 'workspace_admin' | 'member';
 export type BoardRole = 'board_admin' | 'member' | 'observer';
+export type ThemePreference = 'dark' | 'light';
 
 export interface UserRecord {
   id: string;
   name: string;
   initials: string;
   color: string;
+  themePreference: ThemePreference;
   username: string;
   platformRole: PlatformRole;
   passwordHash: string;
@@ -64,6 +66,7 @@ export interface SessionUser {
   name: string;
   initials: string;
   color: string;
+  themePreference: ThemePreference;
   username: string;
   platformRole: PlatformRole;
   mustChangePassword: boolean;

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
+import { getContrastingTextColor } from '../lib/color';
 import { markNotificationReadApi, markAllNotificationsReadApi, updateBoardLabelsApi } from '../services/data';
 import { NavigationOverlay } from './NavigationOverlay';
 import { ProfileOverlay } from './ProfileOverlay';
@@ -10,6 +11,8 @@ export function Header() {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
+  const avatarColor = auth.session?.user.color ?? '#6385f6';
+  const avatarTextColor = getContrastingTextColor(avatarColor);
   const [notifOpen, setNotifOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -275,8 +278,8 @@ export function Header() {
           <button
             aria-label="Open profile menu"
             onClick={() => setProfileOpen(true)}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white cursor-pointer shrink-0"
-            style={{ background: auth.session?.user.color ?? '#6366f1' }}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer shrink-0 border"
+            style={{ background: avatarColor, color: avatarTextColor, borderColor: 'rgba(255,255,255,0.18)' }}
             title={auth.session?.user.username}
           >
             {auth.session?.user.initials ?? 'SA'}
@@ -285,7 +288,7 @@ export function Header() {
         </div>
       </header>
 
-      <NavigationOverlay open={navOpen} onClose={() => setNavOpen(false)} />
+      <NavigationOverlay key={`${state.currentWorkspaceId ?? 'none'}:${state.currentBoardId ?? 'none'}`} open={navOpen} onClose={() => setNavOpen(false)} />
       {board && canManageLabels && labelsOpen && (
         <BoardLabelsDialog
           key={board.id}

@@ -1,0 +1,171 @@
+openapi: 3.1.0
+info:
+  title: Strata Account Settings API
+  version: 0.1.0
+  description: Self-service contracts for profile, preferences, security, and sign-out flows.
+servers:
+  - url: http://localhost:5173
+paths:
+  /api/auth/profile:
+    patch:
+      summary: Update the authenticated user's profile details
+      operationId: updateOwnProfile
+      tags: [Account Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+      responses:
+        '200':
+          description: Updated session user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/SessionUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/preferences:
+    patch:
+      summary: Update the authenticated user's preferences
+      operationId: updateOwnPreferences
+      tags: [Account Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferencesUpdateRequest'
+      responses:
+        '200':
+          description: Updated session user preferences
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/SessionUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/password/change:
+    post:
+      summary: Change the authenticated user's password
+      operationId: changeOwnPassword
+      tags: [Account Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+      responses:
+        '204':
+          description: Password changed successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/logout:
+    post:
+      summary: End the authenticated session
+      operationId: logout
+      tags: [Account Settings]
+      responses:
+        '204':
+          description: Session ended successfully
+components:
+  schemas:
+    SessionUser:
+      type: object
+      required:
+        - id
+        - name
+        - initials
+        - color
+        - username
+        - platformRole
+        - mustChangePassword
+        - themePreference
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        initials:
+          type: string
+        color:
+          type: string
+        username:
+          type: string
+        platformRole:
+          type: string
+          enum: [system_admin, user]
+        mustChangePassword:
+          type: boolean
+        themePreference:
+          type: string
+          enum: [dark, light]
+    ProfileUpdateRequest:
+      type: object
+      required: [name, initials, color]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        initials:
+          type: string
+          minLength: 1
+          maxLength: 4
+        color:
+          type: string
+          minLength: 4
+    PreferencesUpdateRequest:
+      type: object
+      required: [themePreference]
+      properties:
+        themePreference:
+          type: string
+          enum: [dark, light]
+    PasswordChangeRequest:
+      type: object
+      required: [currentPassword, nextPassword, confirmPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+        nextPassword:
+          type: string
+          minLength: 10
+        confirmPassword:
+          type: string
+          minLength: 1
+    ErrorResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+  responses:
+    BadRequest:
+      description: Validation or business-rule failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: No active authenticated session
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

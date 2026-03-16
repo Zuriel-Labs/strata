@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
 import { AppProvider, useAppState } from './store';
 import { Header } from './components/Header';
@@ -12,32 +12,18 @@ import { AuthProvider, useAuth } from './lib/auth-context';
 import { consumeRecoveryKey } from './services/session';
 import { Toaster } from './components/ui/toaster';
 
-const themeVars = {
-  '--bg': '#0e0f13',
-  '--sidebar-bg': '#131419',
-  '--header-bg': '#131419',
-  '--list-bg': '#181a21',
-  '--list-hover-bg': '#1e2029',
-  '--card-bg': '#1f2128',
-  '--card-border': '#2a2c37',
-  '--modal-bg': '#1a1c24',
-  '--dropdown-bg': '#1a1c24',
-  '--input-bg': '#14151b',
-  '--border': '#2a2c37',
-  '--active-bg': 'rgba(99,102,241,0.1)',
-  '--accent': '#6366f1',
-  '--text-primary': '#e8e9ed',
-  '--text-secondary': '#9b9daa',
-  '--text-muted': '#5c5e6e',
-} as React.CSSProperties;
-
 function AppInner() {
   const state = useAppState();
+  const auth = useAuth();
   const board = state.boards.find(b => b.id === state.currentBoardId);
+  const themePreference = auth.session?.user.themePreference ?? 'dark';
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themePreference;
+  }, [themePreference]);
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden" style={{ ...themeVars, background: 'var(--bg)', color: 'var(--text-primary)', fontFamily: "'DM Sans', 'Segoe UI', system-ui, -apple-system, sans-serif" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+    <div className="h-screen w-screen flex overflow-hidden" data-theme={themePreference} style={{ background: 'var(--bg)', color: 'var(--text-primary)', fontFamily: 'var(--font)' }}>
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Header />
         <div className="flex flex-1 overflow-hidden">
@@ -88,7 +74,7 @@ function AppShell() {
   const [newRecoveryKey, setNewRecoveryKey] = useState<string | null>(null);
 
   if (auth.status === 'loading') {
-    return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: '#0e0f13', color: '#e8e9ed' }}>Loading Strata...</div>;
+    return <div className="min-h-screen flex items-center justify-center text-sm" style={{ background: 'var(--bg)', color: 'var(--text-primary)' }}>Loading Strata...</div>;
   }
 
   if (auth.status === 'needs-bootstrap') {

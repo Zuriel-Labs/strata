@@ -9,6 +9,7 @@ export function createSchema(db: Database.Database) {
       name TEXT NOT NULL,
       initials TEXT NOT NULL,
       color TEXT NOT NULL,
+      theme_preference TEXT NOT NULL DEFAULT 'dark',
       username TEXT NOT NULL UNIQUE,
       platform_role TEXT NOT NULL,
       password_hash TEXT NOT NULL,
@@ -157,6 +158,14 @@ export function createSchema(db: Database.Database) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  const userColumns = new Set(
+    (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map(column => column.name),
+  );
+
+  if (!userColumns.has('theme_preference')) {
+    db.exec("ALTER TABLE users ADD COLUMN theme_preference TEXT NOT NULL DEFAULT 'dark'");
+  }
 
   const automationRuleColumns = new Set(
     (db.prepare('PRAGMA table_info(automation_rules)').all() as Array<{ name: string }>).map(column => column.name),

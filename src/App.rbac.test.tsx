@@ -14,6 +14,7 @@ describe('App RBAC views', () => {
             name: 'Priya Sharma',
             initials: 'PS',
             color: '#c026d3',
+            themePreference: 'dark',
             username: 'priya',
             platformRole: 'user',
             mustChangePassword: false,

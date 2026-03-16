@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { AppState, AutomationRule, Board, Card, List, Notification, User, Workspace } from '../../../src/types';
-import type { AuditEventInput, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, UserRecord, WorkspaceMembershipRecord } from '../types';
+import type { AuditEventInput, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, ThemePreference, UserRecord, WorkspaceMembershipRecord } from '../types';
 
 type JsonRow<T> = T & { [key: string]: unknown };
 const DEFAULT_AUTOMATION_CONDITIONS: AutomationRule['conditions'] = { listId: null, labelId: null };
@@ -14,12 +14,17 @@ function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
 }
 
+function normalizeThemePreference(value: unknown): ThemePreference {
+  return value === 'light' ? 'light' : 'dark';
+}
+
 function mapUser(row: Record<string, unknown>): UserRecord {
   return {
     id: String(row.id),
     name: String(row.name),
     initials: String(row.initials),
     color: String(row.color),
+    themePreference: normalizeThemePreference(row.theme_preference),
     username: String(row.username),
     platformRole: row.platform_role === 'system_admin' ? 'system_admin' : 'user',
     passwordHash: String(row.password_hash),
@@ -82,6 +87,22 @@ export function countSystemAdmins(db: Database.Database) {
 
 export function updateUserPassword(db: Database.Database, userId: string, passwordHash: string, mustChangePassword: boolean) {
   db.prepare('UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = ? WHERE id = ?').run(passwordHash, mustChangePassword ? 1 : 0, new Date().toISOString(), userId);
+}
+
+export function updateUserProfile(db: Database.Database, userId: string, input: Pick<UserRecord, 'name' | 'initials' | 'color'>) {
+  db.prepare('UPDATE users SET name = ?, initials = ?, color = ?, updated_at = ? WHERE id = ?').run(
+    input.name,
+    input.initials,
+    input.color,
+    new Date().toISOString(),
+    userId,
+  );
+  return getUserById(db, userId);
+}
+
+export function updateUserThemePreference(db: Database.Database, userId: string, themePreference: ThemePreference) {
+  db.prepare('UPDATE users SET theme_preference = ?, updated_at = ? WHERE id = ?').run(themePreference, new Date().toISOString(), userId);
+  return getUserById(db, userId);
 }
 
 export function upsertPasswordReset(db: Database.Database, userId: string, issuedByUserId: string, temporaryPasswordHash: string) {
@@ -346,6 +367,7 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     name: user.name,
     initials: user.initials,
     color: user.color,
+    themePreference: user.themePreference,
     username: user.username,
     platformRole: user.platformRole,
     mustChangePassword: user.mustChangePassword,

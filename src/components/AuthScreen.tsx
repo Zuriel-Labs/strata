@@ -18,7 +18,7 @@ interface AuthScreenProps {
   onSwitchToLogin?: () => void;
 }
 
-const inputStyle = { background: '#10232d', color: '#f4efe8' };
+const inputStyle = { background: '#0e1228', color: '#e8e4f4' };
 
 function Field({ id, label, type = 'text', value, onChange }: { id: string; label: string; type?: string; value: string; onChange: (v: string) => void }) {
   return (
@@ -77,11 +77,11 @@ export function AuthScreen({ mode, title, subtitle, error, newRecoveryKey, initi
   }[mode];
 
   return (
-    <div className="min-h-screen px-6 py-12 flex items-center justify-center overflow-y-auto" style={{ background: 'linear-gradient(135deg, #07141f 0%, #102f3d 45%, #e2a56a 100%)' }}>
-      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-3xl border p-8 shadow-2xl" style={{ background: 'rgba(9, 20, 28, 0.9)', borderColor: 'rgba(255,255,255,0.12)', color: '#f4efe8' }}>
-        <p className="text-[11px] uppercase tracking-[0.35em] mb-3" style={{ color: '#d4b692' }}>Strata Platform</p>
+    <div className="min-h-screen px-6 py-12 flex items-center justify-center overflow-y-auto" style={{ background: 'linear-gradient(135deg, #070b1a 0%, #1a1040 50%, #2d1b69 100%)' }}>
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-3xl border p-8 shadow-2xl" style={{ background: 'rgba(10, 12, 30, 0.92)', borderColor: 'rgba(140, 120, 255, 0.15)', color: '#e8e4f4' }}>
+        <p className="text-[11px] uppercase tracking-[0.35em] mb-3" style={{ color: '#a78bfa' }}>Strata Platform</p>
         <h1 className="text-3xl font-bold mb-2">{title}</h1>
-        <p className="text-sm mb-6" style={{ color: '#b6c4cc' }}>{subtitle}</p>
+        <p className="text-sm mb-6" style={{ color: '#94a3b8' }}>{subtitle}</p>
 
         {mode === 'login' && (
           <>
@@ -115,17 +115,17 @@ export function AuthScreen({ mode, title, subtitle, error, newRecoveryKey, initi
           </>
         )}
 
-        {(error || localError) && <p className="text-sm mb-4" style={{ color: '#ffb4b4' }}>{error || localError}</p>}
+        {(error || localError) && <p className="text-sm mb-4" style={{ color: '#fca5a5' }}>{error || localError}</p>}
 
         {newRecoveryKey && (
-          <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] mb-2" style={{ color: '#86efac' }}>New Recovery Key</p>
-            <p className="text-xs mb-2" style={{ color: '#b6c4cc' }}>Save this key somewhere safe. You will need it if you forget your password again.</p>
-            <code className="block break-all select-all text-xs mb-3" style={{ color: '#f4efe8' }}>{newRecoveryKey}</code>
+          <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(109, 90, 205, 0.12)', border: '1px solid rgba(109, 90, 205, 0.3)' }}>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] mb-2" style={{ color: '#a78bfa' }}>New Recovery Key</p>
+            <p className="text-xs mb-2" style={{ color: '#94a3b8' }}>Save this key somewhere safe. You will need it if you forget your password again.</p>
+            <code className="block break-all select-all text-xs mb-3" style={{ color: '#e8e4f4' }}>{newRecoveryKey}</code>
             <button
               type="button"
               className="rounded-lg px-3 py-1.5 text-xs font-semibold"
-              style={{ background: copied ? '#22c55e' : '#e2a56a', color: '#132530' }}
+              style={{ background: copied ? '#6d5acd' : '#6d5acd', color: '#f0edff' }}
               onClick={() => { void navigator.clipboard.writeText(newRecoveryKey); setCopied(true); }}
             >
               {copied ? 'Copied!' : 'Copy to clipboard'}
@@ -134,23 +134,23 @@ export function AuthScreen({ mode, title, subtitle, error, newRecoveryKey, initi
         )}
 
         {mode === 'recovery' && newRecoveryKey ? (
-          <button type="button" onClick={onSwitchToLogin} className="w-full rounded-xl px-4 py-3 font-semibold" style={{ background: '#e2a56a', color: '#132530' }}>
+          <button type="button" onClick={onSwitchToLogin} className="w-full rounded-xl px-4 py-3 font-semibold" style={{ background: '#6d5acd', color: '#f0edff' }}>
             Proceed to Login
           </button>
         ) : (
-          <button type="submit" disabled={submitting} className="w-full rounded-xl px-4 py-3 font-semibold" style={{ background: '#e2a56a', color: '#132530' }}>
+          <button type="submit" disabled={submitting} className="w-full rounded-xl px-4 py-3 font-semibold" style={{ background: '#6d5acd', color: '#f0edff' }}>
             {submitting ? 'Working...' : buttonLabel}
           </button>
         )}
 
         {mode === 'login' && onSwitchToRecovery && (
-          <button type="button" onClick={onSwitchToRecovery} className="w-full mt-3 text-sm underline opacity-70 hover:opacity-100" style={{ color: '#b6c4cc' }}>
+          <button type="button" onClick={onSwitchToRecovery} className="w-full mt-3 text-sm underline opacity-70 hover:opacity-100" style={{ color: '#94a3b8' }}>
             Forgot password?
           </button>
         )}
 
         {mode === 'recovery' && !newRecoveryKey && onSwitchToLogin && (
-          <button type="button" onClick={onSwitchToLogin} className="w-full mt-3 text-sm underline opacity-70 hover:opacity-100" style={{ color: '#b6c4cc' }}>
+          <button type="button" onClick={onSwitchToLogin} className="w-full mt-3 text-sm underline opacity-70 hover:opacity-100" style={{ color: '#94a3b8' }}>
             Back to sign in
           </button>
         )}

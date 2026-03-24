@@ -17,7 +17,7 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   updateProfile: (name: string, initials: string, color: string) => Promise<void>;
-  updatePreferences: (themePreference: ThemePreference) => Promise<void>;
+  updatePreferences: (themePreference: ThemePreference, defaultWorkspaceId?: string | null, defaultBoardId?: string | null) => Promise<void>;
   changePassword: (currentPassword: string, nextPassword: string, confirmPassword: string) => Promise<void>;
   bootstrap: (username: string, password: string, confirmPassword: string) => Promise<void>;
   setAdminOpen: (open: boolean) => void;
@@ -133,8 +133,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
-  const updatePreferences = useCallback(async (themePreference: ThemePreference) => {
-    await updatePreferencesRequest(themePreference);
+  const updatePreferences = useCallback(async (themePreference: ThemePreference, defaultWorkspaceId?: string | null, defaultBoardId?: string | null) => {
+    await updatePreferencesRequest(themePreference, defaultWorkspaceId, defaultBoardId);
     await refresh();
   }, [refresh]);
 

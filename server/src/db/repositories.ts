@@ -32,6 +32,8 @@ function mapUser(row: Record<string, unknown>): UserRecord {
     mustChangePassword: asBool(Number(row.must_change_password)),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    defaultWorkspaceId: row.default_workspace_id ? String(row.default_workspace_id) : null,
+    defaultBoardId: row.default_board_id ? String(row.default_board_id) : null,
   };
 }
 
@@ -102,6 +104,57 @@ export function updateUserProfile(db: Database.Database, userId: string, input: 
 
 export function updateUserThemePreference(db: Database.Database, userId: string, themePreference: ThemePreference) {
   db.prepare('UPDATE users SET theme_preference = ?, updated_at = ? WHERE id = ?').run(themePreference, new Date().toISOString(), userId);
+  return getUserById(db, userId);
+}
+
+export function userHasAccessToWorkspace(db: Database.Database, userId: string, workspaceId: string, user: UserRecord): boolean {
+  if (user.platformRole === 'system_admin') {
+    const row = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(workspaceId) as { id: string } | undefined;
+    return row !== undefined;
+  }
+  const row = db.prepare('SELECT id FROM workspace_memberships WHERE user_id = ? AND workspace_id = ?').get(userId, workspaceId) as { id: string } | undefined;
+  return row !== undefined;
+}
+
+export function userHasAccessToBoard(db: Database.Database, userId: string, boardId: string, workspaceId: string, user: UserRecord): boolean {
+  if (user.platformRole === 'system_admin') {
+    const row = db.prepare('SELECT id FROM boards WHERE id = ? AND workspace_id = ?').get(boardId, workspaceId) as { id: string } | undefined;
+    return row !== undefined;
+  }
+  const row = db.prepare('SELECT id FROM board_memberships WHERE user_id = ? AND board_id = ?').get(userId, boardId) as { id: string } | undefined;
+  return row !== undefined;
+}
+
+export interface UpdateUserPreferencesInput {
+  themePreference?: ThemePreference;
+  defaultWorkspaceId?: string | null;
+  defaultBoardId?: string | null;
+}
+
+export function updateUserPreferences(db: Database.Database, userId: string, input: UpdateUserPreferencesInput): UserRecord | null {
+  const setClauses: string[] = ['updated_at = ?'];
+  const values: unknown[] = [new Date().toISOString()];
+
+  if (input.themePreference !== undefined) {
+    setClauses.push('theme_preference = ?');
+    values.push(input.themePreference);
+  }
+
+  if (input.defaultWorkspaceId !== undefined) {
+    setClauses.push('default_workspace_id = ?');
+    values.push(input.defaultWorkspaceId);
+    if (input.defaultWorkspaceId === null) {
+      setClauses.push('default_board_id = NULL');
+    }
+  }
+
+  if (input.defaultBoardId !== undefined && input.defaultWorkspaceId !== null) {
+    setClauses.push('default_board_id = ?');
+    values.push(input.defaultBoardId);
+  }
+
+  values.push(userId);
+  db.prepare(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
   return getUserById(db, userId);
 }
 
@@ -336,8 +389,20 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     workspaceMemberMap.set(membership.workspaceId, list);
   }
 
-  const currentWorkspaceId = workspaces[0]?.id ?? null;
-  const currentBoardId = boards.find(board => board.workspaceId === currentWorkspaceId)?.id ?? boards[0]?.id ?? null;
+  let currentWorkspaceId: string | null;
+  let currentBoardId: string | null;
+
+  if (user.defaultWorkspaceId && workspaces.some(w => w.id === user.defaultWorkspaceId)) {
+    currentWorkspaceId = user.defaultWorkspaceId;
+    if (user.defaultBoardId && boards.some(b => b.id === user.defaultBoardId && b.workspaceId === currentWorkspaceId)) {
+      currentBoardId = user.defaultBoardId;
+    } else {
+      currentBoardId = boards.find(board => board.workspaceId === currentWorkspaceId)?.id ?? null;
+    }
+  } else {
+    currentWorkspaceId = workspaces[0]?.id ?? null;
+    currentBoardId = boards.find(board => board.workspaceId === currentWorkspaceId)?.id ?? boards[0]?.id ?? null;
+  }
   const appState: AppState = {
     workspaces: workspaces.map(workspace => ({ ...workspace, memberIds: workspaceMemberMap.get(workspace.id) ?? [] })),
     boards,
@@ -371,6 +436,8 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     username: user.username,
     platformRole: user.platformRole,
     mustChangePassword: user.mustChangePassword,
+    defaultWorkspaceId: user.defaultWorkspaceId,
+    defaultBoardId: user.defaultBoardId,
   };
 
   return {

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
 import { clearSessionCookie, createUserSession, destroyUserSession } from '../auth/session';
-import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserProfile, updateUserThemePreference, upsertRecoveryKey } from '../db/repositories';
+import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey, userHasAccessToBoard, userHasAccessToWorkspace } from '../db/repositories';
 import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { randomUUID, randomBytes } from 'node:crypto';
@@ -19,8 +19,18 @@ const profileUpdateSchema = z.object({
   color: z.string().trim().min(4),
 });
 const preferencesUpdateSchema = z.object({
-  themePreference: z.enum(['dark', 'light']),
-});
+  themePreference: z.enum(['dark', 'light']).optional(),
+  defaultWorkspaceId: z.string().uuid().nullable().optional(),
+  defaultBoardId: z.string().uuid().nullable().optional(),
+}).refine(
+  data => {
+    if (data.defaultBoardId != null && data.defaultWorkspaceId == null) {
+      return false;
+    }
+    return true;
+  },
+  { message: 'Cannot set default board without a default workspace.', path: ['defaultBoardId'] }
+);
 
 function buildSessionUser(user: UserRecord) {
   return {
@@ -32,6 +42,8 @@ function buildSessionUser(user: UserRecord) {
     username: user.username,
     platformRole: user.platformRole,
     mustChangePassword: user.mustChangePassword,
+    defaultWorkspaceId: user.defaultWorkspaceId,
+    defaultBoardId: user.defaultBoardId,
   };
 }
 
@@ -178,13 +190,36 @@ export function createAuthRoutes(db: Database.Database) {
       return;
     }
 
-    const updated = updateUserThemePreference(db, request.auth.user.id, parsed.data.themePreference);
+    const user = request.auth.user;
+
+    if (parsed.data.defaultWorkspaceId && !userHasAccessToWorkspace(db, user.id, parsed.data.defaultWorkspaceId, user)) {
+      response.status(400).json({ message: 'Invalid default workspace.' });
+      return;
+    }
+
+    if (parsed.data.defaultBoardId) {
+      if (!parsed.data.defaultWorkspaceId) {
+        response.status(400).json({ message: 'Cannot set default board without a default workspace.' });
+        return;
+      }
+      if (!userHasAccessToBoard(db, user.id, parsed.data.defaultBoardId, parsed.data.defaultWorkspaceId, user)) {
+        response.status(400).json({ message: 'Invalid default board.' });
+        return;
+      }
+    }
+
+    const updated = updateUserPreferences(db, user.id, {
+      themePreference: parsed.data.themePreference,
+      defaultWorkspaceId: parsed.data.defaultWorkspaceId,
+      defaultBoardId: parsed.data.defaultBoardId,
+    });
+
     if (!updated) {
       response.status(404).json({ message: 'User not found.' });
       return;
     }
 
-    audit(db, { actorUserId: updated.id, scopeType: 'auth', action: 'auth.preferences_update', outcome: 'success', metadata: { themePreference: updated.themePreference } });
+    audit(db, { actorUserId: updated.id, scopeType: 'auth', action: 'auth.preferences_update', outcome: 'success', metadata: { themePreference: updated.themePreference, defaultWorkspaceId: updated.defaultWorkspaceId, defaultBoardId: updated.defaultBoardId } });
     response.json({ user: buildSessionUser(updated) });
   });
 

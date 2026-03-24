@@ -168,6 +168,8 @@ export interface SessionUser extends User {
   platformRole: PlatformRole;
   mustChangePassword: boolean;
   themePreference: ThemePreference;
+  defaultWorkspaceId: string | null;
+  defaultBoardId: string | null;
 }
 
 export interface PermissionSnapshot {

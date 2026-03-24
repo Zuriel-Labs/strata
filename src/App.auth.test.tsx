@@ -16,6 +16,8 @@ function authenticatedSession(): SessionPayload {
       username: 'admin',
       platformRole: 'system_admin',
       mustChangePassword: false,
+      defaultWorkspaceId: null,
+      defaultBoardId: null,
     },
     permissions: {
       isSystemAdmin: true,

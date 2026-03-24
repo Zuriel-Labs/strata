@@ -167,6 +167,14 @@ export function createSchema(db: Database.Database) {
     db.exec("ALTER TABLE users ADD COLUMN theme_preference TEXT NOT NULL DEFAULT 'dark'");
   }
 
+  if (!userColumns.has('default_workspace_id')) {
+    db.exec('ALTER TABLE users ADD COLUMN default_workspace_id TEXT');
+  }
+
+  if (!userColumns.has('default_board_id')) {
+    db.exec('ALTER TABLE users ADD COLUMN default_board_id TEXT');
+  }
+
   const automationRuleColumns = new Set(
     (db.prepare('PRAGMA table_info(automation_rules)').all() as Array<{ name: string }>).map(column => column.name),
   );

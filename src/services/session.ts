@@ -41,10 +41,10 @@ export function updateProfile(name: string, initials: string, color: string) {
   });
 }
 
-export function updatePreferences(themePreference: ThemePreference) {
+export function updatePreferences(themePreference: ThemePreference, defaultWorkspaceId?: string | null, defaultBoardId?: string | null) {
   return apiRequest<{ user: SessionUser }>('/api/auth/preferences', {
     method: 'PATCH',
-    body: JSON.stringify({ themePreference }),
+    body: JSON.stringify({ themePreference, defaultWorkspaceId: defaultWorkspaceId ?? undefined, defaultBoardId: defaultBoardId ?? undefined }),
   });
 }
 

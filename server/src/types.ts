@@ -18,6 +18,8 @@ export interface UserRecord {
   mustChangePassword: boolean;
   createdAt: string;
   updatedAt: string;
+  defaultWorkspaceId: string | null;
+  defaultBoardId: string | null;
 }
 
 export interface WorkspaceMembershipRecord {
@@ -70,6 +72,8 @@ export interface SessionUser {
   username: string;
   platformRole: PlatformRole;
   mustChangePassword: boolean;
+  defaultWorkspaceId: string | null;
+  defaultBoardId: string | null;
 }
 
 export interface RecoveryKeyRecord {

@@ -30,11 +30,14 @@ function normalizeInitials(value: string) {
 export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const auth = useAuth();
   const sessionUser = auth.session?.user;
+  const appState = auth.session?.appState;
   const [view, setView] = useState<OverlayView>('menu');
   const [displayName, setDisplayName] = useState(sessionUser?.name ?? '');
   const [initials, setInitials] = useState(sessionUser?.initials ?? '');
   const [avatarColor, setAvatarColor] = useState(sessionUser?.color ?? PROFILE_COLOR_OPTIONS[0]);
   const [themePreference, setThemePreference] = useState<ThemePreference>(sessionUser?.themePreference ?? 'dark');
+  const [defaultWorkspaceId, setDefaultWorkspaceId] = useState<string | null>(sessionUser?.defaultWorkspaceId ?? null);
+  const [defaultBoardId, setDefaultBoardId] = useState<string | null>(sessionUser?.defaultBoardId ?? null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [nextPassword, setNextPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -60,6 +63,8 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
     setInitials(currentUser.initials);
     setAvatarColor(currentUser.color);
     setThemePreference(currentUser.themePreference);
+    setDefaultWorkspaceId(currentUser.defaultWorkspaceId ?? null);
+    setDefaultBoardId(currentUser.defaultBoardId ?? null);
     setCurrentPassword('');
     setNextPassword('');
     setConfirmPassword('');
@@ -105,6 +110,8 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
     setInitials(sessionUser.initials);
     setAvatarColor(sessionUser.color);
     setThemePreference(sessionUser.themePreference);
+    setDefaultWorkspaceId(sessionUser.defaultWorkspaceId ?? null);
+    setDefaultBoardId(sessionUser.defaultBoardId ?? null);
     setCurrentPassword('');
     setNextPassword('');
     setConfirmPassword('');
@@ -147,9 +154,9 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
     setNotice(null);
 
     try {
-      await auth.updatePreferences(themePreference);
-      setNotice({ tone: 'success', message: `Theme updated to ${themePreference} mode.` });
-      toast({ title: 'Preferences updated', description: `Theme switched to ${themePreference} mode.` });
+      await auth.updatePreferences(themePreference, defaultWorkspaceId, defaultBoardId);
+      setNotice({ tone: 'success', message: 'Preferences updated.' });
+      toast({ title: 'Preferences updated', description: 'Your preferences have been saved.' });
     } catch (error) {
       setNotice({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to save preferences.' });
     } finally {
@@ -421,9 +428,78 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
 
         {view === 'preferences' ? (
           <>
-            {renderSubheader('Preferences', 'Choose the theme that feels best for your workday.')}
+            {renderSubheader('Preferences', 'Set your default workspace and board, and choose your preferred theme.')}
             <div className="space-y-4 px-4 py-4 sm:px-5">
               {renderNotice()}
+
+              {appState && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      Default workspace
+                      {appState.workspaces.length === 1 && (
+                        <span className="ml-2 text-xs" style={{ color: 'var(--text-muted)' }}>(Only one workspace available)</span>
+                      )}
+                    </label>
+                    <select
+                      value={defaultWorkspaceId ?? ''}
+                      onChange={event => {
+                        const newWorkspaceId = event.target.value || null;
+                        setDefaultWorkspaceId(newWorkspaceId);
+                        const boardsInWorkspace = appState.boards.filter(b => b.workspaceId === newWorkspaceId);
+                        if (boardsInWorkspace.length === 1) {
+                          setDefaultBoardId(boardsInWorkspace[0].id);
+                        } else {
+                          setDefaultBoardId(null);
+                        }
+                      }}
+                      disabled={appState.workspaces.length === 1}
+                      className="mt-2 w-full rounded-2xl border px-4 py-3"
+                      style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    >
+                      {appState.workspaces.length > 1 && <option value="">Select a workspace</option>}
+                      {appState.workspaces
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(workspace => (
+                          <option key={workspace.id} value={workspace.id}>
+                            {workspace.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {defaultWorkspaceId && (
+                    <div>
+                      <label className="block text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                        Default board
+                        {appState.boards.filter(b => b.workspaceId === defaultWorkspaceId).length === 1 && (
+                          <span className="ml-2 text-xs" style={{ color: 'var(--text-muted)' }}>(Only one board available)</span>
+                        )}
+                      </label>
+                      <select
+                        value={defaultBoardId ?? ''}
+                        onChange={event => setDefaultBoardId(event.target.value || null)}
+                        disabled={appState.boards.filter(b => b.workspaceId === defaultWorkspaceId).length === 1}
+                        className="mt-2 w-full rounded-2xl border px-4 py-3"
+                        style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                      >
+                        {appState.boards.filter(b => b.workspaceId === defaultWorkspaceId).length > 1 && <option value="">Select a board</option>}
+                        {appState.boards
+                          .filter(b => b.workspaceId === defaultWorkspaceId)
+                          .sort((a, b) => a.title.localeCompare(b.title))
+                          .map(board => (
+                            <option key={board.id} value={board.id}>
+                              {board.title}
+                            </option>
+                          ))}
+                      </select>
+                      {appState.boards.filter(b => b.workspaceId === defaultWorkspaceId).length === 0 && (
+                        <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>No boards in this workspace.</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
 
               <fieldset>
                 <legend className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Theme</legend>

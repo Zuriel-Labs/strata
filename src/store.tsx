@@ -435,7 +435,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'ADD_BOARD_FROM_API':
-      return { ...state, boards: [...state.boards, action.payload], currentWorkspaceId: action.payload.workspaceId, currentBoardId: action.payload.id };
+      return { ...state, boards: [...state.boards, action.payload] };
 
     case 'UPDATE_BOARD_FROM_API':
       return { ...state, boards: state.boards.map(board => board.id === action.payload.id ? action.payload : board) };

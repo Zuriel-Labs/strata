@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
+import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import type Database from 'better-sqlite3';
 import { attachAuth } from './http/auth-middleware';
@@ -19,6 +20,29 @@ export function createApp(db: Database.Database) {
   const clientDistPath = path.resolve(process.cwd(), 'dist');
   const clientIndexPath = path.join(clientDistPath, 'index.html');
   const hasClientBuild = fs.existsSync(clientIndexPath);
+
+  // Trust the first reverse proxy (Traefik/ingress) so Express respects
+  // X-Forwarded-Proto and X-Forwarded-For headers. Required for secure
+  // cookies and correct req.secure values behind TLS termination.
+  app.set('trust proxy', 1);
+
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        fontSrc: ["'self'"],
+        connectSrc: ["'self'"],
+      },
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+  }));
 
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());

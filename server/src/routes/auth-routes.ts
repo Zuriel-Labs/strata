@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
-import { clearSessionCookie, createUserSession, destroyUserSession } from '../auth/session';
+import { clearSessionCookie, createUserSession, destroyUserSession, SESSION_COOKIE } from '../auth/session';
 import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey, userHasAccessToBoard, userHasAccessToWorkspace } from '../db/repositories';
 import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
@@ -93,7 +93,7 @@ export function createAuthRoutes(db: Database.Database) {
       INSERT INTO users (id, name, initials, color, username, platform_role, password_hash, active, must_change_password, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, 'Admin', 'AD', '#6366f1', parsed.data.username, 'system_admin', passwordHash, 1, 0, timestamp, timestamp);
-    createUserSession(db, id, response);
+    createUserSession(db, id, request, response);
     audit(db, { actorUserId: id, scopeType: 'auth', action: 'auth.bootstrap', outcome: 'success' });
     const user = getUserByUsername(db, parsed.data.username);
     if (!user) {
@@ -117,7 +117,7 @@ export function createAuthRoutes(db: Database.Database) {
       return;
     }
 
-    createUserSession(db, user.id, response);
+    createUserSession(db, user.id, request, response);
     audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.login', outcome: 'success' });
     const refreshedUser = getUserByUsername(db, parsed.data.username);
     if (!refreshedUser) {
@@ -135,7 +135,7 @@ export function createAuthRoutes(db: Database.Database) {
   });
 
   router.post('/logout', (request: AuthenticatedRequest, response) => {
-    const sessionId = request.cookies?.strata_session ?? request.cookies?.[process.env.STRATA_SESSION_COOKIE ?? 'strata_session'];
+    const sessionId = request.cookies?.[SESSION_COOKIE];
     if (request.auth) {
       audit(db, { actorUserId: request.auth.user.id, scopeType: 'auth', action: 'auth.logout', outcome: 'success' });
     }

@@ -12,6 +12,7 @@ import { createBoardRoutes } from './routes/board-routes';
 import { createListRoutes } from './routes/list-routes';
 import { createCardRoutes } from './routes/card-routes';
 import { createAutomationRoutes, createNotificationRoutes } from './routes/automation-routes';
+import { csrfProtection } from './middleware/csrf';
 
 const JSON_BODY_LIMIT = '12mb';
 
@@ -47,6 +48,11 @@ export function createApp(db: Database.Database) {
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());
   app.use(attachAuth(db));
+
+  // CSRF protection — validates double-submit cookie on mutating requests.
+  // Must mount after cookie-parser (needs to read strata_csrf cookie).
+  // Login, bootstrap, and recovery-key/consume are exempt (no session yet).
+  app.use(csrfProtection);
 
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true });

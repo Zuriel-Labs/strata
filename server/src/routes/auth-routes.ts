@@ -8,6 +8,8 @@ import { hashPassword, validatePassword, verifyPassword } from '../auth/password
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { UserRecord } from '../types';
+import { loginLimiter, bootstrapLimiter, recoveryKeyLimiter } from '../middleware/rate-limit';
+import { generateCsrfToken, setCsrfCookie } from '../middleware/csrf';
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 const passwordChangeSchema = z.object({ currentPassword: z.string().min(1), nextPassword: z.string().min(10), confirmPassword: z.string().min(1) });
@@ -55,12 +57,20 @@ function buildValidationMessage(error: z.ZodError, fallback: string) {
 export function createAuthRoutes(db: Database.Database) {
   const router = Router();
 
+  // CSRF token endpoint — clients call this to obtain a CSRF token
+  // for including in mutating request headers.
+  router.get('/csrf-token', (request, response) => {
+    const token = generateCsrfToken();
+    setCsrfCookie(request, response, token);
+    response.json({ csrfToken: token });
+  });
+
   router.get('/needs-bootstrap', (_request, response) => {
     const users = listUsers(db);
     response.json({ needsBootstrap: users.length === 0 });
   });
 
-  router.post('/bootstrap', async (request, response) => {
+  router.post('/bootstrap', bootstrapLimiter, async (request, response) => {
     const users = listUsers(db);
     if (users.length > 0) {
       response.status(409).json({ message: 'Platform already bootstrapped.' });
@@ -103,7 +113,7 @@ export function createAuthRoutes(db: Database.Database) {
     response.status(201).json(buildSessionPayload(db, user));
   });
 
-  router.post('/login', async (request, response) => {
+  router.post('/login', loginLimiter, async (request, response) => {
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json({ message: 'Invalid login payload.' });
@@ -263,7 +273,7 @@ export function createAuthRoutes(db: Database.Database) {
     response.json({ recoveryKey: rawKey });
   });
 
-  router.post('/recovery-key/consume', async (request, response) => {
+  router.post('/recovery-key/consume', recoveryKeyLimiter, async (request, response) => {
     const parsed = recoveryConsumeSchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json({ message: 'Invalid recovery payload.' });

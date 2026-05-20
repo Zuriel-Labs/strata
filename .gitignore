@@ -15,3 +15,4 @@ playwright-report/
 test-results/
 server/data/
 .sessions/
+node_modules

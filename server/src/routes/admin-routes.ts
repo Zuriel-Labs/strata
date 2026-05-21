@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { audit } from '../audit/audit-log';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageUserPlatform } from '../rbac/policies';
-import type { BoardRole, PlatformRole, WorkspaceRole } from '../types';
+import type { BoardRole, WorkspaceRole } from '../types';
 
 const userSchema = z.object({
   name: z.string().min(1),

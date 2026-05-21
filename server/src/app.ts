@@ -89,6 +89,24 @@ export function createApp(db: Database.Database) {
       return;
     }
 
+    // In production, return generic messages for unknown errors to avoid
+    // leaking internal details (database errors, file paths, etc.)
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isKnownSafeError = typeof error === 'object' && error !== null && (
+      'constructor' in error && (
+        error.constructor?.name === 'ZodError' ||
+        error.constructor?.name === 'AuthError' ||
+        error.constructor?.name === 'ValidationError'
+      )
+    );
+
+    if (isProduction && !isKnownSafeError) {
+      response.status(500).json({
+        message: 'An unexpected error occurred.',
+      });
+      return;
+    }
+
     response.status(500).json({
       message: error instanceof Error ? error.message : 'Unexpected server error.',
     });

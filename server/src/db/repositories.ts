@@ -198,6 +198,11 @@ export function deleteSession(db: Database.Database, sessionId: string) {
   db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
 }
 
+export function deleteSessionsForUser(db: Database.Database, userId: string): number {
+  const result = db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  return result.changes;
+}
+
 export function getWorkspaceMembershipsForUser(db: Database.Database, userId: string) {
   const rows = db.prepare('SELECT * FROM workspace_memberships WHERE user_id = ?').all(userId) as Record<string, unknown>[];
   return rows.map(mapWorkspaceMembership);

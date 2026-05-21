@@ -1,14 +1,14 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { createManagedUser, deleteManagedUser, listAdminUsers, updateManagedUser } from '../db/admin-repositories';
-import { getBoardMembershipsForUser, getWorkspaceMembershipsForUser, getUserById, listAuditEvents, upsertRecoveryKey } from '../db/repositories';
+import { deleteSessionsForUser, getBoardMembershipsForUser, getWorkspaceMembershipsForUser, getUserById, listAuditEvents, upsertRecoveryKey } from '../db/repositories';
 import { hashPassword } from '../auth/passwords';
 import { randomBytes } from 'node:crypto';
 import { audit } from '../audit/audit-log';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageUserPlatform } from '../rbac/policies';
-import type { BoardRole, WorkspaceRole } from '../types';
+import type { BoardRole, PlatformRole, WorkspaceRole } from '../types';
 
 const userSchema = z.object({
   name: z.string().min(1),
@@ -27,7 +27,7 @@ export function createAdminRoutes(db: Database.Database) {
   const router = Router();
   router.use(requireAuth);
 
-  router.get('/users', (request: AuthenticatedRequest, response) => {
+  router.get('/users', (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) {
       response.status(403).json({ message: 'Forbidden.' });
       return;
@@ -44,7 +44,7 @@ export function createAdminRoutes(db: Database.Database) {
     });
   });
 
-  router.post('/users', async (request: AuthenticatedRequest, response) => {
+  router.post('/users', async (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) {
       response.status(403).json({ message: 'Forbidden.' });
       return;
@@ -74,7 +74,7 @@ export function createAdminRoutes(db: Database.Database) {
     response.status(201).json({ user: created, inviteToken });
   });
 
-  router.patch('/users/:userId', (request: AuthenticatedRequest, response) => {
+  router.patch('/users/:userId', (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) {
       response.status(403).json({ message: 'Forbidden.' });
       return;
@@ -84,8 +84,19 @@ export function createAdminRoutes(db: Database.Database) {
       response.status(400).json({ message: 'Invalid user update payload.' });
       return;
     }
+    const targetUserId = String(request.params.userId);
+    const currentUser = getUserById(db, targetUserId);
+    if (!currentUser) {
+      response.status(404).json({ message: 'User not found.' });
+      return;
+    }
+
+    // Determine if privilege-revoking changes are happening
+    const isRoleChange = parsed.data.platformRole !== undefined && parsed.data.platformRole !== currentUser.platformRole;
+    const isDeactivation = parsed.data.active === false && currentUser.active;
+
     try {
-      const updated = updateManagedUser(db, request.auth.user, String(request.params.userId), {
+      const updated = updateManagedUser(db, request.auth.user, targetUserId, {
         ...parsed.data,
         workspaceMemberships: parsed.data.workspaceMemberships as Array<{ workspaceId: string; role: WorkspaceRole }> | undefined,
         boardMemberships: parsed.data.boardMemberships as Array<{ boardId: string; role: BoardRole }> | undefined,
@@ -94,13 +105,31 @@ export function createAdminRoutes(db: Database.Database) {
         response.status(404).json({ message: 'User not found.' });
         return;
       }
+
+      // If privilege changed or user deactivated, invalidate all sessions
+      if (isRoleChange || isDeactivation) {
+        const deletedCount = deleteSessionsForUser(db, targetUserId);
+        audit(db, {
+          actorUserId: request.auth.user.id,
+          targetUserId,
+          scopeType: 'platform',
+          action: 'admin.session_invalidation',
+          outcome: 'success',
+          metadata: {
+            reason: isRoleChange ? 'role_change' : 'account_deactivation',
+            newRole: isRoleChange ? parsed.data.platformRole : undefined,
+            sessionsInvalidated: deletedCount,
+          },
+        });
+      }
+
       response.json({ user: updated });
     } catch (error) {
       response.status(400).json({ message: error instanceof Error ? error.message : 'Unable to update user.' });
     }
   });
 
-  router.post('/users/:userId/generate-recovery-key', async (request: AuthenticatedRequest, response) => {
+  router.post('/users/:userId/generate-recovery-key', async (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) {
       response.status(403).json({ message: 'Forbidden.' });
       return;
@@ -117,7 +146,7 @@ export function createAdminRoutes(db: Database.Database) {
     response.json({ recoveryKey: rawKey });
   });
 
-  router.delete('/users/:userId', (request: AuthenticatedRequest, response) => {
+  router.delete('/users/:userId', (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) {
       response.status(403).json({ message: 'Forbidden.' });
       return;

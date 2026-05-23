@@ -11,6 +11,7 @@ import {
   createAuditEvent,
   markNotificationRead,
   markAllNotificationsRead,
+  getNotificationById,
   getBoardById,
 } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
@@ -224,7 +225,16 @@ export function createNotificationRoutes(db: Database.Database) {
   const router = Router();
 
   router.post('/:notificationId/read', requireAuth, (request: AuthenticatedRequest, response) => {
-    markNotificationRead(db, String(request.params.notificationId));
+    const notification = getNotificationById(db, String(request.params.notificationId));
+    if (!notification) {
+      response.status(404).json({ message: 'Notification not found.' });
+      return;
+    }
+    if (notification.userId !== request.auth!.user.id) {
+      response.status(403).json({ message: 'Forbidden.' });
+      return;
+    }
+    markNotificationRead(db, notification.id);
     response.json({ success: true });
   });
 

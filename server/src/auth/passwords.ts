@@ -3,6 +3,10 @@ import { randomBytes } from 'node:crypto';
 
 const MIN_PASSWORD_LENGTH = 10;
 
+export function hashPasswordSync(password: string) {
+  return bcrypt.hashSync(password, 10);
+}
+
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 10);
 }

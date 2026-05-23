@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createDatabase, closeDatabase } from '../src/db/database';
 import { createApp } from '../src/app';
+import { createNotification } from '../src/db/repositories';
 
 beforeAll(() => {
   process.env.SEED_DATA = 'true';
@@ -677,6 +678,35 @@ describe('automation rule CRUD routes', () => {
 
 describe('notification routes', () => {
   afterEach(() => { closeDatabase(); });
+
+  it('marks a single notification read for the owner', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    // Create a notification for admin
+    createNotification(db, 'n-1', 'u1', 'c1', 'b1', 'Test notification');
+
+    const res = await agent.post('/api/notifications/n-1/read').send();
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const updated = db.prepare('SELECT read FROM notifications WHERE id = ?').get('n-1') as { read: number };
+    expect(updated.read).toBe(1);
+  });
+
+  it('returns 403 when a different user tries to mark a notification read', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    // Create a notification for a different user
+    createNotification(db, 'n-other', 'u2', 'c1', 'b1', 'Other user notification');
+
+    const res = await agent.post('/api/notifications/n-other/read').send();
+    expect(res.status).toBe(403);
+    expect(res.body.message).toBe('Forbidden.');
+  });
 
   it('marks all notifications read', async () => {
     const db = await createDatabase(':memory:');

@@ -71,6 +71,7 @@ export function createAdminRoutes(db: Database.Database) {
     const inviteHash = await hashPassword(inviteToken);
     upsertRecoveryKey(db, created.id, inviteHash);
     audit(db, { actorUserId: request.auth.user.id, scopeType: 'platform', action: 'admin.user_create', outcome: 'success', metadata: { username: parsed.data.username } });
+    response.setHeader('X-Sensitive-Data', 'true');
     response.status(201).json({ user: created, inviteToken });
   });
 
@@ -143,6 +144,7 @@ export function createAdminRoutes(db: Database.Database) {
     const keyHash = await hashPassword(rawKey);
     upsertRecoveryKey(db, user.id, keyHash);
     audit(db, { actorUserId: request.auth.user.id, targetUserId: user.id, scopeType: 'auth', action: 'auth.admin_recovery_key_generate', outcome: 'success' });
+    response.setHeader('X-Sensitive-Data', 'true');
     response.json({ recoveryKey: rawKey });
   });
 

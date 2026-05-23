@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
 import { clearSessionCookie, createUserSession, destroyUserSession, SESSION_COOKIE } from '../auth/session';
 import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey, userHasAccessToBoard, userHasAccessToWorkspace } from '../db/repositories';
-import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
+import { hashPassword, hashPasswordSync, validatePassword, verifyPassword } from '../auth/passwords';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { UserRecord } from '../types';
@@ -61,46 +61,58 @@ export function createAuthRoutes(db: Database.Database) {
   });
 
   router.post('/bootstrap', async (request, response) => {
-    const users = listUsers(db);
-    if (users.length > 0) {
+    const bootstrapResult = db.transaction(() => {
+      const users = listUsers(db);
+      if (users.length > 0) {
+        return null;
+      }
+      const parsed = bootstrapSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return { status: 400, body: parsed.error };
+      }
+      if (parsed.data.password !== parsed.data.confirmPassword) {
+        return { status: 400, body: { message: 'Passwords do not match.' } };
+      }
+      try {
+        validatePassword(parsed.data.password);
+      } catch (error) {
+        return { status: 400, body: { message: error instanceof Error ? error.message : 'Invalid password.' } };
+      }
+      const passwordHash = hashPasswordSync(parsed.data.password);
+      const id = randomUUID();
+      const timestamp = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO users (id, name, initials, color, username, platform_role, password_hash, active, must_change_password, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, 'Admin', 'AD', '#6366f1', parsed.data.username, 'system_admin', passwordHash, 1, 0, timestamp, timestamp);
+      createUserSession(db, id, request, response);
+      audit(db, { actorUserId: id, scopeType: 'auth', action: 'auth.bootstrap', outcome: 'success' });
+      const user = getUserByUsername(db, parsed.data.username);
+      if (!user) {
+        return { status: 500, body: { message: 'Bootstrap failed.' } };
+      }
+      return { status: 201, body: buildSessionPayload(db, user) };
+    })();
+
+    if (bootstrapResult === null) {
       response.status(409).json({ message: 'Platform already bootstrapped.' });
       return;
     }
-    const parsed = bootstrapSchema.safeParse(request.body);
-    if (!parsed.success) {
-      const first = parsed.error.issues[0];
-      const field = first?.path[0];
-      const detail = field === 'password' && first?.code === 'too_small'
-        ? 'Password must be at least 10 characters long.'
-        : first?.message ?? 'Invalid bootstrap payload.';
-      response.status(400).json({ message: detail });
+    if (bootstrapResult.status && bootstrapResult.status !== 201) {
+      // early-exit markers for validation errors inside transaction
+      if (bootstrapResult.status === 400 && bootstrapResult.body instanceof z.ZodError) {
+        const first = bootstrapResult.body.issues[0];
+        const field = first?.path[0];
+        const detail = field === 'password' && first?.code === 'too_small'
+          ? 'Password must be at least 10 characters long.'
+          : first?.message ?? 'Invalid bootstrap payload.';
+        response.status(400).json({ message: detail });
+        return;
+      }
+      response.status(bootstrapResult.status).json(bootstrapResult.body);
       return;
     }
-    if (parsed.data.password !== parsed.data.confirmPassword) {
-      response.status(400).json({ message: 'Passwords do not match.' });
-      return;
-    }
-    try {
-      validatePassword(parsed.data.password);
-    } catch (error) {
-      response.status(400).json({ message: error instanceof Error ? error.message : 'Invalid password.' });
-      return;
-    }
-    const passwordHash = await hashPassword(parsed.data.password);
-    const id = randomUUID();
-    const timestamp = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO users (id, name, initials, color, username, platform_role, password_hash, active, must_change_password, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, 'Admin', 'AD', '#6366f1', parsed.data.username, 'system_admin', passwordHash, 1, 0, timestamp, timestamp);
-    createUserSession(db, id, request, response);
-    audit(db, { actorUserId: id, scopeType: 'auth', action: 'auth.bootstrap', outcome: 'success' });
-    const user = getUserByUsername(db, parsed.data.username);
-    if (!user) {
-      response.status(500).json({ message: 'Bootstrap failed.' });
-      return;
-    }
-    response.status(201).json(buildSessionPayload(db, user));
+    response.status(201).json(bootstrapResult!.body);
   });
 
   router.post('/login', async (request, response) => {

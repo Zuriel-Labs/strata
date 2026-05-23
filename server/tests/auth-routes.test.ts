@@ -88,12 +88,12 @@ describe('auth routes', () => {
     expect(response.status).toBe(401);
   });
 
-  it('checks bootstrap status', async () => {
+  it('rejects bootstrap when already bootstrapped', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
 
-    const response = await request(app).get('/api/auth/needs-bootstrap');
-    expect(response.status).toBe(200);
-    expect(response.body.needsBootstrap).toBe(false);
+    const response = await request(app).post('/api/auth/bootstrap').send({ username: 'newadmin', password: 'Bootstrap12345!', confirmPassword: 'Bootstrap12345!' });
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe('Platform already bootstrapped.');
   });
 });

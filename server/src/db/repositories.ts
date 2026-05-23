@@ -756,6 +756,20 @@ export function listActiveCardsForAutomation(db: Database.Database, boardId: str
 }
 
 // ── Notification mutations ───────────────────────────────────────────
+export function getNotificationById(db: Database.Database, notificationId: string): Notification | null {
+  const row = db.prepare('SELECT * FROM notifications WHERE id = ?').get(notificationId) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    cardId: String(row.card_id),
+    boardId: String(row.board_id),
+    message: String(row.message),
+    read: asBool(Number(row.read)),
+    createdAt: String(row.created_at),
+  };
+}
+
 export function createNotification(db: Database.Database, id: string, userId: string, cardId: string, boardId: string, message: string) {
   const timestamp = new Date().toISOString();
   db.prepare('INSERT INTO notifications (id, user_id, card_id, board_id, message, read, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)').run(id, userId, cardId, boardId, message, timestamp);

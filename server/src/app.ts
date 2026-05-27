@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
+import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import type Database from 'better-sqlite3';
 import { attachAuth } from './http/auth-middleware';
@@ -13,7 +14,11 @@ import { createListRoutes } from './routes/list-routes';
 import { createCardRoutes } from './routes/card-routes';
 import { createAutomationRoutes, createNotificationRoutes } from './routes/automation-routes';
 
-const JSON_BODY_LIMIT = '12mb';
+function getCorsOrigin(): string | boolean {
+  const raw = process.env.CORS_ORIGIN;
+  if (!raw) return false;
+  return raw;
+}
 
 export function createApp(db: Database.Database) {
   const app = express();
@@ -44,7 +49,8 @@ export function createApp(db: Database.Database) {
     },
   }));
 
-  app.use(express.json({ limit: JSON_BODY_LIMIT }));
+  app.use(cors({ origin: getCorsOrigin(), credentials: true }));
+  app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use(attachAuth(db));
 

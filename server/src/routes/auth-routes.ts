@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import express from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
@@ -54,6 +55,8 @@ function buildValidationMessage(error: z.ZodError, fallback: string) {
 
 export function createAuthRoutes(db: Database.Database) {
   const router = Router();
+
+  router.use(express.json({ limit: '100kb' }));
 
   router.get('/needs-bootstrap', (_request, response) => {
     const users = listUsers(db);

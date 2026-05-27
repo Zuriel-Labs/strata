@@ -2,6 +2,13 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
+// Provide deterministic seed passwords for tests so test fixtures
+// continue to work without hardcoding credentials in source code.
+process.env.ADMIN_INITIAL_PASSWORD = process.env.ADMIN_INITIAL_PASSWORD || 'ChangeMe123!';
+process.env.SEED_ALEX_PASSWORD = process.env.SEED_ALEX_PASSWORD || 'WorkspaceAdmin123!';
+process.env.SEED_PRIYA_PASSWORD = process.env.SEED_PRIYA_PASSWORD || 'Member12345!';
+process.env.SEED_MARCUS_PASSWORD = process.env.SEED_MARCUS_PASSWORD || 'BoardAdmin123!';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {

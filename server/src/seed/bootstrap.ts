@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { hashPassword } from '../auth/passwords';
 import type { BoardRole, PlatformRole, WorkspaceRole } from '../types';
@@ -20,6 +20,15 @@ type UserSeed = {
   mustChangePassword: boolean;
 };
 
+function generatePassword(label: string): string {
+  const envKey = label === 'admin' ? 'ADMIN_INITIAL_PASSWORD' : `SEED_${label.toUpperCase()}_PASSWORD`;
+  const value = process.env[envKey] || process.env.SEED_USER_PASSWORD;
+  if (value) return value;
+  const generated = randomBytes(16).toString('base64');
+  console.log(`Seed ${label} password (generated): ${generated}`);
+  return generated;
+}
+
 const seededUsers: UserSeed[] = [
   {
     ...USERS[0],
@@ -28,13 +37,13 @@ const seededUsers: UserSeed[] = [
     initials: 'SA',
     themePreference: 'dark',
     platformRole: 'system_admin',
-    password: 'ChangeMe123!',
+    password: generatePassword('admin'),
     active: true,
     mustChangePassword: true,
   },
-  { ...USERS[1], themePreference: 'dark', username: 'alex', platformRole: 'user', password: 'WorkspaceAdmin123!', active: true, mustChangePassword: false },
-  { ...USERS[2], themePreference: 'dark', username: 'priya', platformRole: 'user', password: 'Member12345!', active: true, mustChangePassword: false },
-  { ...USERS[3], themePreference: 'dark', username: 'marcus', platformRole: 'user', password: 'BoardAdmin123!', active: true, mustChangePassword: false },
+  { ...USERS[1], themePreference: 'dark', username: 'alex', platformRole: 'user', password: generatePassword('alex'), active: true, mustChangePassword: false },
+  { ...USERS[2], themePreference: 'dark', username: 'priya', platformRole: 'user', password: generatePassword('priya'), active: true, mustChangePassword: false },
+  { ...USERS[3], themePreference: 'dark', username: 'marcus', platformRole: 'user', password: generatePassword('marcus'), active: true, mustChangePassword: false },
 ];
 
 const workspaceMemberships: Array<{ userId: string; workspaceId: string; role: WorkspaceRole }> = [

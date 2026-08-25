@@ -47,7 +47,7 @@
 - [x] T022 Run `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build`, `npm run test:e2e`, and `npm run test:ci`; remediate all scoped failures.
 - [x] T023 Perform independent correctness, security, data-integrity, UX/accessibility, performance, maintainability, and test review; update artifacts to match implementation.
 - [x] T024 Generate a truthful test report under `tests/reports/` and update `specs/030-board-member-permissions/tasks.md`.
-- [ ] T025 Commit, push, open and verify the linked PR with test, risk, rollout, and rollback evidence.
+- [x] T025 Commit, push, open and verify the linked PR with test, risk, rollout, and rollback evidence.
 - [ ] T026 Build the clean candidate, record tag/digest/source identity, update only the Canary GitOps chart, and verify ArgoCD, workload, ingress/TLS, health, logs, and affected journeys.
 - [ ] T027 Mark Issue #30 `agent:canary` and `agent:awaiting-feedback`; deliver a diff-specific user checklist and await exact-candidate approval.
 

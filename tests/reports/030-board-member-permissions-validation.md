@@ -2,6 +2,7 @@
 
 Date: 2026-08-25
 Issue: [#30](https://github.com/Broville/strata/issues/30)
+PR: [#31](https://github.com/Broville/strata/pull/31)
 Branch: `feat/board-member-permissions`
 Status: Local implementation validated; exact-commit Canary evidence pending
 
@@ -64,4 +65,4 @@ No unresolved correctness, security, data-integrity, accessibility, performance,
 
 ## Canary gate
 
-The next gate is to commit and open the linked PR, build one immutable image from the clean committed tree, and deploy only that exact candidate to `strata-canary`. Production must remain unchanged until the user approves this exact Canary candidate.
+The linked PR is open. The next gate is to build one immutable image from the clean committed tree and deploy only that exact candidate to `strata-canary`. Production must remain unchanged until the user approves this exact Canary candidate.

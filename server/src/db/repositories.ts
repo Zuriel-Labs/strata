@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { AppState, AutomationRule, Board, Card, List, Notification, User, Workspace } from '../../../src/types';
-import type { AuditEventInput, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, ThemePreference, UserRecord, WorkspaceMembershipRecord } from '../types';
+import type { AuditEventInput, BoardAdminGrantRecord, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, ThemePreference, UserRecord, WorkspaceAdminGrantRecord, WorkspaceMembershipRecord } from '../types';
 import { normalizeDescriptionInput, storedRichTextDocument } from '../../../src/lib/rich-text';
 import { sortCardsByTitle, type CardSortDirection } from '../../../src/lib/card-sort';
 
@@ -69,6 +69,26 @@ function mapBoardMembership(row: Record<string, unknown>): BoardMembershipRecord
   };
 }
 
+function mapWorkspaceAdminGrant(row: Record<string, unknown>): WorkspaceAdminGrantRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    workspaceId: String(row.workspace_id),
+    grantedByUserId: row.granted_by_user_id ? String(row.granted_by_user_id) : null,
+    createdAt: String(row.created_at),
+  };
+}
+
+function mapBoardAdminGrant(row: Record<string, unknown>): BoardAdminGrantRecord {
+  return {
+    id: String(row.id),
+    userId: String(row.user_id),
+    boardId: String(row.board_id),
+    grantedByUserId: row.granted_by_user_id ? String(row.granted_by_user_id) : null,
+    createdAt: String(row.created_at),
+  };
+}
+
 export function getUserByUsername(db: Database.Database, username: string) {
   const row = db.prepare('SELECT * FROM users WHERE lower(username) = lower(?)').get(username) as Record<string, unknown> | undefined;
   return row ? mapUser(row) : null;
@@ -114,7 +134,20 @@ export function userHasAccessToWorkspace(db: Database.Database, userId: string, 
     const row = db.prepare('SELECT id FROM workspaces WHERE id = ?').get(workspaceId) as { id: string } | undefined;
     return row !== undefined;
   }
-  const row = db.prepare('SELECT id FROM workspace_memberships WHERE user_id = ? AND workspace_id = ?').get(userId, workspaceId) as { id: string } | undefined;
+  const row = db.prepare(`
+    SELECT 1 AS id
+    WHERE EXISTS (SELECT 1 FROM workspace_admin_grants WHERE user_id = ? AND workspace_id = ?)
+       OR EXISTS (
+         SELECT 1 FROM board_admin_grants grant_row
+         JOIN boards ON boards.id = grant_row.board_id
+         WHERE grant_row.user_id = ? AND boards.workspace_id = ?
+       )
+       OR EXISTS (
+         SELECT 1 FROM board_memberships membership
+         JOIN boards ON boards.id = membership.board_id
+         WHERE membership.user_id = ? AND boards.workspace_id = ?
+       )
+  `).get(userId, workspaceId, userId, workspaceId, userId, workspaceId) as { id: number } | undefined;
   return row !== undefined;
 }
 
@@ -123,7 +156,12 @@ export function userHasAccessToBoard(db: Database.Database, userId: string, boar
     const row = db.prepare('SELECT id FROM boards WHERE id = ? AND workspace_id = ?').get(boardId, workspaceId) as { id: string } | undefined;
     return row !== undefined;
   }
-  const row = db.prepare('SELECT id FROM board_memberships WHERE user_id = ? AND board_id = ?').get(userId, boardId) as { id: string } | undefined;
+  const row = db.prepare(`
+    SELECT 1 AS id
+    WHERE EXISTS (SELECT 1 FROM board_memberships WHERE user_id = ? AND board_id = ?)
+       OR EXISTS (SELECT 1 FROM board_admin_grants WHERE user_id = ? AND board_id = ?)
+       OR EXISTS (SELECT 1 FROM workspace_admin_grants WHERE user_id = ? AND workspace_id = ?)
+  `).get(userId, boardId, userId, boardId, userId, workspaceId) as { id: number } | undefined;
   return row !== undefined;
 }
 
@@ -215,26 +253,48 @@ export function getBoardMembershipsForUser(db: Database.Database, userId: string
   return rows.map(mapBoardMembership);
 }
 
-function getAccessibleWorkspaceIds(db: Database.Database, user: UserRecord, workspaceMemberships: WorkspaceMembershipRecord[], boardMemberships: BoardMembershipRecord[]) {
+export function getWorkspaceAdminGrantsForUser(db: Database.Database, userId: string) {
+  const rows = db.prepare('SELECT * FROM workspace_admin_grants WHERE user_id = ? ORDER BY created_at ASC, id ASC').all(userId) as Record<string, unknown>[];
+  return rows.map(mapWorkspaceAdminGrant);
+}
+
+export function getBoardAdminGrantsForUser(db: Database.Database, userId: string) {
+  const rows = db.prepare('SELECT * FROM board_admin_grants WHERE user_id = ? ORDER BY created_at ASC, id ASC').all(userId) as Record<string, unknown>[];
+  return rows.map(mapBoardAdminGrant);
+}
+
+export function getDerivedWorkspaceIdsForUser(db: Database.Database, userId: string) {
+  return (db.prepare(`
+    SELECT DISTINCT boards.workspace_id AS workspaceId
+    FROM board_memberships
+    JOIN boards ON boards.id = board_memberships.board_id
+    WHERE board_memberships.user_id = ?
+    ORDER BY boards.workspace_id ASC
+  `).all(userId) as Array<{ workspaceId: string }>).map(row => row.workspaceId);
+}
+
+function getAccessibleWorkspaceIds(db: Database.Database, user: UserRecord, workspaceAdminGrants: WorkspaceAdminGrantRecord[], boardAdminGrants: BoardAdminGrantRecord[], boardMemberships: BoardMembershipRecord[]) {
   if (user.platformRole === 'system_admin') {
     const rows = db.prepare('SELECT id FROM workspaces').all() as Array<{ id: string }>;
     return rows.map(row => row.id);
   }
-  const ids = new Set(workspaceMemberships.map(item => item.workspaceId));
-  if (boardMemberships.length > 0) {
-    const placeholders = boardMemberships.map(() => '?').join(', ');
-    const rows = db.prepare(`SELECT DISTINCT workspace_id as workspaceId FROM boards WHERE id IN (${placeholders})`).all(...boardMemberships.map(item => item.boardId)) as Array<{ workspaceId: string }>;
+  const ids = new Set(workspaceAdminGrants.map(item => item.workspaceId));
+  const boardIds = [...new Set([...boardAdminGrants.map(item => item.boardId), ...boardMemberships.map(item => item.boardId)])];
+  if (boardIds.length > 0) {
+    const placeholders = boardIds.map(() => '?').join(', ');
+    const rows = db.prepare(`SELECT DISTINCT workspace_id as workspaceId FROM boards WHERE id IN (${placeholders})`).all(...boardIds) as Array<{ workspaceId: string }>;
     for (const row of rows) ids.add(row.workspaceId);
   }
   return [...ids];
 }
 
-function getAccessibleBoardIds(db: Database.Database, user: UserRecord, workspaceIds: string[], boardMemberships: BoardMembershipRecord[]) {
+function getAccessibleBoardIds(db: Database.Database, user: UserRecord, workspaceAdminGrants: WorkspaceAdminGrantRecord[], boardAdminGrants: BoardAdminGrantRecord[], boardMemberships: BoardMembershipRecord[]) {
   if (user.platformRole === 'system_admin') {
     const rows = db.prepare('SELECT id FROM boards').all() as Array<{ id: string }>;
     return rows.map(row => row.id);
   }
-  const ids = new Set(boardMemberships.map(item => item.boardId));
+  const ids = new Set([...boardAdminGrants.map(item => item.boardId), ...boardMemberships.map(item => item.boardId)]);
+  const workspaceIds = workspaceAdminGrants.map(item => item.workspaceId);
   if (workspaceIds.length > 0) {
     const placeholders = workspaceIds.map(() => '?').join(', ');
     const rows = db.prepare(`SELECT id FROM boards WHERE workspace_id IN (${placeholders})`).all(...workspaceIds) as Array<{ id: string }>;
@@ -258,7 +318,13 @@ function selectWorkspaces(db: Database.Database, workspaceIds: string[]) {
 export function getWorkspaceById(db: Database.Database, workspaceId: string): Workspace | null {
   const row = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(workspaceId) as Record<string, unknown> | undefined;
   if (!row) return null;
-  const memberIds = (db.prepare('SELECT user_id as userId FROM workspace_memberships WHERE workspace_id = ? ORDER BY created_at ASC').all(workspaceId) as Array<{ userId: string }>).map(rowValue => rowValue.userId);
+  const memberIds = (db.prepare(`
+    SELECT DISTINCT board_memberships.user_id AS userId
+    FROM board_memberships
+    JOIN boards ON boards.id = board_memberships.board_id
+    WHERE boards.workspace_id = ?
+    ORDER BY board_memberships.user_id ASC
+  `).all(workspaceId) as Array<{ userId: string }>).map(rowValue => rowValue.userId);
   return {
     id: String(row.id),
     name: String(row.name),
@@ -350,7 +416,10 @@ function selectAutomationRules(db: Database.Database, boardIds: string[]) {
   }));
 }
 
-function selectScopedUsers(db: Database.Database, user: UserRecord, workspaceIds: string[], boardIds: string[]) {
+function selectScopedUsers(db: Database.Database, user: UserRecord, boardIds: string[]) {
+  const membershipRows = db.prepare('SELECT user_id AS userId, board_id AS boardId FROM board_memberships').all() as Array<{ userId: string; boardId: string }>;
+  const membershipMap = new Map<string, string[]>();
+  membershipRows.forEach(row => membershipMap.set(row.userId, [...(membershipMap.get(row.userId) ?? []), row.boardId]));
   if (user.platformRole === 'system_admin') {
     return listUsers(db).map(safeUser => ({
       id: safeUser.id,
@@ -358,15 +427,11 @@ function selectScopedUsers(db: Database.Database, user: UserRecord, workspaceIds
       initials: safeUser.initials,
       color: safeUser.color,
       username: safeUser.username,
+      boardIds: membershipMap.get(safeUser.id) ?? [],
     }));
   }
 
   const userIds = new Set<string>([user.id]);
-  if (workspaceIds.length > 0) {
-    const placeholders = workspaceIds.map(() => '?').join(', ');
-    const rows = db.prepare(`SELECT DISTINCT user_id as userId FROM workspace_memberships WHERE workspace_id IN (${placeholders})`).all(...workspaceIds) as Array<{ userId: string }>;
-    rows.forEach(row => userIds.add(row.userId));
-  }
   if (boardIds.length > 0) {
     const placeholders = boardIds.map(() => '?').join(', ');
     const rows = db.prepare(`SELECT DISTINCT user_id as userId FROM board_memberships WHERE board_id IN (${placeholders})`).all(...boardIds) as Array<{ userId: string }>;
@@ -374,24 +439,30 @@ function selectScopedUsers(db: Database.Database, user: UserRecord, workspaceIds
   }
   const placeholders = [...userIds].map(() => '?').join(', ');
   const rows = db.prepare(`SELECT id, name, initials, color, username FROM users WHERE id IN (${placeholders}) ORDER BY name ASC`).all(...userIds) as User[];
-  return rows;
+  return rows.map(row => ({ ...row, boardIds: membershipMap.get(row.id) ?? [] }));
 }
 
 export function buildSessionPayload(db: Database.Database, user: UserRecord): SessionPayload {
-  const workspaceMemberships = getWorkspaceMembershipsForUser(db, user.id);
+  const workspaceAdminGrants = getWorkspaceAdminGrantsForUser(db, user.id);
+  const boardAdminGrants = getBoardAdminGrantsForUser(db, user.id);
   const boardMemberships = getBoardMembershipsForUser(db, user.id);
-  const workspaceIds = getAccessibleWorkspaceIds(db, user, workspaceMemberships, boardMemberships);
-  const boardIds = getAccessibleBoardIds(db, user, workspaceIds, boardMemberships);
+  const derivedWorkspaceIds = getDerivedWorkspaceIdsForUser(db, user.id);
+  const workspaceIds = getAccessibleWorkspaceIds(db, user, workspaceAdminGrants, boardAdminGrants, boardMemberships);
+  const boardIds = getAccessibleBoardIds(db, user, workspaceAdminGrants, boardAdminGrants, boardMemberships);
   const workspaces = selectWorkspaces(db, workspaceIds);
   const boards = selectBoards(db, boardIds);
   const lists = selectLists(db, boardIds);
   const cards = selectCards(db, boardIds);
   const notifications = selectNotifications(db, user.id, boardIds);
   const automationRules = selectAutomationRules(db, boardIds);
-  const users = selectScopedUsers(db, user, workspaceIds, boardIds);
+  const users = selectScopedUsers(db, user, boardIds);
 
   const workspaceMemberMap = new Map<string, string[]>();
-  for (const membership of db.prepare('SELECT workspace_id as workspaceId, user_id as userId FROM workspace_memberships').all() as Array<{ workspaceId: string; userId: string }>) {
+  for (const membership of db.prepare(`
+    SELECT DISTINCT boards.workspace_id AS workspaceId, board_memberships.user_id AS userId
+    FROM board_memberships
+    JOIN boards ON boards.id = board_memberships.board_id
+  `).all() as Array<{ workspaceId: string; userId: string }>) {
     const list = workspaceMemberMap.get(membership.workspaceId) ?? [];
     list.push(membership.userId);
     workspaceMemberMap.set(membership.workspaceId, list);
@@ -453,8 +524,10 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     user: safeUser,
     permissions: {
       isSystemAdmin: user.platformRole === 'system_admin',
-      workspaceMemberships,
+      workspaceAdminGrants,
+      boardAdminGrants,
       boardMemberships,
+      derivedWorkspaceIds,
     },
     appState,
   };

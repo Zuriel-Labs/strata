@@ -5,12 +5,16 @@ export function isSystemAdmin(auth: AuthContextValue) {
   return auth.user.platformRole === 'system_admin';
 }
 
-export function hasWorkspaceRole(auth: AuthContextValue, workspaceId: string, roles: string[]) {
-  return auth.workspaceMemberships.some(membership => membership.workspaceId === workspaceId && roles.includes(membership.role));
+export function hasWorkspaceAdminGrant(auth: AuthContextValue, workspaceId: string) {
+  return auth.workspaceAdminGrants.some(grant => grant.workspaceId === workspaceId);
 }
 
-export function hasBoardRole(auth: AuthContextValue, boardId: string, roles: string[]) {
-  return auth.boardMemberships.some(membership => membership.boardId === boardId && roles.includes(membership.role));
+export function hasBoardAdminGrant(auth: AuthContextValue, boardId: string) {
+  return auth.boardAdminGrants.some(grant => grant.boardId === boardId);
+}
+
+export function hasBoardMembership(auth: AuthContextValue, boardId: string) {
+  return auth.boardMemberships.some(membership => membership.boardId === boardId);
 }
 
 export function getBoardWorkspaceId(db: Database.Database, boardId: string) {
@@ -19,23 +23,23 @@ export function getBoardWorkspaceId(db: Database.Database, boardId: string) {
 }
 
 export function canAccessWorkspace(auth: AuthContextValue, workspaceId: string) {
-  return isSystemAdmin(auth) || hasWorkspaceRole(auth, workspaceId, ['workspace_admin', 'member']);
+  return isSystemAdmin(auth) || hasWorkspaceAdminGrant(auth, workspaceId) || auth.derivedWorkspaceIds.includes(workspaceId);
 }
 
 export function canManageWorkspace(auth: AuthContextValue, workspaceId: string) {
-  return isSystemAdmin(auth) || hasWorkspaceRole(auth, workspaceId, ['workspace_admin']);
+  return isSystemAdmin(auth) || hasWorkspaceAdminGrant(auth, workspaceId);
 }
 
 export function canAccessBoard(db: Database.Database, auth: AuthContextValue, boardId: string) {
   if (isSystemAdmin(auth)) return true;
-  if (hasBoardRole(auth, boardId, ['board_admin', 'member', 'observer'])) return true;
+  if (hasBoardAdminGrant(auth, boardId) || hasBoardMembership(auth, boardId)) return true;
   const workspaceId = getBoardWorkspaceId(db, boardId);
-  return workspaceId ? canAccessWorkspace(auth, workspaceId) : false;
+  return workspaceId ? hasWorkspaceAdminGrant(auth, workspaceId) : false;
 }
 
 export function canManageBoard(db: Database.Database, auth: AuthContextValue, boardId: string) {
   if (isSystemAdmin(auth)) return true;
-  if (hasBoardRole(auth, boardId, ['board_admin'])) return true;
+  if (hasBoardAdminGrant(auth, boardId)) return true;
   const workspaceId = getBoardWorkspaceId(db, boardId);
   return workspaceId ? canManageWorkspace(auth, workspaceId) : false;
 }

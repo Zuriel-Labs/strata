@@ -2,6 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // Every browser journey intentionally exercises the same persistent SQLite
+  // database. Run them serially so a security-sensitive session revocation or
+  // membership mutation in one journey cannot invalidate another journey's
+  // authenticated actor halfway through its assertions.
+  workers: 1,
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',

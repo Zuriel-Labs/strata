@@ -110,7 +110,7 @@ describe('transactional card duplication', () => {
     const descriptionDocument = { type: 'doc', content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Launch plan', marks: [{ type: 'bold' }] }] }] };
     const sourceUpdate = await agent.patch('/api/cards/c5').send({
       descriptionDocument,
-      memberIds: ['u2'],
+      memberIds: ['u3'],
       labelIds: ['lb1'],
       checklists: [{ id: 'source-checklist', title: 'Release', items: [{ id: 'source-item', text: 'Verify', completed: true }] }],
       dueDate: '2026-09-01T00:00:00.000Z',
@@ -130,7 +130,7 @@ describe('transactional card duplication', () => {
       listId: 'l1',
       boardId: 'b1',
       position: 1,
-      memberIds: ['u2'],
+      memberIds: ['u3'],
       labelIds: ['lb1'],
       dueDate: '2026-09-01T00:00:00.000Z',
       dueDateComplete: true,
@@ -175,6 +175,8 @@ describe('transactional card duplication', () => {
   it('keeps watching only when the duplicating actor is assigned to and watching the source', async () => {
     const db = await createDatabase(':memory:');
     const agent = await loginAdmin(createApp(db));
+
+    db.prepare("INSERT INTO board_memberships (id,user_id,board_id,role,created_at) VALUES ('bm-admin-test','u1','b1','member',?)").run(new Date().toISOString());
 
     await agent.patch('/api/cards/c5').send({ memberIds: ['u1'], watching: true });
     const memberWatcherCopy = await agent.post('/api/cards/c5/duplicate').send({});

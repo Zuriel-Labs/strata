@@ -332,7 +332,7 @@ describe('automation rule RBAC', () => {
     triggerConfig: { toListId: 'l5' },
     conditions: { listId: null, labelId: null },
     action: 'assign_member',
-    actionConfig: { memberId: 'u1' },
+    actionConfig: { memberId: 'u3' },
     enabled: true,
   };
 

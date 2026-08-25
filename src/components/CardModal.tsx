@@ -114,7 +114,7 @@ export function CardModal() {
   const labels = board?.labels ?? [];
   const visiblePickerLabels = labels.filter(label => label.name.toLowerCase().includes(labelQuery.trim().toLowerCase()));
   const members = state.users.filter(user => card.memberIds.includes(user.id));
-  const availableMembers = state.users.filter(user => !card.memberIds.includes(user.id));
+  const availableMembers = state.users.filter(user => (!user.boardIds || user.boardIds.includes(card.boardId)) && !card.memberIds.includes(user.id));
   const lists = state.lists
     .filter(candidate => candidate.boardId === card.boardId && !candidate.archived)
     .sort((a, b) => a.position - b.position);

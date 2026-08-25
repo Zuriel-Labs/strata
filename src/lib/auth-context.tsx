@@ -33,6 +33,18 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTO_REFRESH_INTERVAL_MS = 5000;
 
+export function canManageWorkspaceForSession(session: SessionPayload | null, workspaceId: string | null) {
+  if (!workspaceId || !session) return false;
+  return session.permissions.isSystemAdmin || (session.permissions.workspaceAdminGrants ?? []).some(grant => grant.workspaceId === workspaceId);
+}
+
+export function canManageBoardForSession(session: SessionPayload | null, boardId: string | null) {
+  if (!boardId || !session) return false;
+  if (session.permissions.isSystemAdmin || (session.permissions.boardAdminGrants ?? []).some(grant => grant.boardId === boardId)) return true;
+  const board = session.appState.boards.find(candidate => candidate.id === boardId);
+  return board ? (session.permissions.workspaceAdminGrants ?? []).some(grant => grant.workspaceId === board.workspaceId) : false;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [session, setSession] = useState<SessionPayload | null>(null);
@@ -155,51 +167,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     bootstrap: bootstrapFn,
     setAdminOpen,
     setAccessDenied,
-    canManageWorkspace: workspaceId => {
-      if (!workspaceId || !session) return false;
-      return session.permissions.isSystemAdmin || session.permissions.workspaceMemberships.some(membership => membership.workspaceId === workspaceId && membership.role === 'workspace_admin');
-    },
-      canManageBoard: boardId => {
-        if (!boardId || !session) return false;
-        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
-          return true;
-        }
-        const board = session.appState.boards.find(candidate => candidate.id === boardId);
-        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
-      },
-      canManageAutomation: boardId => {
-        if (!boardId || !session) return false;
-        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
-          return true;
-        }
-        const board = session.appState.boards.find(candidate => candidate.id === boardId);
-        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
-      },
-      canManageBoardLabels: boardId => {
-        if (!boardId || !session) return false;
-        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
-          return true;
-        }
-        const board = session.appState.boards.find(candidate => candidate.id === boardId);
-        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
-      },
-      canArchiveBoardContent: boardId => {
-        if (!boardId || !session) return false;
-        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
-          return true;
-        }
-        const board = session.appState.boards.find(candidate => candidate.id === boardId);
-        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
-      },
-      canEditBoardCards: boardId => {
-        if (!boardId || !session) return false;
-        if (session.permissions.isSystemAdmin || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'board_admin')) {
-          return true;
-        }
-        const board = session.appState.boards.find(candidate => candidate.id === boardId);
-        return board ? session.permissions.workspaceMemberships.some(membership => membership.workspaceId === board.workspaceId && membership.role === 'workspace_admin') : false;
-      },
-    }), [accessDenied, adminOpen, appKey, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword, updatePreferences, updateProfile]);
+    canManageWorkspace: workspaceId => canManageWorkspaceForSession(session, workspaceId),
+    canManageBoard: boardId => canManageBoardForSession(session, boardId),
+    canManageAutomation: boardId => canManageBoardForSession(session, boardId),
+    canManageBoardLabels: boardId => canManageBoardForSession(session, boardId),
+    canArchiveBoardContent: boardId => canManageBoardForSession(session, boardId),
+    canEditBoardCards: boardId => canManageBoardForSession(session, boardId),
+  }), [accessDenied, adminOpen, appKey, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword, updatePreferences, updateProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

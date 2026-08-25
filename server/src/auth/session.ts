@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import type Database from 'better-sqlite3';
-import { createSession, deleteSession, getBoardMembershipsForUser, getSession, getUserById, getWorkspaceMembershipsForUser } from '../db/repositories';
+import { createSession, deleteSession, getBoardAdminGrantsForUser, getBoardMembershipsForUser, getDerivedWorkspaceIdsForUser, getSession, getUserById, getWorkspaceAdminGrantsForUser } from '../db/repositories';
 import type { AuthContextValue } from '../types';
 
 export const SESSION_COOKIE = process.env.STRATA_SESSION_COOKIE ?? 'strata_session';
@@ -49,7 +49,9 @@ export function getAuthContextFromRequest(db: Database.Database, sessionId: stri
   return {
     user,
     session,
-    workspaceMemberships: getWorkspaceMembershipsForUser(db, user.id),
+    workspaceAdminGrants: getWorkspaceAdminGrantsForUser(db, user.id),
+    boardAdminGrants: getBoardAdminGrantsForUser(db, user.id),
     boardMemberships: getBoardMembershipsForUser(db, user.id),
+    derivedWorkspaceIds: getDerivedWorkspaceIdsForUser(db, user.id),
   } satisfies AuthContextValue;
 }

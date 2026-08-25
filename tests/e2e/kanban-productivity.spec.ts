@@ -39,6 +39,8 @@ async function createBoardFixture(page: Page, name: string, lists: Array<{ title
   const board = await postJson<{ id: string; labels: Array<{ id: string; name: string; color: string }> }>(page, '/api/boards', {
     workspaceId: 'w1', title: name, color: '#3b82f6',
   });
+  const membership = await page.request.put(`/api/admin/boards/${board.id}/members/u2`, { data: { role: 'member' } });
+  expect(membership.ok(), `membership: ${membership.status()} ${await membership.text()}`).toBeTruthy();
   const createdLists: Array<{ id: string; title: string; cardIds: string[] }> = [];
   for (const fixture of lists) {
     const list = await postJson<{ id: string; title: string }>(page, '/api/lists', { boardId: board.id, title: fixture.title });

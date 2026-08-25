@@ -6,6 +6,10 @@ export function canManageUserPlatform(actor: AuthContextValue) {
   return isSystemAdmin(actor);
 }
 
+export function canAccessAdminPanel(actor: AuthContextValue) {
+  return isSystemAdmin(actor) || actor.workspaceAdminGrants.length > 0 || actor.boardAdminGrants.length > 0;
+}
+
 export function canManageUserWorkspace(actor: AuthContextValue, workspaceId: string) {
   return canManageWorkspace(actor, workspaceId);
 }

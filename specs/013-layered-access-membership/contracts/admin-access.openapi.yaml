@@ -1,0 +1,309 @@
+openapi: 3.1.0
+info:
+  title: Strata Layered Administration API
+  version: 1.0.0
+paths:
+  /api/admin/users:
+    get:
+      summary: Search the authority-scoped account directory
+      parameters:
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bounded directory page and actor capabilities
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminDirectoryPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      summary: Create an account and initial assignments (System Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedUserWrite' }
+      responses:
+        '201':
+          description: Account and one-time invite token
+        '400': { $ref: '#/components/responses/Invalid' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/admin/users/{userId}:
+    get:
+      summary: Load one authority-scoped account with full assignments
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Account detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUserDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Replace account and assignment state (System Admin only)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagedUserWrite' }
+      responses:
+        '200': { description: Updated authoritative account }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/admin/resources:
+    get:
+      summary: Search bounded workspace or board assignment candidates
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema: { type: string, enum: [workspace, board] }
+        - $ref: '#/components/parameters/Query'
+        - name: workspaceId
+          in: query
+          schema: { type: string }
+        - name: selectedIds
+          in: query
+          description: Comma-separated IDs whose display names must remain resolved outside the current page
+          schema: { type: string, maxLength: 4000 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Authority-scoped resource page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResourcePage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/admin/boards/{boardId}/eligible-users:
+    get:
+      summary: Search active existing accounts not already on the board
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bounded eligible-user page
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/admin/boards/{boardId}/members/{userId}:
+    put:
+      summary: Add or change one board membership within actor scope
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [member, observer] }
+      responses:
+        '200': { description: Authoritative membership }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Remove one board membership within actor scope
+      parameters:
+        - $ref: '#/components/parameters/BoardId'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200': { description: Removed membership and derived workspace result }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  parameters:
+    Query:
+      name: query
+      in: query
+      schema: { type: string, maxLength: 100, default: '' }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    BoardId:
+      name: boardId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+  schemas:
+    WorkspaceAdminGrant:
+      type: object
+      required: [id, userId, workspaceId, createdAt]
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        workspaceId: { type: string }
+        grantedByUserId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    BoardAdminGrant:
+      type: object
+      required: [id, userId, boardId, createdAt]
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        boardId: { type: string }
+        grantedByUserId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    BoardMembership:
+      type: object
+      required: [id, userId, boardId, role, createdAt]
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        boardId: { type: string }
+        role: { type: string, enum: [member, observer] }
+        createdAt: { type: string, format: date-time }
+    ManagedUserWrite:
+      type: object
+      required: [name, initials, color, username, platformRole, active, workspaceAdminWorkspaceIds, boardAdminBoardIds, boardMemberships]
+      properties:
+        name: { type: string, minLength: 1 }
+        initials: { type: string, minLength: 1, maxLength: 4 }
+        color: { type: string, minLength: 4 }
+        username: { type: string, minLength: 1 }
+        platformRole: { type: string, enum: [system_admin, user] }
+        active: { type: boolean }
+        expectedUpdatedAt: { type: [string, 'null'], format: date-time }
+        workspaceAdminWorkspaceIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        boardAdminBoardIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        boardMemberships:
+          type: array
+          items:
+            type: object
+            required: [boardId, role]
+            properties:
+              boardId: { type: string }
+              role: { type: string, enum: [member, observer] }
+    AdminUserSummary:
+      type: object
+      required: [id, name, username, platformRole, active, counts]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        username: { type: string }
+        platformRole: { type: string, enum: [system_admin, user] }
+        active: { type: boolean }
+        counts:
+          type: object
+          properties:
+            workspaceAdminGrants: { type: integer }
+            boardAdminGrants: { type: integer }
+            boardMemberships: { type: integer }
+            derivedWorkspaces: { type: integer }
+    AdminUserDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminUserSummary'
+        - type: object
+          properties:
+            updatedAt: { type: string, format: date-time }
+            workspaceAdminGrants:
+              type: array
+              items: { $ref: '#/components/schemas/WorkspaceAdminGrant' }
+            boardAdminGrants:
+              type: array
+              items: { $ref: '#/components/schemas/BoardAdminGrant' }
+            boardMemberships:
+              type: array
+              items: { $ref: '#/components/schemas/BoardMembership' }
+            derivedWorkspaceIds:
+              type: array
+              items: { type: string }
+    PageMeta:
+      type: object
+      required: [page, pageSize, total, totalPages]
+      properties:
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+    AdminDirectoryPage:
+      type: object
+      required: [users, page, actorCapabilities]
+      properties:
+        users:
+          type: array
+          items: { $ref: '#/components/schemas/AdminUserSummary' }
+        page: { $ref: '#/components/schemas/PageMeta' }
+        actorCapabilities:
+          type: object
+          required: [canCreateUsers, canManageAccess, canViewAudit]
+          properties:
+            canCreateUsers: { type: boolean }
+            canManageAccess: { type: boolean }
+            canViewAudit: { type: boolean }
+        auditEvents:
+          type: array
+          maxItems: 25
+          items: { type: object }
+    ResourcePage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, name, kind]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              kind: { type: string, enum: [workspace, board] }
+              workspaceId: { type: [string, 'null'] }
+              workspaceName: { type: [string, 'null'] }
+        selectedItems:
+          type: array
+          maxItems: 100
+          description: Authority-scoped display records for persistent off-page selections
+          items:
+            type: object
+            required: [id, name, kind]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              kind: { type: string, enum: [workspace, board] }
+              workspaceId: { type: [string, 'null'] }
+              workspaceName: { type: [string, 'null'] }
+        page: { $ref: '#/components/schemas/PageMeta' }
+  responses:
+    Invalid:
+      description: Invalid payload; no writes performed
+    Unauthenticated:
+      description: Authentication required
+    Forbidden:
+      description: Authority missing or scope exceeded
+    NotFound:
+      description: Target not found within visible scope
+    Conflict:
+      description: Username or optimistic-concurrency conflict

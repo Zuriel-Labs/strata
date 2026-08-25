@@ -1,7 +1,7 @@
 export type Visibility = 'private' | 'workspace' | 'public';
 export type PlatformRole = 'system_admin' | 'user';
 export type WorkspaceRole = 'workspace_admin' | 'member';
-export type BoardRole = 'board_admin' | 'member' | 'observer';
+export type BoardRole = 'member' | 'observer';
 export type ThemePreference = 'dark' | 'light';
 
 export interface User {
@@ -10,6 +10,8 @@ export interface User {
   initials: string;
   color: string;
   username: string;
+  /** Board collaboration memberships; administrative access is intentionally excluded. */
+  boardIds?: string[];
 }
 
 export interface Label {
@@ -204,6 +206,22 @@ export interface BoardMembership {
   createdAt: string;
 }
 
+export interface WorkspaceAdminGrant {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  grantedByUserId: string | null;
+  createdAt: string;
+}
+
+export interface BoardAdminGrant {
+  id: string;
+  userId: string;
+  boardId: string;
+  grantedByUserId: string | null;
+  createdAt: string;
+}
+
 export interface SessionUser extends User {
   platformRole: PlatformRole;
   mustChangePassword: boolean;
@@ -214,8 +232,12 @@ export interface SessionUser extends User {
 
 export interface PermissionSnapshot {
   isSystemAdmin: boolean;
-  workspaceMemberships: WorkspaceMembership[];
+  workspaceAdminGrants?: WorkspaceAdminGrant[];
+  boardAdminGrants?: BoardAdminGrant[];
   boardMemberships: BoardMembership[];
+  derivedWorkspaceIds?: string[];
+  /** @deprecated Legacy client fixtures only; never authoritative. */
+  workspaceMemberships?: WorkspaceMembership[];
 }
 
 export interface SessionPayload {
@@ -232,18 +254,58 @@ export interface PasswordChangeRequiredPayload {
 
 export type SessionResponse = SessionPayload | PasswordChangeRequiredPayload;
 
-export interface AdminUserRecord extends SessionUser {
+export interface AdminUserSummary {
+  id: string;
+  name: string;
+  initials: string;
+  color: string;
+  username: string;
+  platformRole: PlatformRole;
   active: boolean;
+  mustChangePassword: boolean;
   createdAt: string;
   updatedAt: string;
-  workspaceMemberships: WorkspaceMembership[];
+  counts?: {
+    workspaceAdminGrants: number;
+    boardAdminGrants: number;
+    boardMemberships: number;
+    derivedWorkspaces: number;
+  };
+  /** @deprecated Compatibility fields accepted from pre-layered admin fixtures. */
+  themePreference?: ThemePreference;
+  defaultWorkspaceId?: string | null;
+  defaultBoardId?: string | null;
+  workspaceMemberships?: WorkspaceMembership[];
+  boardMemberships?: BoardMembership[];
+}
+
+export interface AdminUserRecord extends Omit<AdminUserSummary, 'counts'> {
+  workspaceAdminGrants: WorkspaceAdminGrant[];
+  boardAdminGrants: BoardAdminGrant[];
   boardMemberships: BoardMembership[];
+  derivedWorkspaceIds: string[];
+}
+
+export interface PageMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface AdminActorCapabilities {
+  canCreateUsers: boolean;
+  canManageAccess: boolean;
+  canViewAudit: boolean;
 }
 
 export interface AdminDirectoryResponse {
-  users: AdminUserRecord[];
-  workspaces: Array<{ id: string; name: string }>;
-  boards: Array<{ id: string; title: string; workspaceId: string }>;
+  users: AdminUserSummary[];
+  page?: PageMeta;
+  actorCapabilities?: AdminActorCapabilities;
+  /** @deprecated Unbounded catalogs were replaced by /api/admin/resources. */
+  workspaces?: Array<{ id: string; name: string }>;
+  boards?: Array<{ id: string; title: string; workspaceId: string }>;
   auditEvents: Array<{
     id: string;
     actor_user_id: string | null;
@@ -255,6 +317,20 @@ export interface AdminDirectoryResponse {
     metadata_json: string;
     created_at: string;
   }>;
+}
+
+export interface AdminResourceItem {
+  id: string;
+  name: string;
+  kind: 'workspace' | 'board';
+  workspaceId: string | null;
+  workspaceName: string | null;
+}
+
+export interface AdminResourcePage {
+  items: AdminResourceItem[];
+  selectedItems?: AdminResourceItem[];
+  page: PageMeta;
 }
 
 export type ViewMode = 'board' | 'table' | 'calendar';

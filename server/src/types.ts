@@ -2,7 +2,7 @@ import type { AppState } from '../../src/types';
 
 export type PlatformRole = 'system_admin' | 'user';
 export type WorkspaceRole = 'workspace_admin' | 'member';
-export type BoardRole = 'board_admin' | 'member' | 'observer';
+export type BoardRole = 'member' | 'observer';
 export type ThemePreference = 'dark' | 'light';
 
 export interface UserRecord {
@@ -38,6 +38,22 @@ export interface BoardMembershipRecord {
   createdAt: string;
 }
 
+export interface WorkspaceAdminGrantRecord {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  grantedByUserId: string | null;
+  createdAt: string;
+}
+
+export interface BoardAdminGrantRecord {
+  id: string;
+  userId: string;
+  boardId: string;
+  grantedByUserId: string | null;
+  createdAt: string;
+}
+
 export interface SessionRecord {
   id: string;
   userId: string;
@@ -59,8 +75,10 @@ export interface AuditEventInput {
 export interface AuthContextValue {
   user: UserRecord;
   session: SessionRecord;
-  workspaceMemberships: WorkspaceMembershipRecord[];
+  workspaceAdminGrants: WorkspaceAdminGrantRecord[];
+  boardAdminGrants: BoardAdminGrantRecord[];
   boardMemberships: BoardMembershipRecord[];
+  derivedWorkspaceIds: string[];
 }
 
 export interface SessionUser {
@@ -85,8 +103,10 @@ export interface RecoveryKeyRecord {
 
 export interface PermissionSnapshot {
   isSystemAdmin: boolean;
-  workspaceMemberships: WorkspaceMembershipRecord[];
+  workspaceAdminGrants: WorkspaceAdminGrantRecord[];
+  boardAdminGrants: BoardAdminGrantRecord[];
   boardMemberships: BoardMembershipRecord[];
+  derivedWorkspaceIds: string[];
 }
 
 export interface SessionPayload {

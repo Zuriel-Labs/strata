@@ -84,9 +84,22 @@ describe('NavigationOverlay automations', () => {
     authState.refresh.mockResolvedValue(undefined);
   });
 
+  it('selects workspace and board directly inside Automations', async () => {
+    const user = userEvent.setup();
+    renderOverlay();
+
+    await user.click(screen.getByRole('button', { name: 'Automations' }));
+    expect(screen.getByLabelText('Automation workspace')).toBeInTheDocument();
+    expect(screen.getByLabelText('Automation board')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Automation workspace'), 'w2');
+    expect(screen.getByLabelText('Automation board')).toHaveValue('b3');
+  });
+
   it('defaults to the leftmost accessible tab and hides board-admin-inaccessible tabs', () => {
     authState.canManageWorkspace.mockReturnValue(false);
     authState.canManageBoard.mockReturnValue(true);
+    authState.canManageAutomation.mockReturnValue(false);
 
     renderOverlay();
 

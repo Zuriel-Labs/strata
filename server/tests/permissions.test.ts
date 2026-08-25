@@ -2,7 +2,7 @@
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, closeDatabase } from '../src/db/database';
-import { getBoardMembershipsForUser, getUserByUsername, getWorkspaceMembershipsForUser } from '../src/db/repositories';
+import { getBoardAdminGrantsForUser, getBoardMembershipsForUser, getDerivedWorkspaceIdsForUser, getUserByUsername, getWorkspaceAdminGrantsForUser } from '../src/db/repositories';
 import { canAccessBoard, canAccessWorkspace, canManageBoard, canManageWorkspace } from '../src/rbac/permissions';
 import { canManageUserBoard, canManageUserPlatform, canManageUserWorkspace } from '../src/rbac/policies';
 
@@ -19,8 +19,10 @@ async function authContext(username: string) {
     auth: {
       user,
       session: { id: 'session', userId: user.id, createdAt: '', expiresAt: '', lastSeenAt: '' },
-      workspaceMemberships: getWorkspaceMembershipsForUser(db, user.id),
+      workspaceAdminGrants: getWorkspaceAdminGrantsForUser(db, user.id),
+      boardAdminGrants: getBoardAdminGrantsForUser(db, user.id),
       boardMemberships: getBoardMembershipsForUser(db, user.id),
+      derivedWorkspaceIds: getDerivedWorkspaceIdsForUser(db, user.id),
     },
   };
 }

@@ -11,4 +11,16 @@ describe('auth and RBAC contract', () => {
     expect(contract).toContain('/admin/users');
     expect(contract).toContain('/admin/users/{userId}/reset-password');
   });
+
+  it('documents bounded layered access, selected-resource resolution, and scoped membership writes', () => {
+    const contract = readFileSync('specs/013-layered-access-membership/contracts/admin-access.openapi.yaml', 'utf8');
+    expect(contract).toContain('/api/admin/resources');
+    expect(contract).toContain('selectedIds');
+    expect(contract).toContain('selectedItems');
+    expect(contract).toContain('/api/admin/boards/{boardId}/eligible-users');
+    expect(contract).toContain('/api/admin/boards/{boardId}/members/{userId}');
+    expect(contract).toContain('workspaceAdminWorkspaceIds');
+    expect(contract).toContain('boardAdminBoardIds');
+    expect(contract).toContain('enum: [member, observer]');
+  });
 });

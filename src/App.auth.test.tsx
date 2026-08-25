@@ -21,12 +21,12 @@ function authenticatedSession(): SessionPayload {
     },
     permissions: {
       isSystemAdmin: true,
-      workspaceMemberships: [
-        { id: 'wm1', userId: 'u1', workspaceId: 'w1', role: 'workspace_admin', createdAt: new Date().toISOString() },
-      ],
+      workspaceAdminGrants: [],
+      boardAdminGrants: [],
       boardMemberships: [
-        { id: 'bm1', userId: 'u1', boardId: 'b1', role: 'board_admin', createdAt: new Date().toISOString() },
+        { id: 'bm1', userId: 'u1', boardId: 'b1', role: 'member', createdAt: new Date().toISOString() },
       ],
+      derivedWorkspaceIds: ['w1'],
     },
     appState: initialState,
   };

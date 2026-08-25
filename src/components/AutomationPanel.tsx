@@ -167,7 +167,7 @@ export function AutomationPanel() {
             {form.action === 'assign_member' && (
               <select value={form.actionMemberId} onChange={e => setForm({ ...form, actionMemberId: e.target.value })} className="w-full px-3 min-h-[44px] text-xs rounded border bg-transparent" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
                 <option value="">Select member…</option>
-                {state.users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                {state.users.filter(user => !user.boardIds || user.boardIds.includes(state.currentBoardId ?? '')).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
               </select>
             )}
             {form.action === 'add_label' && (

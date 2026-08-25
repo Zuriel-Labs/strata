@@ -41,6 +41,10 @@ test('automation rules can be created and executed in the browser', async ({ pag
 
   const boardSelect = page.getByRole('combobox').first();
   await boardSelect.selectOption({ label: 'Platform Sprint 24' });
+  const membership = await page.request.put('/api/admin/boards/b1/members/u2', { data: { role: 'member' } });
+  expect(membership.ok()).toBeTruthy();
+  await page.reload();
+  await boardSelect.selectOption({ label: 'Platform Sprint 24' });
 
   await addBoardList(page, 'Automation Intake');
   await addBoardList(page, 'Automation Review');

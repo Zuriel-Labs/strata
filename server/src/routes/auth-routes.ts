@@ -5,6 +5,7 @@ import { audit } from '../audit/audit-log';
 import { clearSessionCookie, createUserSession, destroyUserSession, SESSION_COOKIE } from '../auth/session';
 import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey, userHasAccessToBoard, userHasAccessToWorkspace } from '../db/repositories';
 import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
+import { hashRecoveryKey, verifyRecoveryKey } from '../auth/recovery-keys';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { UserRecord } from '../types';
@@ -257,7 +258,7 @@ export function createAuthRoutes(db: Database.Database) {
       return;
     }
     const rawKey = randomBytes(32).toString('hex');
-    const keyHash = await hashPassword(rawKey);
+    const keyHash = hashRecoveryKey(rawKey);
     upsertRecoveryKey(db, request.auth.user.id, keyHash);
     audit(db, { actorUserId: request.auth.user.id, scopeType: 'auth', action: 'auth.recovery_key_generate', outcome: 'success' });
     response.json({ recoveryKey: rawKey });
@@ -283,7 +284,7 @@ export function createAuthRoutes(db: Database.Database) {
       response.status(401).json({ message: 'No recovery key configured.' });
       return;
     }
-    const keyValid = await verifyPassword(parsed.data.recoveryKey, recovery.keyHash);
+    const keyValid = await verifyRecoveryKey(parsed.data.recoveryKey, recovery.keyHash);
     if (!keyValid) {
       audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.recovery_consume', outcome: 'failure' });
       response.status(401).json({ message: 'Invalid recovery key.' });
@@ -296,7 +297,7 @@ export function createAuthRoutes(db: Database.Database) {
       deleteRecoveryKey(db, user.id);
       // Generate a new recovery key automatically
       const newRawKey = randomBytes(32).toString('hex');
-      const newKeyHash = await hashPassword(newRawKey);
+      const newKeyHash = hashRecoveryKey(newRawKey);
       upsertRecoveryKey(db, user.id, newKeyHash);
       audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.recovery_consume', outcome: 'success' });
       response.json({ newRecoveryKey: newRawKey });

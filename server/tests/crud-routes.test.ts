@@ -240,6 +240,18 @@ describe('board CRUD routes', () => {
 describe('workspace routes', () => {
   afterEach(() => { closeDatabase(); });
 
+  it('creates a workspace without conflating administrative access and membership', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const response = await agent.post('/api/workspaces').send({ name: 'Independent Workspace', description: '', visibility: 'private' });
+
+    expect(response.status).toBe(201);
+    expect(db.prepare('SELECT * FROM workspace_memberships WHERE workspace_id = ?').all(response.body.id)).toEqual([]);
+    expect(db.prepare('SELECT * FROM workspace_admin_grants WHERE workspace_id = ?').all(response.body.id)).toEqual([]);
+  });
+
   it('renames a workspace', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
@@ -416,8 +428,8 @@ describe('card CRUD routes', () => {
     expect(r3.body.labelIds).toEqual(['lb1', 'lb2']);
 
     // Update members
-    const r4 = await agent.patch(`/api/cards/${cardId}`).send({ memberIds: ['u1', 'u2'] });
-    expect(r4.body.memberIds).toEqual(['u1', 'u2']);
+    const r4 = await agent.patch(`/api/cards/${cardId}`).send({ memberIds: ['u3'] });
+    expect(r4.body.memberIds).toEqual(['u3']);
 
     // Update due date
     const dueDate = '2025-12-31T00:00:00.000Z';
@@ -551,7 +563,7 @@ describe('card CRUD routes', () => {
       triggerConfig: { toListId: 'l5' },
       conditions: { listId: null, labelId: null },
       action: 'assign_member',
-      actionConfig: { memberId: 'u2' },
+      actionConfig: { memberId: 'u3' },
       enabled: true,
     });
 
@@ -573,13 +585,13 @@ describe('card CRUD routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.listId).toBe('l5');
-    expect(res.body.memberIds).toContain('u2');
+    expect(res.body.memberIds).toContain('u3');
     expect(res.body.dueDateComplete).toBe(true);
 
     const notifications = db.prepare('SELECT user_id as userId, message FROM notifications WHERE card_id = ?').all(card.body.id) as Array<{ userId: string; message: string }>;
     expect(notifications).toEqual(expect.arrayContaining([
-      expect.objectContaining({ userId: 'u2', message: expect.stringContaining('Automation assigned you') }),
-      expect.objectContaining({ userId: 'u1', message: expect.stringContaining('Automation: Alex Chen assigned') }),
+      expect.objectContaining({ userId: 'u3', message: expect.stringContaining('Automation assigned you') }),
+      expect.objectContaining({ userId: 'u1', message: expect.stringContaining('Automation: Priya Sharma assigned') }),
     ]));
   });
 
@@ -650,7 +662,7 @@ describe('automation rule CRUD routes', () => {
       triggerConfig: { toListId: 'l1' },
       conditions: { listId: null, labelId: null },
       action: 'assign_member',
-      actionConfig: { memberId: 'u1' },
+      actionConfig: { memberId: 'u3' },
       enabled: true,
     });
     expect(res.status).toBe(201);

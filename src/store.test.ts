@@ -141,4 +141,23 @@ describe('store reducer', () => {
     expect(hydrated.automationPanelOpen).toBe(true);
     expect(hydrated.activeCardId).toBe('c1');
   });
+
+  it('keeps an intentionally empty workspace empty across session hydration', () => {
+    const emptyWorkspace = { id: 'w-empty', name: 'Workspace 2', description: '', memberIds: [], visibility: 'private' as const };
+    const localState = { ...initialState, workspaces: [...initialState.workspaces, emptyWorkspace], currentWorkspaceId: emptyWorkspace.id, currentBoardId: null };
+    const serverState = { ...localState, currentWorkspaceId: 'w1', currentBoardId: 'b1' };
+
+    const hydrated = reducer(localState, { type: 'HYDRATE_FROM_SESSION', payload: serverState });
+
+    expect(hydrated.currentWorkspaceId).toBe(emptyWorkspace.id);
+    expect(hydrated.currentBoardId).toBeNull();
+  });
+
+  it('clears an active card that no longer belongs to the reconciled board', () => {
+    const localState = { ...initialState, currentWorkspaceId: 'w2', currentBoardId: null, activeCardId: 'c1' };
+    const hydrated = reducer(localState, { type: 'HYDRATE_FROM_SESSION', payload: initialState });
+    expect(hydrated.currentWorkspaceId).toBe('w2');
+    expect(hydrated.currentBoardId).toBeNull();
+    expect(hydrated.activeCardId).toBeNull();
+  });
 });

@@ -38,6 +38,23 @@ export function createSchema(db: Database.Database) {
       FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS workspace_admin_grants (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      granted_by_user_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, workspace_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY(granted_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workspace_admin_grants_user
+      ON workspace_admin_grants(user_id);
+    CREATE INDEX IF NOT EXISTS idx_workspace_admin_grants_workspace
+      ON workspace_admin_grants(workspace_id);
+
     CREATE TABLE IF NOT EXISTS boards (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -60,6 +77,27 @@ export function createSchema(db: Database.Database) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS board_admin_grants (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      board_id TEXT NOT NULL,
+      granted_by_user_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(user_id, board_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
+      FOREIGN KEY(granted_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_board_admin_grants_user
+      ON board_admin_grants(user_id);
+    CREATE INDEX IF NOT EXISTS idx_board_admin_grants_board
+      ON board_admin_grants(board_id);
+    CREATE INDEX IF NOT EXISTS idx_board_memberships_user
+      ON board_memberships(user_id);
+    CREATE INDEX IF NOT EXISTS idx_board_memberships_board
+      ON board_memberships(board_id);
 
     CREATE TABLE IF NOT EXISTS lists (
       id TEXT PRIMARY KEY,
@@ -151,6 +189,9 @@ export function createSchema(db: Database.Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS idx_audit_events_created_at
+      ON audit_events(created_at DESC);
+
     CREATE TABLE IF NOT EXISTS recovery_keys (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL UNIQUE,
@@ -159,6 +200,35 @@ export function createSchema(db: Database.Database) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+
+  db.transaction(() => {
+    db.exec(`
+      INSERT OR IGNORE INTO workspace_admin_grants (id, user_id, workspace_id, granted_by_user_id, created_at)
+      SELECT 'legacy-workspace-admin-' || id, user_id, workspace_id, NULL, created_at
+      FROM workspace_memberships
+      WHERE role = 'workspace_admin';
+
+      INSERT OR IGNORE INTO board_admin_grants (id, user_id, board_id, granted_by_user_id, created_at)
+      SELECT 'legacy-board-admin-' || id, user_id, board_id, NULL, created_at
+      FROM board_memberships
+      WHERE role = 'board_admin';
+
+      UPDATE board_memberships
+      SET role = 'member'
+      WHERE role = 'board_admin';
+
+      INSERT OR IGNORE INTO board_memberships (id, user_id, board_id, role, created_at)
+      SELECT
+        'legacy-card-member-' || cards.board_id || '-' || users.id,
+        users.id,
+        cards.board_id,
+        'member',
+        cards.created_at
+      FROM cards
+      JOIN json_each(cards.member_ids_json) AS assigned_user
+      JOIN users ON users.id = assigned_user.value;
+    `);
+  })();
 
   const userColumns = new Set(
     (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map(column => column.name),

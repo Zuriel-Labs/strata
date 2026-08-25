@@ -1,5 +1,6 @@
 import { useRef, useEffect, useMemo } from 'react';
 import { useAppState, useDispatch } from '../store';
+import { compareDateOnlyToToday, formatDateOnly, todayDateOnly } from '../lib/date-only';
 
 export function SearchOverlay() {
   const state = useAppState();
@@ -41,7 +42,7 @@ export function SearchOverlay() {
         const label = boardLabels.find(l => l.name.toLowerCase().includes(labelName));
         if (label) cards = cards.filter(c => c.labelIds.includes(label.id));
       } else if (token === 'is:overdue') {
-        cards = cards.filter(c => c.dueDate && new Date(c.dueDate).getTime() < state.searchTimestamp && !c.dueDateComplete);
+        cards = cards.filter(c => c.dueDate && compareDateOnlyToToday(c.dueDate, todayDateOnly(new Date(state.searchTimestamp))) === -1 && !c.dueDateComplete);
       } else if (token === 'is:open') {
         cards = cards.filter(c => !c.archived);
       } else if (token === 'is:watching') {
@@ -117,7 +118,7 @@ export function SearchOverlay() {
                   </div>
                   {c.dueDate && (
                     <span className="text-[10px] shrink-0" style={{ color: 'var(--text-muted)' }}>
-                      {new Date(c.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {formatDateOnly(c.dueDate, { month: 'short', day: 'numeric' })}
                     </span>
                   )}
                 </button>

@@ -1,525 +1,104 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import type { AdminDirectoryResponse, AdminUserRecord } from '../types';
 import { useAuth } from '../lib/auth-context';
-import { createManagedUser, deleteManagedUser as deleteManagedUserRequest, fetchAdminDirectory, generateRecoveryKeyForUser, updateManagedUser, type ManagedUserInput } from '../services/admin';
+import { AdminAssignmentPicker } from './AdminAssignmentPicker';
+import {
+  createManagedUser, deleteManagedUser, fetchAdminDirectory, fetchAdminResources, fetchAdminUser,
+  fetchBoardMembers, fetchEligibleBoardUsers, generateRecoveryKeyForUser, removeBoardMember,
+  setBoardMember, updateManagedUser, type AdminPerson, type ManagedUserInput,
+} from '../services/admin';
 
-const workspaceRoleOptions = ['', 'workspace_admin', 'member'] as const;
-const boardRoleOptions = ['', 'board_admin', 'member', 'observer'] as const;
-
-type AdminTab = 'edit-users' | 'create-user' | 'audit';
-type DeleteFlowStep = 'warning' | 'confirm';
-
-function deriveForm(user?: AdminUserRecord | null): ManagedUserInput {
-  return {
-    name: user?.name ?? '',
-    initials: user?.initials ?? '',
-    color: user?.color ?? '#6366f1',
-    username: user?.username ?? '',
-    platformRole: user?.platformRole ?? 'user',
-    active: user?.active ?? true,
-    workspaceMemberships: user?.workspaceMemberships.map(membership => ({ workspaceId: membership.workspaceId, role: membership.role })) ?? [],
-    boardMemberships: user?.boardMemberships.map(membership => ({ boardId: membership.boardId, role: membership.role })) ?? [],
-  };
-}
-
-function emptyForm(): ManagedUserInput {
-  return {
-    name: '',
-    initials: '',
-    color: '#6366f1',
-    username: '',
-    platformRole: 'user',
-    active: true,
-    workspaceMemberships: [],
-    boardMemberships: [],
-  };
-}
+type Tab = 'people' | 'create' | 'members' | 'audit';
+const blankForm = (): ManagedUserInput => ({ name:'', initials:'', color:'#6366f1', username:'', platformRole:'user', active:true, workspaceAdminWorkspaceIds:[], boardAdminBoardIds:[], boardMemberships:[] });
+const formFor = (user: AdminUserRecord): ManagedUserInput => ({
+  name:user.name, initials:user.initials, color:user.color, username:user.username, platformRole:user.platformRole, active:user.active,
+  expectedUpdatedAt:user.updatedAt,
+  workspaceAdminWorkspaceIds:user.workspaceAdminGrants.map(grant=>grant.workspaceId),
+  boardAdminBoardIds:user.boardAdminGrants.map(grant=>grant.boardId),
+  boardMemberships:user.boardMemberships.map(item=>({boardId:item.boardId,role:item.role})),
+});
 
 export function AdminPanel() {
-  const { adminOpen, setAdminOpen, refresh, setAccessDenied, session } = useAuth();
-  const [directory, setDirectory] = useState<AdminDirectoryResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<AdminTab>('edit-users');
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!adminOpen) return;
-    void fetchAdminDirectory()
-      .then(result => {
-        setDirectory(result);
-        setError(null);
-      })
-      .catch(requestError => {
-        const nextMessage = requestError instanceof Error ? requestError.message : 'Unable to load admin data.';
-        setError(nextMessage);
-        setAccessDenied(nextMessage);
-      });
-  }, [adminOpen, setAccessDenied]);
-
-  if (!adminOpen || !session?.permissions.isSystemAdmin) return null;
-
-  async function reloadDirectory() {
-    const result = await fetchAdminDirectory();
-    setDirectory(result);
-    await refresh();
-  }
-
-  const tabs: { key: AdminTab; label: string }[] = [
-    { key: 'edit-users', label: 'Edit Users' },
-    { key: 'create-user', label: 'Create User' },
-    { key: 'audit', label: 'Audit Log' },
-  ];
-
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center" style={{ background: 'rgba(6, 9, 14, 0.55)' }} onClick={e => { if (e.target === e.currentTarget) setAdminOpen(false); }}>
-      <div className="w-full max-w-4xl max-h-[85vh] rounded-2xl border flex flex-col" style={{ background: '#11161d', borderColor: '#26313c' }}>
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: '#26313c' }}>
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.3em]" style={{ color: '#8ca1af' }}>Admin</p>
-            <h2 className="text-lg font-bold" style={{ color: '#edf2f7' }}>User Management</h2>
-          </div>
-          <button className="text-sm underline" style={{ color: '#e2a56a' }} onClick={() => setAdminOpen(false)}>Close</button>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex border-b px-4" style={{ borderColor: '#26313c' }}>
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              className="px-4 py-3 text-sm font-semibold border-b-2 transition-colors"
-              style={{
-                borderColor: activeTab === tab.key ? '#e2a56a' : 'transparent',
-                color: activeTab === tab.key ? '#edf2f7' : '#8ca1af',
-              }}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-6" style={{ color: '#edf2f7' }}>
-          {error && <p className="mb-4 text-sm" style={{ color: '#ffb4b4' }}>{error}</p>}
-
-          {activeTab === 'edit-users' && (
-            <EditUsersTab directory={directory} reloadDirectory={reloadDirectory} />
-          )}
-
-          {activeTab === 'create-user' && (
-            <CreateUserTab directory={directory} reloadDirectory={reloadDirectory} onCreated={() => setActiveTab('edit-users')} />
-          )}
-
-          {activeTab === 'audit' && (
-            <AuditTab directory={directory} />
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  const auth=useAuth(); const permissions=auth.session?.permissions;
+  const canOpen=Boolean(permissions?.isSystemAdmin || permissions?.workspaceAdminGrants?.length || permissions?.boardAdminGrants?.length);
+  const [tab,setTab]=useState<Tab>('people'); const [directory,setDirectory]=useState<AdminDirectoryResponse|null>(null);
+  const [query,setQuery]=useState(''); const [page,setPage]=useState(1); const [error,setError]=useState<string|null>(null);
+  const loadDirectory=useCallback(async()=>{ const next=await fetchAdminDirectory({query,page}); setDirectory(next); setError(null); },[page,query]);
+  useEffect(()=>{ if(auth.adminOpen&&canOpen) void Promise.resolve().then(loadDirectory).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to load administration.')); },[auth.adminOpen,canOpen,loadDirectory]);
+  if(!auth.adminOpen||!canOpen)return null;
+  const capabilities=directory?.actorCapabilities;
+  const tabs:Array<{key:Tab;label:string}>=[{key:'people',label:'People'},...(capabilities?.canCreateUsers?[{key:'create' as const,label:'Create User'}]:[]),{key:'members',label:'Board Members'},...(capabilities?.canViewAudit?[{key:'audit' as const,label:'Audit Log'}]:[])];
+  async function changed(){ await Promise.all([loadDirectory(),auth.refresh()]); }
+  return <div className="fixed inset-0 z-40 flex items-center justify-center p-3" style={{background:'rgba(6,9,14,.62)'}} onClick={event=>{if(event.target===event.currentTarget)auth.setAdminOpen(false)}}>
+    <section role="dialog" aria-modal="true" aria-labelledby="admin-title" className="flex max-h-[92vh] w-full max-w-6xl flex-col rounded-2xl border" style={{background:'#111a26',borderColor:'#334155'}}>
+      <header className="flex items-center justify-between border-b p-4" style={{borderColor:'#334155'}}><div><p className="text-xs uppercase tracking-[.25em]" style={{color:'#8ca1af'}}>Administration</p><h2 id="admin-title" className="text-xl font-bold">Access &amp; Membership</h2></div><button onClick={()=>auth.setAdminOpen(false)}>Close</button></header>
+      <nav className="flex overflow-x-auto border-b px-3" style={{borderColor:'#334155'}}>{tabs.map(item=><button key={item.key} className="whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold" style={{borderColor:tab===item.key?'#7ea2ff':'transparent',color:tab===item.key?'#edf2f7':'#9bb1c0'}} onClick={()=>setTab(item.key)}>{item.label}</button>)}</nav>
+      <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">{error&&<p className="mb-4 rounded-lg p-3 text-sm" style={{background:'#3f1d25',color:'#fecaca'}}>{error}</p>}
+        {tab==='people'&&<People directory={directory} query={query} setQuery={value=>{setQuery(value);setPage(1)}} page={page} setPage={setPage} canEdit={Boolean(capabilities?.canManageAccess)} onChanged={changed}/>}
+        {tab==='create'&&capabilities?.canCreateUsers&&<Create onChanged={changed}/>}
+        {tab==='members'&&<BoardMembers onChanged={changed}/>}
+        {tab==='audit'&&capabilities?.canViewAudit&&<Audit directory={directory}/>}
+      </main>
+    </section>
+  </div>;
 }
 
-/* ── Edit Users Tab ── */
-
-function EditUsersTab({ directory, reloadDirectory }: { directory: AdminDirectoryResponse | null; reloadDirectory: () => Promise<void> }) {
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(directory?.users[0]?.id ?? null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [deleteFlowStep, setDeleteFlowStep] = useState<DeleteFlowStep | null>(null);
-  const [deleteConfirmation, setDeleteConfirmation] = useState('');
-  const [deletePending, setDeletePending] = useState(false);
-
-  const selectedUser = useMemo(() => directory?.users.find(user => user.id === selectedUserId) ?? null, [directory, selectedUserId]);
-  const [form, setForm] = useState<ManagedUserInput>(deriveForm(selectedUser));
-
-  function resetDeleteFlow() {
-    setDeleteFlowStep(null);
-    setDeleteConfirmation('');
-    setDeletePending(false);
-  }
-
-  useEffect(() => {
-    setForm(deriveForm(selectedUser));
-  }, [selectedUser]);
-
-  useEffect(() => {
-    if (!directory?.users.length) {
-      if (selectedUserId) setSelectedUserId(null);
-      return;
-    }
-    if (!selectedUserId || !directory.users.some(user => user.id === selectedUserId)) {
-      setSelectedUserId(directory.users[0]?.id ?? null);
-    }
-  }, [directory, selectedUserId]);
-
-  useEffect(() => {
-    setActionError(null);
-    resetDeleteFlow();
-  }, [selectedUserId]);
-
-  function updateWorkspaceMembership(workspaceId: string, role: string) {
-    setForm(current => ({
-      ...current,
-      workspaceMemberships: role
-        ? [...current.workspaceMemberships.filter(item => item.workspaceId !== workspaceId), { workspaceId, role }]
-        : current.workspaceMemberships.filter(item => item.workspaceId !== workspaceId),
-    }));
-  }
-
-  function updateBoardMembership(boardId: string, role: string) {
-    setForm(current => ({
-      ...current,
-      boardMemberships: role
-        ? [...current.boardMemberships.filter(item => item.boardId !== boardId), { boardId, role }]
-        : current.boardMemberships.filter(item => item.boardId !== boardId),
-    }));
-  }
-
-  async function handleSave() {
-    if (!selectedUser) return;
-    await updateManagedUser(selectedUser.id, form);
-    setActionError(null);
-    setMessage('User updated.');
-    await reloadDirectory();
-  }
-
-  async function handleGenerateRecoveryKey() {
-    if (!selectedUser) return;
-    const result = await generateRecoveryKeyForUser(selectedUser.id);
-    setRecoveryKey(result.recoveryKey);
-    setCopied(false);
-  }
-
-  function closeRecoveryKeyOverlay() {
-    setRecoveryKey(null);
-    setCopied(false);
-  }
-
-  async function handleDeleteUser() {
-    if (!selectedUser || deleteConfirmation !== 'DELETE' || deletePending) return;
-
-    setDeletePending(true);
-
-    try {
-      const result = await deleteManagedUserRequest(selectedUser.id);
-      resetDeleteFlow();
-      setActionError(null);
-      setMessage(`Deleted ${result.username}.`);
-      closeRecoveryKeyOverlay();
-      setSelectedUserId(null);
-      await reloadDirectory();
-    } catch (error) {
-      resetDeleteFlow();
-      setMessage(null);
-      setActionError(error instanceof Error ? error.message : 'Unable to delete user.');
-    }
-  }
-
-  return (
-    <div>
-      <div className="rounded-2xl border p-4" style={{ borderColor: '#26313c', background: '#16202a' }}>
-        {directory?.users.length ? (
-          <>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-sm font-bold whitespace-nowrap">Editing:</span>
-              <select
-                aria-label="Select user to edit"
-                value={selectedUserId ?? ''}
-                onChange={e => setSelectedUserId(e.target.value)}
-                className="text-sm font-bold rounded-lg px-2 py-1.5 outline-none cursor-pointer flex-1 min-w-0"
-                style={{ background: '#1a2732', color: '#edf2f7', border: '1px solid #26313c' }}
-              >
-                {directory.users.map(user => (
-                  <option key={user.id} value={user.id}>{user.name} ({user.username})</option>
-                ))}
-              </select>
-            </div>
-
-            {selectedUser && (
-              <>
-                <UserForm form={form} setForm={setForm} directory={directory} updateWorkspaceMembership={updateWorkspaceMembership} updateBoardMembership={updateBoardMembership} />
-                <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
-                  <div className="flex flex-wrap gap-3">
-                    <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#5aa7ff', color: '#0b1822' }} onClick={() => void handleSave()}>
-                      Save changes
-                    </button>
-                    <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#f59e0b', color: '#0b1822' }} onClick={() => void handleGenerateRecoveryKey()}>
-                      Generate recovery key
-                    </button>
-                  </div>
-                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#dc2626', color: '#fff5f5' }} onClick={() => { setActionError(null); setMessage(null); setDeleteFlowStep('warning'); }}>
-                    Delete User
-                  </button>
-                </div>
-                {message && <p className="mt-4 text-sm" style={{ color: '#d9f99d' }}>{message}</p>}
-                {actionError && <p className="mt-4 text-sm" style={{ color: '#ffb4b4' }}>{actionError}</p>}
-              </>
-            )}
-          </>
-        ) : (
-          <p className="text-sm" style={{ color: '#9bb1c0' }}>No users found.</p>
-        )}
-      </div>
-
-      {/* Recovery Key Overlay */}
-      {recoveryKey && selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(6, 9, 14, 0.7)' }} onClick={e => { if (e.target === e.currentTarget) closeRecoveryKeyOverlay(); }}>
-          <div className="w-full max-w-md rounded-2xl border p-6" style={{ borderColor: '#26313c', background: '#16202a' }}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold" style={{ color: '#edf2f7' }}>Recovery Key for {selectedUser.name}</h3>
-              <button className="text-sm underline" style={{ color: '#e2a56a' }} onClick={closeRecoveryKeyOverlay}>Close</button>
-            </div>
-            <p className="text-xs mb-3" style={{ color: '#9bb1c0' }}>
-              Give this key to the user so they can reset their password via &quot;Forgot password?&quot; on the login screen. This key can only be used once.
-            </p>
-            <div className="rounded-xl p-3 mb-4" style={{ background: '#11161d' }}>
-              <code className="block break-all select-all text-xs" style={{ color: '#edf2f7' }}>{recoveryKey}</code>
-            </div>
-            <div className="flex gap-3">
-              <button
-                className="rounded-xl px-4 py-2 text-xs font-semibold"
-                style={{ background: copied ? '#22c55e' : '#5aa7ff', color: '#0b1822' }}
-                onClick={() => { void navigator.clipboard.writeText(recoveryKey); setCopied(true); }}
-              >
-                {copied ? 'Copied!' : 'Copy to clipboard'}
-              </button>
-              <button className="rounded-xl px-4 py-2 text-xs font-semibold" style={{ background: '#26313c', color: '#edf2f7' }} onClick={closeRecoveryKeyOverlay}>
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {deleteFlowStep && selectedUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(6, 9, 14, 0.7)' }} onClick={event => { if (event.target === event.currentTarget) resetDeleteFlow(); }}>
-          <div className="w-full max-w-md rounded-2xl border p-6" style={{ borderColor: '#26313c', background: '#16202a' }}>
-            {deleteFlowStep === 'warning' ? (
-              <>
-                <h3 className="text-base font-bold" style={{ color: '#edf2f7' }}>Delete User</h3>
-                <p className="mt-3 text-sm leading-6" style={{ color: '#cbd5e1' }}>
-                  User {selectedUser.username} will be removed from Strata. This cannot be undone. Are you sure?
-                </p>
-                <div className="mt-6 flex justify-end gap-3">
-                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#5aa7ff', color: '#0b1822' }} onClick={resetDeleteFlow}>
-                    Nevermind
-                  </button>
-                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#dc2626', color: '#fff5f5' }} onClick={() => setDeleteFlowStep('confirm')}>
-                    YES
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h3 className="text-base font-bold" style={{ color: '#edf2f7' }}>Final confirmation</h3>
-                <p className="mt-3 text-sm leading-6" style={{ color: '#cbd5e1' }}>
-                  Type <strong>DELETE</strong> to confirm permanent removal of {selectedUser.username}.
-                </p>
-                <input
-                  value={deleteConfirmation}
-                  onChange={event => setDeleteConfirmation(event.target.value)}
-                  placeholder="Type DELETE to confirm"
-                  className="mt-4 w-full rounded-xl px-3 py-2"
-                  style={{ background: '#11161d', color: '#edf2f7' }}
-                />
-                <div className="mt-6 flex justify-end gap-3">
-                  <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#5aa7ff', color: '#0b1822' }} onClick={resetDeleteFlow}>
-                    CANCEL
-                  </button>
-                  <button
-                    className="rounded-xl px-4 py-2 font-semibold disabled:cursor-not-allowed"
-                    style={{ background: deleteConfirmation === 'DELETE' ? '#dc2626' : '#7f1d1d', color: '#fff5f5', opacity: deletePending ? 0.75 : 1 }}
-                    onClick={() => void handleDeleteUser()}
-                    disabled={deleteConfirmation !== 'DELETE' || deletePending}
-                  >
-                    {deletePending ? 'BOOM...' : 'BOOM'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function People({directory,query,setQuery,page,setPage,canEdit,onChanged}:{directory:AdminDirectoryResponse|null;query:string;setQuery:(v:string)=>void;page:number;setPage:(v:number)=>void;canEdit:boolean;onChanged:()=>Promise<void>}) {
+  const [selectedId,setSelectedId]=useState<string|null>(null); const [detail,setDetail]=useState<AdminUserRecord|null>(null); const [form,setForm]=useState<ManagedUserInput>(blankForm); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null); const [recoveryKey,setRecoveryKey]=useState<string|null>(null);
+  useEffect(()=>{if(!selectedId)return; let live=true; void fetchAdminUser(selectedId).then(result=>{if(live){setDetail(result.user);setForm(formFor(result.user))}}).catch(cause=>{if(live)setError(cause instanceof Error?cause.message:'Unable to load user.')});return()=>{live=false}},[selectedId]);
+  return <div className="grid gap-5 lg:grid-cols-[330px_1fr]">
+    <aside className="rounded-xl border p-3" style={{borderColor:'#334155'}}><label className="text-xs font-bold uppercase tracking-wider">Search accounts<input aria-label="Search accounts" value={query} onChange={e=>setQuery(e.target.value)} className="mt-2 w-full rounded-lg px-3 py-2 text-sm" style={{background:'#0d141c'}}/></label>
+      <div className="mt-3 space-y-2">{directory?.users.map(user=><button key={user.id} className="w-full rounded-lg border p-3 text-left" style={{borderColor:selectedId===user.id?'#7ea2ff':'#334155',background:'#162233'}} onClick={()=>setSelectedId(user.id)}><span className="block text-sm font-bold">{user.name}</span><span className="text-xs" style={{color:'#9bb1c0'}}>@{user.username} · {user.platformRole==='system_admin'?'System Admin':`${user.counts?.workspaceAdminGrants ?? 0}W admin · ${user.counts?.boardAdminGrants ?? 0}B admin · ${user.counts?.boardMemberships ?? 0} member`}</span></button>)}</div>
+      {!directory?.users.length&&<p className="p-3 text-sm" style={{color:'#9bb1c0'}}>No matching accounts.</p>}
+      {directory&&<Pager page={page} totalPages={directory.page?.totalPages ?? 1} setPage={setPage}/>}
+    </aside>
+    <section className="min-w-0 rounded-xl border p-4" style={{borderColor:'#334155'}}>
+      {!selectedId&&<p style={{color:'#9bb1c0'}}>Select an account to inspect its access and membership.</p>}
+      {detail&&form&&<><div className="mb-4"><h3 className="font-bold">{detail.name}</h3><p className="text-xs" style={{color:'#9bb1c0'}}>Access grants do not make this person a Board member. Workspace membership below is derived only from Board memberships.</p></div>
+        <UserForm form={form} setForm={setForm} disabled={!canEdit}/>
+        <div className="mt-4 flex flex-wrap gap-2">{canEdit&&<button className="rounded-lg px-4 py-2 font-bold" style={{background:'#7ea2ff',color:'#0b1822'}} onClick={()=>void updateManagedUser(detail.id,form).then(async()=>{setMessage('Saved. Active sessions were refreshed.');await onChanged();const next=await fetchAdminUser(detail.id);setDetail(next.user);setForm(formFor(next.user))}).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to save.'))}>Save changes</button>}
+          {canEdit&&<button className="rounded-lg px-4 py-2" style={{background:'#334155'}} onClick={()=>void generateRecoveryKeyForUser(detail.id).then(result=>{setRecoveryKey(result.recoveryKey);setMessage('One-time recovery key generated. Copy it before leaving this account.');setError(null)}).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to generate a recovery key.'))}>Generate recovery key</button>}
+          {canEdit&&<button className="rounded-lg px-4 py-2" style={{background:'#7f1d1d'}} onClick={()=>{if(window.prompt(`Type DELETE to permanently remove @${detail.username}`)==='DELETE')void deleteManagedUser(detail.id).then(async()=>{setSelectedId(null);await onChanged()}).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to delete.'))}}>Delete user</button>}
+        </div>{recoveryKey&&<SecretCopyPanel label="One-time recovery key" value={recoveryKey} onCopied={()=>{setMessage('Recovery key copied.');setError(null)}} onCopyFailed={()=>setError('Clipboard access was blocked. Select and copy the recovery key manually.')}/>} {message&&<p className="mt-3 text-sm" style={{color:'#bef264'}}>{message}</p>}{error&&<p className="mt-3 text-sm" style={{color:'#fecaca'}}>{error}</p>}</>}
+    </section>
+  </div>;
 }
 
-/* ── Create User Tab ── */
-
-function CreateUserTab({ directory, reloadDirectory, onCreated }: { directory: AdminDirectoryResponse | null; reloadDirectory: () => Promise<void>; onCreated: () => void }) {
-  const [form, setForm] = useState<ManagedUserInput>(emptyForm());
-  const [error, setError] = useState<string | null>(null);
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [createdUsername, setCreatedUsername] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  function updateWorkspaceMembership(workspaceId: string, role: string) {
-    setForm(current => ({
-      ...current,
-      workspaceMemberships: role
-        ? [...current.workspaceMemberships.filter(item => item.workspaceId !== workspaceId), { workspaceId, role }]
-        : current.workspaceMemberships.filter(item => item.workspaceId !== workspaceId),
-    }));
-  }
-
-  function updateBoardMembership(boardId: string, role: string) {
-    setForm(current => ({
-      ...current,
-      boardMemberships: role
-        ? [...current.boardMemberships.filter(item => item.boardId !== boardId), { boardId, role }]
-        : current.boardMemberships.filter(item => item.boardId !== boardId),
-    }));
-  }
-
-  async function handleCreate() {
-    setError(null);
-    try {
-      const result = await createManagedUser(form);
-      const link = `${window.location.origin}/invite/${encodeURIComponent(result.user.username)}/${result.inviteToken}`;
-      setInviteLink(link);
-      setCreatedUsername(result.user.username);
-      setCopied(false);
-      setForm(emptyForm());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create user.');
-    }
-  }
-
-  async function closeInviteOverlay() {
-    setInviteLink(null);
-    setCreatedUsername(null);
-    setCopied(false);
-    await reloadDirectory();
-    onCreated();
-  }
-
-  return (
-    <div className="max-w-xl">
-      <div className="rounded-2xl border p-4" style={{ borderColor: '#26313c', background: '#16202a' }}>
-        <h3 className="text-sm font-bold mb-4">New user</h3>
-        <UserForm form={form} setForm={setForm} directory={directory} updateWorkspaceMembership={updateWorkspaceMembership} updateBoardMembership={updateBoardMembership} />
-        <div className="mt-4 flex gap-3">
-          <button className="rounded-xl px-4 py-2 font-semibold" style={{ background: '#e2a56a', color: '#132530' }} onClick={() => void handleCreate()}>
-            Create user
-          </button>
-        </div>
-        {error && <p className="mt-4 text-sm" style={{ color: '#ffb4b4' }}>{error}</p>}
-      </div>
-
-      {/* Invite Link Overlay */}
-      {inviteLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(6, 9, 14, 0.7)' }} onClick={e => { if (e.target === e.currentTarget) closeInviteOverlay(); }}>
-          <div className="w-full max-w-lg rounded-2xl border p-6" style={{ borderColor: '#26313c', background: '#16202a' }}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold" style={{ color: '#edf2f7' }}>Invite Link for {createdUsername}</h3>
-              <button className="text-sm underline" style={{ color: '#e2a56a' }} onClick={closeInviteOverlay}>Close</button>
-            </div>
-            <p className="text-xs mb-3" style={{ color: '#9bb1c0' }}>
-              Send this invite link to the new user. When they open it, they will set their password and receive a recovery key to keep safe.
-            </p>
-            <div className="rounded-xl p-3 mb-4" style={{ background: '#11161d' }}>
-              <code className="block break-all select-all text-xs" style={{ color: '#edf2f7' }}>{inviteLink}</code>
-            </div>
-            <div className="flex gap-3">
-              <button
-                className="rounded-xl px-4 py-2 text-xs font-semibold"
-                style={{ background: copied ? '#22c55e' : '#5aa7ff', color: '#0b1822' }}
-                onClick={() => { void navigator.clipboard.writeText(inviteLink); setCopied(true); }}
-              >
-                {copied ? 'Copied!' : 'Copy to clipboard'}
-              </button>
-              <button className="rounded-xl px-4 py-2 text-xs font-semibold" style={{ background: '#26313c', color: '#edf2f7' }} onClick={closeInviteOverlay}>
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function Create({onChanged}:{onChanged:()=>Promise<void>}) {
+  const [form,setForm]=useState(blankForm); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null); const [pending,setPending]=useState(false); const [inviteLink,setInviteLink]=useState<string|null>(null);
+  const submit=async()=>{if(pending)return;setPending(true);setError(null);setMessage(null);try{const result=await createManagedUser(form);const link=`${location.origin}/invite/${encodeURIComponent(result.user.username)}/${result.inviteToken}`;setInviteLink(link);setMessage('Account created. Copy this one-time invite link before creating another account.');setForm(blankForm());await onChanged()}catch(cause){setError(cause instanceof Error?cause.message:'Unable to create account.')}finally{setPending(false)}};
+  return <section className="mx-auto max-w-3xl rounded-xl border p-4" style={{borderColor:'#334155'}}><h3 className="mb-1 text-lg font-bold">Create account</h3><p className="mb-4 text-sm" style={{color:'#9bb1c0'}}>Choose any combination of Workspace and Board administration. Board membership is separate.</p>
+    {inviteLink?<><SecretCopyPanel label="One-time invite link" value={inviteLink} onCopied={()=>{setMessage('Invite link copied.');setError(null)}} onCopyFailed={()=>setError('Clipboard access was blocked. Select and copy the invite link manually.')}/><button className="mt-4 rounded-lg px-4 py-2 font-bold" style={{background:'#334155'}} onClick={()=>{setInviteLink(null);setMessage(null);setError(null)}}>Create another account</button></>:<><UserForm form={form} setForm={setForm} disabled={pending}/><button disabled={pending} className="mt-4 rounded-lg px-4 py-2 font-bold disabled:cursor-wait disabled:opacity-60" style={{background:'#e2a56a',color:'#132530'}} onClick={()=>void submit()}>{pending?'Creating account…':'Create account'}</button></>}
+    {message&&<p aria-live="polite" className="mt-3 text-sm" style={{color:'#bef264'}}>{message}</p>}{error&&<p role="alert" className="mt-3 text-sm" style={{color:'#fecaca'}}>{error}</p>}</section>;
 }
 
-/* ── Audit Tab ── */
-
-function AuditTab({ directory }: { directory: AdminDirectoryResponse | null }) {
-  return (
-    <div className="rounded-2xl border p-4" style={{ borderColor: '#26313c', background: '#16202a' }}>
-      <h3 className="text-sm font-bold mb-4">Recent audit events</h3>
-      <div className="space-y-2 max-h-[70vh] overflow-y-auto">
-        {directory?.auditEvents.length === 0 && (
-          <p className="text-sm" style={{ color: '#9bb1c0' }}>No audit events recorded yet.</p>
-        )}
-        {directory?.auditEvents.map(event => (
-          <div key={event.id} className="rounded-xl px-3 py-2" style={{ background: '#11161d' }}>
-            <p className="text-sm font-medium">{event.action}</p>
-            <p className="text-xs" style={{ color: '#9bb1c0' }}>{event.outcome} · {new Date(event.created_at).toLocaleString()}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function SecretCopyPanel({label,value,onCopied,onCopyFailed}:{label:string;value:string;onCopied:()=>void;onCopyFailed:()=>void}) {
+  const copy=async()=>{try{if(!navigator.clipboard)throw new Error('Clipboard unavailable');await navigator.clipboard.writeText(value);onCopied()}catch{onCopyFailed()}};
+  return <div className="rounded-xl border p-3" style={{borderColor:'#36506f',background:'#0d141c'}}><label className="text-xs font-bold uppercase tracking-wider">{label}<textarea readOnly aria-label={label} value={value} onFocus={event=>event.currentTarget.select()} className="mt-2 min-h-20 w-full resize-y rounded-lg border px-3 py-2 font-mono text-xs" style={{background:'#091019',borderColor:'#334155',color:'#dbeafe'}}/></label><button className="mt-2 rounded-lg px-4 py-2 font-bold" style={{background:'#7ea2ff',color:'#0b1822'}} onClick={()=>void copy()}>Copy {label.toLowerCase()}</button></div>;
 }
 
-/* ── Shared User Form ── */
-
-function UserForm({
-  form,
-  setForm,
-  directory,
-  updateWorkspaceMembership,
-  updateBoardMembership,
-}: {
-  form: ManagedUserInput;
-  setForm: Dispatch<SetStateAction<ManagedUserInput>>;
-  directory: AdminDirectoryResponse | null;
-  updateWorkspaceMembership: (workspaceId: string, role: string) => void;
-  updateBoardMembership: (boardId: string, role: string) => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <input value={form.name} onChange={event => setForm(current => ({ ...current, name: event.target.value }))} placeholder="Name" className="w-full rounded-xl px-3 py-2" style={{ background: '#11161d' }} />
-      <div className="grid gap-3 grid-cols-2">
-        <input value={form.initials} onChange={event => setForm(current => ({ ...current, initials: event.target.value }))} placeholder="Initials" className="rounded-xl px-3 py-2" style={{ background: '#11161d' }} />
-        <input value={form.color} onChange={event => setForm(current => ({ ...current, color: event.target.value }))} placeholder="#6366f1" className="rounded-xl px-3 py-2" style={{ background: '#11161d' }} />
-      </div>
-      <input value={form.username} onChange={event => setForm(current => ({ ...current, username: event.target.value }))} placeholder="Username" className="w-full rounded-xl px-3 py-2" style={{ background: '#11161d' }} />
-      <div className="grid gap-3 grid-cols-2">
-        <select value={form.platformRole} onChange={event => setForm(current => ({ ...current, platformRole: event.target.value as ManagedUserInput['platformRole'] }))} className="rounded-xl px-3 py-2" style={{ background: '#11161d' }}>
-          <option value="user">user</option>
-          <option value="system_admin">system_admin</option>
-        </select>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={form.active} onChange={event => setForm(current => ({ ...current, active: event.target.checked }))} /> Active
-        </label>
-      </div>
-      <div>
-        <p className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: '#9bb1c0' }}>Workspace membership</p>
-        <div className="space-y-2">
-          {directory?.workspaces.map(workspace => (
-            <div key={workspace.id} className="grid grid-cols-[1fr_180px] gap-3 items-center">
-              <span className="text-sm">{workspace.name}</span>
-              <select className="rounded-xl px-3 py-2" style={{ background: '#11161d' }} value={form.workspaceMemberships.find(item => item.workspaceId === workspace.id)?.role ?? ''} onChange={event => updateWorkspaceMembership(workspace.id, event.target.value)}>
-                {workspaceRoleOptions.map(option => <option key={option || 'none'} value={option}>{option || 'none'}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div>
-        <p className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: '#9bb1c0' }}>Board membership</p>
-        <div className="space-y-2 max-h-48 overflow-y-auto">
-          {directory?.boards.map(board => (
-            <div key={board.id} className="grid grid-cols-[1fr_180px] gap-3 items-center">
-              <span className="text-sm">{board.title}</span>
-              <select className="rounded-xl px-3 py-2" style={{ background: '#11161d' }} value={form.boardMemberships.find(item => item.boardId === board.id)?.role ?? ''} onChange={event => updateBoardMembership(board.id, event.target.value)}>
-                {boardRoleOptions.map(option => <option key={option || 'none'} value={option}>{option || 'none'}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+function UserForm({form,setForm,disabled=false}:{form:ManagedUserInput;setForm:Dispatch<SetStateAction<ManagedUserInput>>;disabled?:boolean}) {
+  const workspaces=useCallback((input:{query:string;page:number})=>fetchAdminResources({kind:'workspace',...input}),[]);
+  const boards=useCallback((input:{query:string;page:number})=>fetchAdminResources({kind:'board',...input}),[]);
+  const memberIds=form.boardMemberships.filter(item=>item.role==='member').map(item=>item.boardId); const observerIds=form.boardMemberships.filter(item=>item.role==='observer').map(item=>item.boardId);
+  const memberships=(ids:string[],role:'member'|'observer')=>setForm(current=>({...current,boardMemberships:[...current.boardMemberships.filter(item=>item.role!==role&&!ids.includes(item.boardId)),...ids.filter(id=>!current.boardMemberships.some(item=>item.boardId===id&&item.role!==role)).map(boardId=>({boardId,role}))]}));
+  return <fieldset disabled={disabled} className="space-y-4"><div className="grid gap-3 md:grid-cols-2"><label className="text-xs">Name<input aria-label="Name" value={form.name} onChange={e=>setForm(v=>({...v,name:e.target.value}))} className="mt-1 w-full rounded-lg px-3 py-2" style={{background:'#0d141c'}}/></label><label className="text-xs">Username<input aria-label="Username" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))} className="mt-1 w-full rounded-lg px-3 py-2" style={{background:'#0d141c'}}/></label><label className="text-xs">Initials<input aria-label="Initials" value={form.initials} maxLength={4} onChange={e=>setForm(v=>({...v,initials:e.target.value}))} className="mt-1 w-full rounded-lg px-3 py-2" style={{background:'#0d141c'}}/></label><label className="text-xs">Color<input aria-label="Color" value={form.color} onChange={e=>setForm(v=>({...v,color:e.target.value}))} className="mt-1 w-full rounded-lg px-3 py-2" style={{background:'#0d141c'}}/></label></div>
+    <div className="flex flex-wrap gap-5"><label className="text-sm">Platform role <select value={form.platformRole} onChange={e=>setForm(v=>({...v,platformRole:e.target.value as ManagedUserInput['platformRole']}))} className="ml-2 rounded-lg px-3 py-2" style={{background:'#0d141c'}}><option value="user">User</option><option value="system_admin">System Administrator</option></select></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.active} onChange={e=>setForm(v=>({...v,active:e.target.checked}))}/> Active</label></div>
+    {form.platformRole==='system_admin'?<p className="rounded-xl p-3 text-sm" style={{background:'#17263a',color:'#cbd5e1'}}>System Administrators oversee all of Strata. No Workspace or Board access selection is required.{form.workspaceAdminWorkspaceIds.length+form.boardAdminBoardIds.length>0?' Existing scoped assignments remain retained but are redundant while this role is active.':''}</p>:<div className="grid gap-4 md:grid-cols-2"><AdminAssignmentPicker label="Workspace Administrator access" description="Administers every Board in the selected Workspaces without becoming a member." selectedIds={form.workspaceAdminWorkspaceIds} onChange={ids=>setForm(v=>({...v,workspaceAdminWorkspaceIds:ids}))} loadPage={workspaces}/><AdminAssignmentPicker label="Board Administrator access" description="Administers only the selected Boards without becoming a member." selectedIds={form.boardAdminBoardIds} onChange={ids=>setForm(v=>({...v,boardAdminBoardIds:ids}))} loadPage={boards}/></div>}
+    <div><h4 className="mb-1 text-sm font-bold">Board membership</h4><p className="mb-3 text-xs" style={{color:'#9bb1c0'}}>Membership grants collaboration and derives Workspace membership. It does not grant administration.</p><div className="grid gap-4 md:grid-cols-2"><AdminAssignmentPicker label="Member on Boards" description="Can collaborate according to the Board member policy." selectedIds={memberIds} onChange={ids=>memberships(ids,'member')} loadPage={boards}/><AdminAssignmentPicker label="Observer on Boards" description="Can view/comment according to the observer policy." selectedIds={observerIds} onChange={ids=>memberships(ids,'observer')} loadPage={boards}/></div></div>
+  </fieldset>;
 }
+
+function BoardMembers({onChanged}:{onChanged:()=>Promise<void>}) {
+  const boards=useCallback((input:{query:string;page:number})=>fetchAdminResources({kind:'board',...input}),[]); const [boardId,setBoardId]=useState(''); const [boardPage,setBoardPage]=useState<Awaited<ReturnType<typeof fetchAdminResources>>|null>(null); const [boardQuery,setBoardQuery]=useState('');
+  const [members,setMembers]=useState<AdminPerson[]>([]); const [eligible,setEligible]=useState<AdminPerson[]>([]); const [query,setQuery]=useState(''); const [error,setError]=useState<string|null>(null);
+  useEffect(()=>{void boards({query:boardQuery,page:1}).then(setBoardPage).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to load Boards.'))},[boardQuery,boards]);
+  const reload=useCallback(async()=>{if(!boardId)return;const [a,b]=await Promise.all([fetchBoardMembers(boardId,{pageSize:100}),fetchEligibleBoardUsers(boardId,{query,pageSize:25})]);setMembers(a.items);setEligible(b.items)},[boardId,query]);
+  useEffect(()=>{if(boardId)void Promise.resolve().then(reload).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to load Board members.'))},[boardId,reload]);
+  return <div className="space-y-4"><section className="rounded-xl border p-4" style={{borderColor:'#334155'}}><h3 className="font-bold">Manage Board membership</h3><p className="mb-3 text-xs" style={{color:'#9bb1c0'}}>Only existing active accounts can be added. Administrative access remains unchanged.</p><input aria-label="Search manageable Boards" value={boardQuery} onChange={e=>setBoardQuery(e.target.value)} placeholder="Search Workspaces and Boards…" className="mb-2 w-full rounded-lg px-3 py-2" style={{background:'#0d141c'}}/><select aria-label="Board" value={boardId} onChange={e=>setBoardId(e.target.value)} className="w-full rounded-lg px-3 py-2" style={{background:'#0d141c'}}><option value="">Select a Board…</option>{boardPage?.items.map(item=><option key={item.id} value={item.id}>{item.workspaceName} / {item.name}</option>)}</select></section>
+    {boardId&&<div className="grid gap-4 md:grid-cols-2"><section className="rounded-xl border p-4" style={{borderColor:'#334155'}}><h4 className="mb-3 font-bold">Current members</h4>{members.map(person=><div key={person.id} className="mb-2 flex items-center gap-2 rounded-lg p-2" style={{background:'#162233'}}><span className="min-w-0 flex-1 text-sm">{person.name} <small style={{color:'#9bb1c0'}}>@{person.username}</small></span><select aria-label={`Role for ${person.name}`} value={person.role} onChange={e=>void setBoardMember(boardId,person.id,e.target.value as 'member'|'observer').then(reload)} style={{background:'#0d141c'}}><option value="member">Member</option><option value="observer">Observer</option></select><button aria-label={`Remove ${person.name}`} onClick={()=>void removeBoardMember(boardId,person.id).then(async()=>{await reload();await onChanged()})}>Remove</button></div>)}{!members.length&&<p className="text-sm" style={{color:'#9bb1c0'}}>No members.</p>}</section>
+      <section className="rounded-xl border p-4" style={{borderColor:'#334155'}}><h4 className="font-bold">Add an existing account</h4><input aria-label="Search eligible accounts" value={query} onChange={e=>setQuery(e.target.value)} className="my-3 w-full rounded-lg px-3 py-2" placeholder="Search name or username…" style={{background:'#0d141c'}}/>{eligible.map(person=><div key={person.id} className="mb-2 flex items-center gap-2 rounded-lg p-2" style={{background:'#162233'}}><span className="min-w-0 flex-1 text-sm">{person.name} <small style={{color:'#9bb1c0'}}>@{person.username}</small></span><button onClick={()=>void setBoardMember(boardId,person.id,'member').then(async()=>{await reload();await onChanged()})}>Add</button></div>)}{!eligible.length&&<p className="text-sm" style={{color:'#9bb1c0'}}>No eligible accounts.</p>}</section></div>}{error&&<p style={{color:'#fecaca'}}>{error}</p>}</div>;
+}
+
+function Pager({page,totalPages,setPage}:{page:number;totalPages:number;setPage:(page:number)=>void}) { return <div className="mt-3 flex items-center justify-between text-xs"><button disabled={page<=1} onClick={()=>setPage(page-1)}>Previous</button><span>Page {page} of {totalPages}</span><button disabled={page>=totalPages} onClick={()=>setPage(page+1)}>Next</button></div> }
+function Audit({directory}:{directory:AdminDirectoryResponse|null}) { return <section className="space-y-2">{directory?.auditEvents.map(event=><div key={event.id} className="rounded-lg p-3" style={{background:'#162233'}}><strong className="text-sm">{event.action}</strong><p className="text-xs" style={{color:'#9bb1c0'}}>{event.outcome} · {new Date(event.created_at).toLocaleString()}</p></div>)}{!directory?.auditEvents.length&&<p>No audit events.</p>}</section> }

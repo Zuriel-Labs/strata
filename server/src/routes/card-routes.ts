@@ -54,7 +54,7 @@ const duplicateCardSchema = z.object({}).strict();
 export function createCardRoutes(db: Database.Database) {
   const router = Router();
 
-  const validateCardUpdates = (boardId: string, labelIds?: string[], listId?: string) => {
+  const validateCardUpdates = (boardId: string, labelIds?: string[], listId?: string, memberIds?: string[]) => {
     const board = getBoardById(db, boardId);
     if (!board) return 'Board not found.';
     const validLabelIds = new Set(board.labels.map(label => label.id));
@@ -64,6 +64,14 @@ export function createCardRoutes(db: Database.Database) {
     if (listId) {
       const listExists = db.prepare('SELECT 1 FROM lists WHERE id = ? AND board_id = ?').get(listId, boardId);
       if (!listExists) return 'Selected list does not belong to this board.';
+    }
+    if (memberIds) {
+      if (new Set(memberIds).size !== memberIds.length) return 'Card members cannot contain duplicates.';
+      if (memberIds.length > 0) {
+        const placeholders = memberIds.map(() => '?').join(', ');
+        const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM board_memberships JOIN users ON users.id = board_memberships.user_id WHERE board_memberships.board_id = ? AND users.active = 1 AND board_memberships.user_id IN (${placeholders})`).get(boardId, ...memberIds) as { count: number }).count);
+        if (count !== memberIds.length) return 'One or more selected people are not active members of this board.';
+      }
     }
     return null;
   };
@@ -100,7 +108,7 @@ export function createCardRoutes(db: Database.Database) {
       ? canArchiveBoardContent(db, request.auth!, card.boardId)
       : canEditBoardCards(db, request.auth!, card.boardId);
     if (!canUpdate) { response.status(403).json({ message: 'Access denied.' }); return; }
-    const validationMessage = validateCardUpdates(card.boardId, parsed.data.labelIds, parsed.data.listId);
+    const validationMessage = validateCardUpdates(card.boardId, parsed.data.labelIds, parsed.data.listId, parsed.data.memberIds);
     if (validationMessage) {
       response.status(validationMessage === 'Board not found.' ? 404 : 400).json({ message: validationMessage });
       return;

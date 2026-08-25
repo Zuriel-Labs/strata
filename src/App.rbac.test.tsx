@@ -21,8 +21,10 @@ describe('App RBAC views', () => {
           },
           permissions: {
             isSystemAdmin: false,
-            workspaceMemberships: [{ id: 'wm3', userId: 'u3', workspaceId: 'w1', role: 'member', createdAt: new Date().toISOString() }],
+            workspaceAdminGrants: [],
+            boardAdminGrants: [],
             boardMemberships: [{ id: 'bm3', userId: 'u3', boardId: 'b1', role: 'member', createdAt: new Date().toISOString() }],
+            derivedWorkspaceIds: ['w1'],
           },
           appState: initialState,
         });

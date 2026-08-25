@@ -34,6 +34,11 @@ export function Header() {
     || auth.canManageWorkspace(state.currentWorkspaceId)
     || auth.canManageBoard(state.currentBoardId),
   );
+  const canOpenAdmin = Boolean(
+    auth.session?.permissions.isSystemAdmin
+    || auth.session?.permissions.workspaceAdminGrants?.length
+    || auth.session?.permissions.boardAdminGrants?.length
+  );
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -263,7 +268,7 @@ export function Header() {
           </div>
 
           {/* Admin */}
-          {auth.session?.permissions.isSystemAdmin && (
+          {canOpenAdmin && (
             <button
               aria-label="Open admin panel"
               onClick={() => auth.setAdminOpen(true)}

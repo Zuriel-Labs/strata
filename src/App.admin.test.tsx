@@ -2,195 +2,105 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { initialState } from './store';
-import type { AdminDirectoryResponse } from './types';
 
-describe('App admin flows', () => {
-  beforeEach(() => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path.endsWith('/api/auth/session')) {
-        return Response.json({
-          status: 'authenticated',
-          user: {
-            id: 'u1',
-            name: 'System Admin',
-            initials: 'SA',
-            color: '#6366f1',
-            themePreference: 'dark',
-            username: 'admin',
-            platformRole: 'system_admin',
-            mustChangePassword: false,
-          },
-          permissions: {
-            isSystemAdmin: true,
-            workspaceMemberships: [{ id: 'wm1', userId: 'u1', workspaceId: 'w1', role: 'workspace_admin', createdAt: new Date().toISOString() }],
-            boardMemberships: [{ id: 'bm1', userId: 'u1', boardId: 'b1', role: 'board_admin', createdAt: new Date().toISOString() }],
-          },
-          appState: initialState,
-        });
-      }
-      if (path.endsWith('/api/admin/users')) {
-        return Response.json({
-          users: [],
-          workspaces: [{ id: 'w1', name: 'Acme Engineering' }],
-          boards: [{ id: 'b1', title: 'Platform Sprint 24', workspaceId: 'w1' }],
-          auditEvents: [],
-        });
-      }
-      if (path.endsWith('/api/boards/b1/labels')) {
-        return Response.json({
-          boardId: 'b1',
-          labels: initialState.boards.find(board => board.id === 'b1')?.labels ?? [],
-        });
-      }
-      return new Response(null, { status: 404 });
-    });
-    vi.stubGlobal('fetch', fetchMock);
+const now = '2026-08-25T12:00:00.000Z';
+function session(systemAdmin = true) {
+  return {
+    status:'authenticated', user:{id:systemAdmin?'u1':'u2',name:systemAdmin?'System Admin':'Workspace Admin',initials:'SA',color:'#6366f1',themePreference:'dark',username:systemAdmin?'admin':'alex',platformRole:systemAdmin?'system_admin':'user',mustChangePassword:false},
+    permissions:{isSystemAdmin:systemAdmin,workspaceAdminGrants:systemAdmin?[]:[{id:'wag1',userId:'u2',workspaceId:'w1',grantedByUserId:'u1',createdAt:now}],boardAdminGrants:[],boardMemberships:[],derivedWorkspaceIds:[]},
+    appState:{...initialState,currentUserId:systemAdmin?'u1':'u2'},
+  };
+}
+const directory = {
+  users:[{id:'u1',name:'System Admin',initials:'SA',color:'#6366f1',username:'admin',platformRole:'system_admin',active:true,mustChangePassword:false,createdAt:now,updatedAt:now,counts:{workspaceAdminGrants:0,boardAdminGrants:0,boardMemberships:0,derivedWorkspaces:0}}],
+  page:{page:1,pageSize:25,total:1,totalPages:1},
+  actorCapabilities:{canCreateUsers:true,canManageAccess:true,canViewAudit:true},auditEvents:[],
+};
+const resources = {items:[{id:'w1',name:'Acme Engineering',kind:'workspace',workspaceId:null,workspaceName:null},{id:'b1',name:'Platform Sprint 24',kind:'board',workspaceId:'w1',workspaceName:'Acme Engineering'}],page:{page:1,pageSize:25,total:2,totalPages:1}};
+
+function mockApi(systemAdmin = true) {
+  const fetchMock = vi.fn(async (input:RequestInfo|URL, init?:RequestInit) => {
+    const path=String(input);
+    if(path.endsWith('/api/auth/session'))return Response.json(session(systemAdmin));
+    if(path.endsWith('/api/admin/users')&&init?.method==='POST')return Response.json({user:{...directory.users[0],id:'u-new',name:'Jordan Lee',username:'jordan'},inviteToken:'invite-token-123'},{status:201});
+    if(path.includes('/api/admin/users?'))return Response.json(systemAdmin?directory:{...directory,actorCapabilities:{canCreateUsers:false,canManageAccess:false,canViewAudit:false}});
+    if(path.includes('/api/admin/resources?'))return Response.json(resources);
+    if(path.includes('/api/admin/boards/')&&path.includes('/members?'))return Response.json({items:[],page:{page:1,pageSize:25,total:0,totalPages:1}});
+    if(path.includes('/eligible-users?'))return Response.json({items:[],page:{page:1,pageSize:25,total:0,totalPages:1}});
+    if(path.includes('/api/boards/b1/labels'))return Response.json({boardId:'b1',labels:[]});
+    return new Response(null,{status:404});
+  });
+  vi.stubGlobal('fetch',fetchMock); return fetchMock;
+}
+
+describe('layered administration UI',()=>{
+  beforeEach(()=>mockApi(true));
+
+  it('shows independent scalable access and membership controls to System Administrators',async()=>{
+    const user=userEvent.setup(); render(<App/>);
+    await user.click(await screen.findByRole('button',{name:'Open admin panel'}));
+    expect(await screen.findByRole('heading',{name:'Access & Membership'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Create User'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Board Members'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Audit Log'})).toBeInTheDocument();
+    await user.click(screen.getByRole('button',{name:'Create User'}));
+    expect(screen.getByText('Workspace Administrator access')).toBeInTheDocument();
+    expect(screen.getByText('Board Administrator access')).toBeInTheDocument();
+    expect(screen.getByText('Member on Boards')).toBeInTheDocument();
+    expect(screen.getByText('Observer on Boards')).toBeInTheDocument();
+    expect(screen.getAllByPlaceholderText('Search…')).toHaveLength(4);
   });
 
-  it('opens the admin panel for system admins', async () => {
-    const user = userEvent.setup();
-    render(<App />);
+  it('keeps a successful invite visible and copies it only from an explicit user action',async()=>{
+    const user=userEvent.setup();
+    const clipboardWrite=vi.spyOn(navigator.clipboard,'writeText').mockResolvedValue(undefined);
+    render(<App/>);
+    await user.click(await screen.findByRole('button',{name:'Open admin panel'}));
+    await user.click(screen.getByRole('button',{name:'Create User'}));
+    await user.type(screen.getByLabelText('Name'),'Jordan Lee');
+    await user.type(screen.getByLabelText('Username'),'jordan');
+    await user.type(screen.getByLabelText('Initials'),'JL');
+    await user.click(screen.getByRole('button',{name:'Create account'}));
 
-    expect(await screen.findByRole('button', { name: 'Manage board labels' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Manage board labels' }));
-    expect(screen.getByRole('heading', { name: 'Board labels' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Close label manager' }));
+    const invite=await screen.findByLabelText('One-time invite link');
+    expect(invite).toHaveValue('http://localhost:3000/invite/jordan/invite-token-123');
+    expect(clipboardWrite).not.toHaveBeenCalled();
+    expect(screen.getByRole('button',{name:'Create User'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Create another account'})).toBeInTheDocument();
 
-    await user.click(await screen.findByRole('button', { name: 'Open admin panel' }));
+    await user.click(screen.getByRole('button',{name:'Copy one-time invite link'}));
+    expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:3000/invite/jordan/invite-token-123');
+    expect(await screen.findByText('Invite link copied.')).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'User Management' })).toBeInTheDocument();
-    });
-    expect(screen.getByText('Edit Users')).toBeInTheDocument();
-    expect(screen.getByText('Create User')).toBeInTheDocument();
-    expect(screen.getByText('Audit Log')).toBeInTheDocument();
+    clipboardWrite.mockRejectedValueOnce(new Error('NotAllowedError'));
+    await user.click(screen.getByRole('button',{name:'Copy one-time invite link'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Select and copy the invite link manually.');
+    expect(screen.getByLabelText('One-time invite link')).toHaveValue('http://localhost:3000/invite/jordan/invite-token-123');
   });
 
-  it('requires exact DELETE confirmation before removing a managed user', async () => {
-    const directory: AdminDirectoryResponse = {
-      users: [
-        {
-          id: 'u1',
-          name: 'System Admin',
-          initials: 'SA',
-          color: '#6366f1',
-          themePreference: 'dark',
-          username: 'admin',
-          platformRole: 'system_admin',
-          mustChangePassword: false,
-          defaultWorkspaceId: null,
-          defaultBoardId: null,
-          active: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          workspaceMemberships: [{ id: 'wm1', userId: 'u1', workspaceId: 'w1', role: 'workspace_admin', createdAt: new Date().toISOString() }],
-          boardMemberships: [{ id: 'bm1', userId: 'u1', boardId: 'b1', role: 'board_admin', createdAt: new Date().toISOString() }],
-        },
-        {
-          id: 'u2',
-          name: 'Jordan Lee',
-          initials: 'JL',
-          color: '#2563eb',
-          themePreference: 'dark',
-          username: 'jordan',
-          platformRole: 'user',
-          mustChangePassword: false,
-          defaultWorkspaceId: null,
-          defaultBoardId: null,
-          active: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          workspaceMemberships: [],
-          boardMemberships: [],
-        },
-      ],
-      workspaces: [{ id: 'w1', name: 'Acme Engineering' }],
-      boards: [{ id: 'b1', title: 'Platform Sprint 24', workspaceId: 'w1' }],
-      auditEvents: [],
-    };
+  it('preserves the active admin form across an unchanged session refresh',async()=>{
+    const fetchMock=mockApi(true);
+    const user=userEvent.setup(); render(<App/>);
+    await user.click(await screen.findByRole('button',{name:'Open admin panel'}));
+    await user.click(screen.getByRole('button',{name:'Create User'}));
+    await user.type(screen.getByLabelText('Name'),'Unsubmitted administrator');
+    const sessionCallsBefore=fetchMock.mock.calls.filter(([input])=>String(input).endsWith('/api/auth/session')).length;
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(()=>expect(fetchMock.mock.calls.filter(([input])=>String(input).endsWith('/api/auth/session')).length).toBeGreaterThan(sessionCallsBefore));
 
-      if (path.endsWith('/api/auth/session')) {
-        return Response.json({
-          status: 'authenticated',
-          user: {
-            id: 'u1',
-            name: 'System Admin',
-            initials: 'SA',
-            color: '#6366f1',
-            themePreference: 'dark',
-            username: 'admin',
-            platformRole: 'system_admin',
-            mustChangePassword: false,
-          },
-          permissions: {
-            isSystemAdmin: true,
-            workspaceMemberships: [{ id: 'wm1', userId: 'u1', workspaceId: 'w1', role: 'workspace_admin', createdAt: new Date().toISOString() }],
-            boardMemberships: [{ id: 'bm1', userId: 'u1', boardId: 'b1', role: 'board_admin', createdAt: new Date().toISOString() }],
-          },
-          appState: initialState,
-        });
-      }
+    expect(screen.getByLabelText('Name')).toHaveValue('Unsubmitted administrator');
+    expect(screen.getByRole('heading',{name:'Create account'})).toBeInTheDocument();
+  });
 
-      if (path.endsWith('/api/admin/users') && (!init?.method || init.method === 'GET')) {
-        return Response.json(directory);
-      }
-
-      if (path.endsWith('/api/admin/users/u2') && init?.method === 'DELETE') {
-        directory.users = directory.users.filter(user => user.id !== 'u2');
-        return Response.json({ deletedUserId: 'u2', username: 'jordan', removedCardAssignments: 1, remediatedAutomationRules: 1 });
-      }
-
-      if (path.endsWith('/api/boards/b1/labels')) {
-        return Response.json({
-          boardId: 'b1',
-          labels: initialState.boards.find(board => board.id === 'b1')?.labels ?? [],
-        });
-      }
-
-      return new Response(null, { status: 404 });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole('button', { name: 'Open admin panel' }));
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'User Management' })).toBeInTheDocument();
-    });
-
-    await user.selectOptions(screen.getByLabelText('Select user to edit'), 'u2');
-    await user.click(screen.getByRole('button', { name: 'Delete User' }));
-    expect(screen.getByText('User jordan will be removed from Strata. This cannot be undone. Are you sure?')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Nevermind' }));
-    expect(screen.queryByText('User jordan will be removed from Strata. This cannot be undone. Are you sure?')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Delete User' }));
-    await user.click(screen.getByRole('button', { name: 'YES' }));
-
-    const confirmationInput = screen.getByPlaceholderText('Type DELETE to confirm');
-    const boomButton = screen.getByRole('button', { name: 'BOOM' });
-
-    expect(boomButton).toBeDisabled();
-    await user.type(confirmationInput, 'delete');
-    expect(boomButton).toBeDisabled();
-    await user.clear(confirmationInput);
-    await user.type(confirmationInput, 'DELETE');
-    expect(boomButton).toBeEnabled();
-
-    await user.click(boomButton);
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/admin/users/u2', expect.objectContaining({ method: 'DELETE' }));
-    });
-    expect(screen.queryByRole('button', { name: 'BOOM' })).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.queryByRole('option', { name: 'Jordan Lee (jordan)' })).not.toBeInTheDocument();
-    });
+  it('lets scoped administrators manage Board members without exposing account or audit escalation',async()=>{
+    mockApi(false);
+    const user=userEvent.setup(); render(<App/>);
+    await user.click(await screen.findByRole('button',{name:'Open admin panel'}));
+    expect(await screen.findByRole('heading',{name:'Access & Membership'})).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Create User'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Audit Log'})).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button',{name:'Board Members'}));
+    await waitFor(()=>expect(screen.getByLabelText('Board')).toBeInTheDocument());
   });
 });

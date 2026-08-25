@@ -28,7 +28,7 @@ describe('rbac matrix', () => {
     expect(session.body.appState.workspaces.some((workspace: { id: string }) => workspace.id === 'w2')).toBe(false);
   });
 
-  it('blocks non-system-admin access to platform administration', async () => {
+  it('allows scoped administrators into the bounded administration directory', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
     const agent = request.agent(app);
@@ -36,6 +36,11 @@ describe('rbac matrix', () => {
     await agent.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' });
     const response = await agent.get('/api/admin/users');
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(response.body.actorCapabilities).toEqual({
+      canCreateUsers: false,
+      canManageAccess: false,
+      canViewAudit: false,
+    });
   });
 });

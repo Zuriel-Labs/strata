@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { hashPassword } from '../auth/passwords';
-import type { BoardRole, PlatformRole, WorkspaceRole } from '../types';
+import type { BoardRole, PlatformRole } from '../types';
 import { USERS, WORKSPACES, BOARDS, LISTS, CARDS, AUTOMATION_RULES, NOTIFICATIONS } from '../../../src/data';
 import type { ThemePreference } from '../types';
 
@@ -37,24 +37,17 @@ const seededUsers: UserSeed[] = [
   { ...USERS[3], themePreference: 'dark', username: 'marcus', platformRole: 'user', password: 'BoardAdmin123!', active: true, mustChangePassword: false },
 ];
 
-const workspaceMemberships: Array<{ userId: string; workspaceId: string; role: WorkspaceRole }> = [
-  { userId: 'u1', workspaceId: 'w1', role: 'workspace_admin' },
-  { userId: 'u1', workspaceId: 'w2', role: 'workspace_admin' },
-  { userId: 'u2', workspaceId: 'w1', role: 'workspace_admin' },
-  { userId: 'u3', workspaceId: 'w1', role: 'member' },
-  { userId: 'u3', workspaceId: 'w2', role: 'member' },
-  { userId: 'u4', workspaceId: 'w1', role: 'member' },
+const workspaceAdminGrants = [
+  { userId: 'u2', workspaceId: 'w1' },
+];
+
+const boardAdminGrants = [
+  { userId: 'u4', boardId: 'b1' },
 ];
 
 const boardMemberships: Array<{ userId: string; boardId: string; role: BoardRole }> = [
-  { userId: 'u1', boardId: 'b1', role: 'board_admin' },
-  { userId: 'u1', boardId: 'b2', role: 'board_admin' },
-  { userId: 'u1', boardId: 'b3', role: 'board_admin' },
-  { userId: 'u2', boardId: 'b1', role: 'board_admin' },
-  { userId: 'u2', boardId: 'b2', role: 'board_admin' },
   { userId: 'u3', boardId: 'b1', role: 'member' },
   { userId: 'u3', boardId: 'b3', role: 'member' },
-  { userId: 'u4', boardId: 'b1', role: 'board_admin' },
   { userId: 'u4', boardId: 'b2', role: 'observer' },
 ];
 
@@ -87,11 +80,6 @@ export async function seedIfNeeded(db: Database.Database) {
     insertWorkspace.run({ ...workspace, created_at: now() });
   }
 
-  const insertWorkspaceMembership = db.prepare('INSERT INTO workspace_memberships (id, user_id, workspace_id, role, created_at) VALUES (@id, @userId, @workspaceId, @role, @createdAt)');
-  for (const membership of workspaceMemberships) {
-    insertWorkspaceMembership.run({ id: randomUUID(), ...membership, createdAt: now() });
-  }
-
   const insertBoard = db.prepare('INSERT INTO boards (id, title, workspace_id, visibility, color, starred, labels_json, created_at) VALUES (@id, @title, @workspaceId, @visibility, @color, @starred, @labelsJson, @createdAt)');
   for (const board of BOARDS) {
     insertBoard.run({
@@ -104,6 +92,16 @@ export async function seedIfNeeded(db: Database.Database) {
       labelsJson: JSON.stringify(board.labels),
       createdAt: now(),
     });
+  }
+
+  const insertWorkspaceAdminGrant = db.prepare('INSERT INTO workspace_admin_grants (id, user_id, workspace_id, granted_by_user_id, created_at) VALUES (@id, @userId, @workspaceId, NULL, @createdAt)');
+  for (const grant of workspaceAdminGrants) {
+    insertWorkspaceAdminGrant.run({ id: randomUUID(), ...grant, createdAt: now() });
+  }
+
+  const insertBoardAdminGrant = db.prepare('INSERT INTO board_admin_grants (id, user_id, board_id, granted_by_user_id, created_at) VALUES (@id, @userId, @boardId, NULL, @createdAt)');
+  for (const grant of boardAdminGrants) {
+    insertBoardAdminGrant.run({ id: randomUUID(), ...grant, createdAt: now() });
   }
 
   const insertBoardMembership = db.prepare('INSERT INTO board_memberships (id, user_id, board_id, role, created_at) VALUES (@id, @userId, @boardId, @role, @createdAt)');

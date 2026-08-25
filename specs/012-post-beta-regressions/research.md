@@ -32,8 +32,16 @@
 
 **Alternatives Considered**: Reuse Boards-tab hidden selection (current usability bug); combine names into one selector (weak hierarchy and poor empty-workspace behavior); broaden workspace permissions (security regression).
 
+## Admin audit heap exhaustion
+
+**Decision**: Request only the newest 25 audit events in SQLite, cap the repository limit to 100, and add a descending timestamp index.
+
+**Rationale**: Production retained 403,638 audit events. `listAuditEvents(db).slice(0, 25)` materialized all rows in `better-sqlite3` before JavaScript sliced the array, causing V8 heap OOM and two container restarts. A direct bounded query returned 25 rows without mutating history; the index removes the remaining full scan and sort.
+
+**Alternatives Considered**: Delete old events (destructive and unauthorized); increase Node heap (delays failure and can exceed the pod limit); paginate the entire Admin API in this patch (larger product/API scope than the current 25-event UI requires).
+
 ## API and persistence impact
 
-**Decision**: Preserve all endpoint shapes and database schema. Validate client canonicalization and server round-trip with existing card update/duplicate routes.
+**Decision**: Preserve all endpoint and response shapes. Add only the audit ordering index; validate client canonicalization and server round-trip with existing card update/duplicate routes.
 
-**Rationale**: The defects are client state/semantics/interaction problems. Avoiding unnecessary schema/contract changes reduces data risk.
+**Rationale**: The original four defects are client state/semantics/interaction problems. The production OOM requires a bounded server query; an additive index is non-destructive and avoids changing audit data or API contracts.

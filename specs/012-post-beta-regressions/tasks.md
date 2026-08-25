@@ -42,22 +42,29 @@
 - [x] T023 [US4] **REFACTOR** Preserve existing rule form/state behavior while deriving authorized automation scope in one component.
 - [x] T024 [US4] Add browser acceptance for in-panel workspace/board switching and retain existing server RBAC matrix coverage.
 
+## Phase 5b: US5 — Bounded Admin audit reads (Issue #28, P0)
+
+- [x] T037 [US5] **RED** Reproduce the unbounded repository result with more than 25 retained events in `server/tests/admin-routes.test.ts`.
+- [x] T038 [US5] **GREEN** Apply a clamped SQL limit in `server/src/db/repositories.ts` and request 25 rows in `server/src/routes/admin-routes.ts`.
+- [x] T039 [US5] **REFACTOR** Add and verify the non-destructive newest-first audit index in `server/src/db/schema.ts`.
+- [ ] T040 [US5] Verify canary Admin loading, response count, memory, health, events, and preserved audit row count.
+
 ## Phase 6: Cross-Cutting Validation
 
 - [x] T025 Run focused Red/Green suites after each story and record expected failures before implementation.
 - [ ] T026 Audit keyboard/focus labels, touch targets, live feedback, reduced motion, dark/light themes, and 375/768/1280 layouts.
-- [x] T027 Run server/RBAC/contract regression suites and confirm no endpoint/schema expansion.
+- [x] T027 Run server/RBAC/contract regression suites and confirm no endpoint/response expansion and only the planned additive index.
 - [x] T028 Run SQLite integrity, dependency audits, typecheck, lint, unit/integration, build, E2E, and full `npm run test:ci`.
-- [ ] T029 Create an exact truthful report in `tests/reports/012-post-beta-regressions-*.md` and update all artifact/checklist/task status.
+- [x] T029 Create an exact truthful report in `tests/reports/012-post-beta-regressions-*.md` and update all artifact/checklist/task status.
 
 ## Phase 7: GitHub and Canary Delivery
 
-- [ ] T030 Re-fetch `origin/main`, verify clean diff and merge base, commit conventionally, push branch, and open a PR closing #23–#26.
+- [ ] T030 Re-fetch `origin/main`, verify clean diff and merge base, commit conventionally, push branch, and open a PR closing #23–#26 and #28.
 - [ ] T031 Wait for exact-head GitHub CI and publish source/test/rollback evidence to the PR and Issues.
 - [ ] T032 Capture Strata canary, production, nodes, apps, pods, Ceph, logs/events, and exact rollback baseline.
 - [ ] T033 Build and push one immutable image from the clean exact source commit and record digest/revision label.
 - [ ] T034 Change only `apps/strata-canary/values.yaml`, validate/render, commit only that path, and push to Gitea.
-- [ ] T035 Verify ArgoCD Synced/Healthy, 1/1 rollout, running digest, health/TLS, auth, logs/events, and all four live journeys.
+- [ ] T035 Verify ArgoCD Synced/Healthy, 1/1 rollout, running digest, health/TLS, auth, logs/events, and all five live journeys.
 - [ ] T036 Replace working labels with canary/feedback labels, leave Issues open, verify production unchanged, and hand off one checklist.
 
 ## Dependencies
@@ -67,6 +74,7 @@ T001–T004
   ├─ US1 T005–T008
   ├─ US2 T009–T014
   ├─ US3 T015–T020
-  └─ US4 T021–T024
-All stories → T025–T029 → T030–T036
+  ├─ US4 T021–T024
+  └─ US5 T037–T040
+All stories, including T037–T040 → T025–T029 → T030–T036
 ```

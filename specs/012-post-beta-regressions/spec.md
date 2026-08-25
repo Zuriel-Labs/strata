@@ -14,6 +14,7 @@
 | US2 | #23 | Date-only due dates render as the same calendar date everywhere |
 | US3 | #25 | Card and lane drags always expose one stable destination gap |
 | US4 | #26 | Automation management includes explicit Workspace and Board selectors |
+| US5 | #28 | Admin audit retrieval remains bounded as retained history grows |
 
 ## User Scenarios & Testing
 
@@ -87,6 +88,21 @@ As an authorized administrator, I can choose both Workspace and Board directly i
 4. **Given** a Board Admin who cannot manage its workspace, **When** Automations opens, **Then** the board's workspace remains selectable for that authorized board without exposing other boards.
 5. **Given** a direct unauthorized API request, **When** it targets an automation rule, **Then** existing server RBAC still denies it.
 
+### User Story 5 - Keep Admin audit retrieval operational (Priority: P0)
+
+As a system administrator, I can open the Admin directory when Strata has years of retained audit history without exhausting API memory or restarting the service.
+
+**Why this priority**: Production terminated twice with V8 heap exhaustion while materializing 403,638 audit rows for a response that displays only 25.
+
+**Independent Test**: Retain more than 25 audit rows, request the Admin directory, and prove SQLite returns only the newest 25 through an indexed bounded query while the full history remains unchanged.
+
+**Acceptance Scenarios**:
+
+1. **Given** more than 25 audit events, **When** Admin data loads, **Then** exactly the latest 25 events are returned in descending timestamp order.
+2. **Given** a very large retained history, **When** the bounded query executes, **Then** Node does not materialize the discarded rows.
+3. **Given** the optimization is deployed, **When** row counts are checked afterward, **Then** no audit event has been deleted or mutated.
+4. **Given** a non-system administrator, **When** the Admin endpoint is requested, **Then** existing authorization still denies access.
+
 ### Edge Cases
 
 - The only workspace has no boards.
@@ -97,6 +113,7 @@ As an authorized administrator, I can choose both Workspace and Board directly i
 - Filters hide cards between visible insertion anchors.
 - A workspace has manageable scope but no automation-manageable boards; a Board Admin can manage only one board in an otherwise unmanaged workspace.
 - A workspace/board is deleted while the management dialog is open.
+- Audit history contains hundreds of thousands of rows with identical or near-identical timestamps.
 
 ## Requirements
 
@@ -132,6 +149,11 @@ As an authorized administrator, I can choose both Workspace and Board directly i
 - **FR-028**: Workspace/board selectors MUST remain usable at 375px, 768px, and 1280px.
 - **FR-029**: Existing server authorization, validation, audit, and safe error responses MUST remain unchanged or stronger.
 - **FR-030**: All four Issues MUST have focused regression tests that fail before implementation and pass afterward.
+- **FR-031**: Admin audit retrieval MUST apply its result limit inside SQLite rather than in JavaScript.
+- **FR-032**: The bounded audit query MUST return the newest 25 events deterministically.
+- **FR-033**: Audit retrieval limits MUST be positive and capped to prevent accidental unbounded calls.
+- **FR-034**: Audit history MUST remain append-only and MUST NOT be deleted or rewritten by this fix.
+- **FR-035**: The audit timestamp ordering path MUST be indexed for large retained histories.
 
 ### Key Entities
 
@@ -139,6 +161,7 @@ As an authorized administrator, I can choose both Workspace and Board directly i
 - **Card Due Date**: A nullable date-only calendar value whose meaning is independent of an instant or timezone.
 - **Drag Insertion Preview**: Active item, source order, last valid destination group/index, input type, and preview order.
 - **Automation Scope**: Selected manageable workspace and a nullable manageable board within it.
+- **Audit Window**: A bounded newest-first read view over the preserved append-only audit history.
 
 ## Non-Goals
 
@@ -147,6 +170,7 @@ As an authorized administrator, I can choose both Workspace and Board directly i
 - Keyboard drag-and-drop.
 - Server schema changes unless investigation proves existing due-date storage cannot support safe compatibility.
 - Production promotion of the new fixes before a new exact canary candidate is approved.
+- Deleting, truncating, compacting, or changing retention policy for existing audit history.
 
 ## Success Criteria
 
@@ -155,3 +179,4 @@ As an authorized administrator, I can choose both Workspace and Board directly i
 - **SC-003**: 100 consecutive deterministic card and lane boundary projections retain exactly one valid gap and match final order in automated tests.
 - **SC-004**: An authorized user changes automation workspace and board without leaving the Automations tab in at most two selections.
 - **SC-005**: Full CI and live canary acceptance pass with no page errors, blank screens, new warning events, or production changes.
+- **SC-006**: Admin directory retrieval returns 25 rows and remains healthy against a retained history of at least 400,000 audit events.

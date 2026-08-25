@@ -15,6 +15,7 @@ Use seeded accounts only in the local test environment. Do not copy production o
 2. Due date: select August 27, verify modal/card/table/calendar, refresh, then execute tests with UTC, America/Chicago, and Pacific/Auckland timezones.
 3. Drag preview: repeatedly cross first/middle/end card and lane boundaries, including empty lanes and rapid reversals; compare final visible gap with refreshed order.
 4. Automation scope: switch workspace and board inside Automations for System, Workspace, Board Admin, and denied roles.
+5. Admin stability: retain more than 25 audit events, open Admin, and confirm only the newest 25 are returned without changing the total row count.
 
 ## Project-native validation
 

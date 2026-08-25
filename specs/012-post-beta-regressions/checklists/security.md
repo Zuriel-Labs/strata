@@ -8,4 +8,5 @@
 - [x] CHK002 Automation selectors cannot expand existing server authorization.
 - [x] CHK003 Read-only reorder denial is explicit.
 - [x] CHK004 Existing mutation validation, RBAC, audit, and error behavior are preserved.
-- [x] CHK005 No database deletion, migration, or production mutation is required by the feature.
+- [x] CHK005 No database deletion or production data mutation is required by the feature; the only schema addition is a non-destructive index.
+- [x] CHK006 Audit history remains preserved while reads are bounded in SQL.

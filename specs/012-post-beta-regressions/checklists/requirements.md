@@ -7,14 +7,14 @@
 ## Content Quality
 
 - [x] No implementation-specific solution is mandated in the behavioral specification.
-- [x] Four independently testable user stories map to Issues #23–#26.
+- [x] Five independently testable user stories map to Issues #23–#26 and #28.
 - [x] Priorities, rationale, independent tests, non-goals, and edge cases are complete.
 
 ## Requirement Completeness
 
 - [x] Requirements are testable and unambiguous.
 - [x] Success criteria are measurable and technology-agnostic.
-- [x] Timezone, refresh, deletion, collision, filtering, permission, failure, empty, and responsive boundaries are covered.
+- [x] Timezone, refresh, deletion, collision, filtering, permission, failure, empty, responsive, and large-history boundaries are covered.
 - [x] No unresolved clarification marker remains.
 
 ## Feature Readiness

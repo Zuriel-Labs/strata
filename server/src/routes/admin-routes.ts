@@ -40,7 +40,7 @@ export function createAdminRoutes(db: Database.Database) {
       })),
       workspaces: db.prepare('SELECT id, name FROM workspaces ORDER BY name ASC').all(),
       boards: db.prepare('SELECT id, title, workspace_id as workspaceId FROM boards ORDER BY title ASC').all(),
-      auditEvents: listAuditEvents(db).slice(0, 25),
+      auditEvents: listAuditEvents(db, 25),
     });
   });
 

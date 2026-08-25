@@ -2,7 +2,7 @@
 
 **Date**: 2026-08-25
 **Branch**: `fix/post-beta-regressions`
-**Issues**: #23, #24, #25, #26
+**Issues**: #23, #24, #25, #26, #28
 **Status**: Local implementation validated; exact-commit PR and canary evidence pending
 
 ## Acceptance Evidence
@@ -13,6 +13,7 @@
 | #24 | Workspace and board hydrate as one valid pair; an intentional null board remains null for an empty workspace | Reducer/helper tests and a browser test spanning the five-second automatic refresh |
 | #25 | The active card or lane is the single explicit faded placeholder at its projected destination; final persistence uses the same preview order | Pure 100-event retention test plus pointer, touch, reduced-motion, rollback, third-card, and refresh browser tests |
 | #26 | Automations exposes labeled Workspace and Board selectors, filters both through existing authorization, and reconciles board/form context | Component role/scope regression plus browser panel-switch acceptance and unchanged server RBAC suite |
+| #28 | Admin audit retrieval is bounded in SQLite and uses the newest-first index without deleting retained history | Production OOM/root-cause evidence plus repository/route regression with more than 25 retained events |
 
 ## Red-Green Record
 
@@ -22,6 +23,7 @@ The first focused run failed for the expected reasons before implementation:
 - empty-workspace hydration restored `b1` from another workspace;
 - the Automation workspace selector did not exist;
 - the card modal did not save a canonical date-only value.
+- the audit repository returned all retained rows even when called with a limit of 25.
 
 After implementation, the focused suite passed 7 files / 78 tests. The strengthened pure suite later passed 13 tests and targeted Playwright passed 13 workflows.
 
@@ -33,11 +35,11 @@ After implementation, the focused suite passed 7 files / 78 tests. The strengthe
 - `npm run typecheck`: pass
 - `npm run build`: pass
 - `npm run test:ci`: pass
-  - Vitest: 33 files / 255 tests
+  - Vitest: 33 files / 256 tests
   - Playwright: 17 tests
 - `git diff --check`: pass
 
-The Vite build retains its pre-existing informational warning that the main JavaScript chunk exceeds 500 kB. No endpoint, schema, migration, dependency, or production configuration was added for these fixes.
+The Vite build retains its pre-existing informational warning that the main JavaScript chunk exceeds 500 kB. No endpoint, response shape, dependency, or production configuration was added. The only schema addition is a non-destructive audit timestamp index; no history is deleted or rewritten.
 
 ## Deployment Boundary
 

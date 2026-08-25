@@ -5,7 +5,7 @@ import request from 'supertest';
 import { createDatabase } from '../src/db/database';
 import { createApp } from '../src/app';
 import { closeDatabase } from '../src/db/database';
-import { createAutomationRuleWithConditions, createNotification, createSession, getAutomationRuleById, getCardById, getRecoveryKeyByUserId, getSession, getUserById, updateCard, upsertPasswordReset, upsertRecoveryKey } from '../src/db/repositories';
+import { createAutomationRuleWithConditions, createNotification, createSession, getAutomationRuleById, getCardById, getRecoveryKeyByUserId, getSession, getUserById, listAuditEvents, updateCard, upsertPasswordReset, upsertRecoveryKey } from '../src/db/repositories';
 import { deleteManagedUser } from '../src/db/admin-repositories';
 
 beforeAll(() => {
@@ -61,6 +61,32 @@ describe('admin routes', () => {
     expect(recoveryResponse.status).toBe(200);
     expect(recoveryResponse.body.recoveryKey).toBeTruthy();
     expect(recoveryResponse.body.recoveryKey).toHaveLength(64);
+  });
+
+  it('bounds the recent audit query in SQLite before building the admin response', async () => {
+    const db = await createDatabase(':memory:');
+    const insert = db.prepare(`
+      INSERT INTO audit_events (id, actor_user_id, target_user_id, scope_type, scope_id, action, outcome, metadata_json, created_at)
+      VALUES (?, NULL, NULL, 'platform', NULL, ?, 'success', '{}', ?)
+    `);
+    for (let index = 0; index < 30; index += 1) {
+      insert.run(`audit-limit-${index}`, `limit-test-${index}`, `2027-01-01T00:${String(index).padStart(2, '0')}:00.000Z`);
+    }
+
+    const recent = listAuditEvents(db, 25);
+    expect(recent).toHaveLength(25);
+    expect(recent[0]?.action).toBe('limit-test-29');
+    expect(recent.at(-1)?.action).toBe('limit-test-5');
+    expect((db.prepare('SELECT COUNT(*) AS count FROM audit_events').get() as { count: number }).count).toBeGreaterThan(25);
+    const queryPlan = db.prepare('EXPLAIN QUERY PLAN SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?').all(25) as Array<{ detail: string }>;
+    expect(queryPlan.some(row => row.detail.includes('idx_audit_events_created_at'))).toBe(true);
+
+    const app = createApp(db);
+    const agent = await loginAsAdmin(app);
+    const response = await agent.get('/api/admin/users');
+    expect(response.status).toBe(200);
+    expect(response.body.auditEvents).toHaveLength(25);
+    expect(response.body.auditEvents[0].action).toBe('limit-test-29');
   });
 
   it('deletes a managed user and scrubs live references while preserving history', async () => {

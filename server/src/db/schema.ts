@@ -151,6 +151,9 @@ export function createSchema(db: Database.Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE INDEX IF NOT EXISTS idx_audit_events_created_at
+      ON audit_events(created_at DESC);
+
     CREATE TABLE IF NOT EXISTS recovery_keys (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL UNIQUE,

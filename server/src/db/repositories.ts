@@ -969,8 +969,9 @@ export function createAuditEvent(db: Database.Database, input: AuditEventInput) 
   );
 }
 
-export function listAuditEvents(db: Database.Database) {
-  return db.prepare('SELECT * FROM audit_events ORDER BY created_at DESC').all() as JsonRow<Record<string, unknown>>[];
+export function listAuditEvents(db: Database.Database, limit = 25) {
+  const boundedLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 25;
+  return db.prepare('SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?').all(boundedLimit) as JsonRow<Record<string, unknown>>[];
 }
 
 export function upsertRecoveryKey(db: Database.Database, userId: string, keyHash: string) {

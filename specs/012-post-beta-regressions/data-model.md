@@ -33,8 +33,16 @@
 - Board option eligibility: belongs to selected workspace and `canManageAutomation(board.id)`.
 - The rule/form collection is derived only from the valid selected board.
 
+## Audit Window
+
+- Preserved source: append-only `audit_events` rows.
+- Admin read window: newest 25 rows ordered by `created_at DESC`.
+- Repository limit: positive integer clamped to a maximum of 100.
+- Access path: additive `idx_audit_events_created_at` descending index.
+- Invariant: a bounded read never deletes, updates, or compacts history.
+
 ## Persistence
 
-- No new SQLite table or column.
+- No new SQLite table or column; one additive audit timestamp index.
 - New due-date writes normalize to date-only text in the existing nullable `cards.due_date` column.
 - Existing card update and duplicate transactions remain authoritative.

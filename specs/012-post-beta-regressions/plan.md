@@ -4,19 +4,19 @@
 
 ## Summary
 
-Repair four production-acceptance findings by enforcing a workspace/board invariant during hydration, centralizing calendar-date handling, replacing event-only drag previews with explicit last-valid insertion state, and adding workspace selection directly to automation management. Preserve public API shapes, SQLite data, RBAC, audit behavior, accepted click/touch semantics, and production until the new canary candidate is approved.
+Repair four production-acceptance findings and one promotion-discovered production stability defect by enforcing a workspace/board invariant during hydration, centralizing calendar-date handling, replacing event-only drag previews with explicit last-valid insertion state, adding workspace selection directly to automation management, and bounding Admin audit reads in SQLite. Preserve public API shapes, SQLite data, RBAC, audit history, accepted click/touch semantics, and production until the new canary candidate is approved.
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.9, React 19, Node/Express 5
 **Primary Dependencies**: React context/reducer, dnd-kit React/sortable, Zod v4, shadcn/Tailwind
-**Storage**: Existing SQLite `cards.due_date` text; no schema change planned
+**Storage**: Existing SQLite data; add only a non-destructive descending index on `audit_events.created_at`
 **Testing**: Vitest, Testing Library, server integration tests, Playwright Chromium
 **Target Platform**: Modern desktop/mobile browsers and Linux OCI deployment
 **Project Type**: React client plus Express API
 **Performance Goals**: Drag preview responds per input frame without server round trips; hydration remains linear in accessible state
 **Constraints**: Preserve existing API contract and legacy dates; no new DnD dependency; canary-first exact candidate
-**Scale/Scope**: Four Issues, four user stories, client-focused changes with regression coverage
+**Scale/Scope**: Five Issues, five user stories, primarily client changes plus one bounded server query
 
 ## Constitution Check
 
@@ -36,6 +36,7 @@ Repair four production-acceptance findings by enforcing a workspace/board invari
 2. Add a date-only utility that accepts canonical `YYYY-MM-DD` and legacy ISO inputs, returns safe calendar parts, and never routes date display through local conversion of midnight UTC. Store new edits canonically as `YYYY-MM-DD` while reading legacy values compatibly.
 3. Add pure insertion projection for card groups and lane IDs. Track explicit `{groupId,index}` last-valid insertion separately from dnd-kit's transient collision target, render a real inert placeholder/gap, and persist from that same preview.
 4. Lift automation workspace selection into the Automations content contract, derive authorized workspace options, and reconcile board selection on every scope change/refresh.
+5. Move the Admin audit limit into SQL, cap repository callers, and index newest-first ordering without deleting or rewriting history.
 
 ## Project Structure
 

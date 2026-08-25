@@ -206,6 +206,7 @@ function ListColumn({ list, cards }: { list: ListType; cards: CardType[] }) {
     const optimisticCards = sortCardsByTitle(activeListCards, direction).map((card, position) => ({ ...card, position }));
     const directionLabel = direction === 'asc' ? 'A to Z' : 'Z to A';
 
+    setMenuOpen(false);
     setSortPending(direction);
     setSortStatus(`Sorting ${list.title} ${directionLabel}.`);
     dispatch({ type: 'APPLY_SORTED_LIST_CARDS', payload: { listId: list.id, cards: optimisticCards } });
@@ -266,7 +267,7 @@ function ListColumn({ list, cards }: { list: ListType; cards: CardType[] }) {
           </h3>
         )}
         <div className="relative">
-          {(canEditCards || canArchiveContent) && <button type="button" aria-label={`List actions for ${list.title}`} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
+          {(canEditCards || canArchiveContent) && <button type="button" disabled={Boolean(sortPending)} aria-label={`List actions for ${list.title}`} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
           {menuOpen && (
             <div aria-busy={Boolean(sortPending)} className="absolute right-0 top-full mt-1 w-40 rounded-lg shadow-xl border z-50 py-1" style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}>
               {canEditCards && <>

@@ -231,7 +231,7 @@ describe('BoardView', () => {
     expect(screen.getByRole('button', { name: 'Archive list' })).toBeInTheDocument();
   });
 
-  it('sorts optimistically, disables duplicate actions while pending, then applies the authoritative result', async () => {
+  it('sorts optimistically, closes and disables the initiating menu while pending, then applies the authoritative result', async () => {
     const user = userEvent.setup();
     let resolveSort!: (value: Awaited<ReturnType<typeof import('../services/data')['sortListApi']>>) => void;
     sortListApiMock.mockReturnValue(new Promise(resolve => { resolveSort = resolve; }));
@@ -244,7 +244,8 @@ describe('BoardView', () => {
     await user.click(screen.getByRole('button', { name: 'List actions for Backlog' }));
     await user.click(screen.getByRole('button', { name: 'Sort Z to A' }));
     expect(sortListApiMock).toHaveBeenCalledWith('l1', 'desc');
-    expect(screen.getByRole('button', { name: 'Sort A to Z' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Sort A to Z' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'List actions for Backlog' })).toBeDisabled();
     const backlog = document.querySelector('[data-list-id="l1"]')!;
     expect([...backlog.querySelectorAll('[data-card-id]')].map(element => element.getAttribute('data-card-id'))).toEqual(['c6', 'c5']);
 
@@ -252,6 +253,7 @@ describe('BoardView', () => {
     resolveSort({ listId: 'l1', direction: 'desc', cards: [{ ...source[1], position: 0 }, { ...source[0], position: 1 }] });
     expect(await screen.findByText('Sorted Backlog Z to A.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sort A to Z' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'List actions for Backlog' })).toBeEnabled();
   });
 
   it('restores the exact snapshot when list sorting fails', async () => {
@@ -269,6 +271,7 @@ describe('BoardView', () => {
     expect(await screen.findByText('Could not sort Backlog. The previous order was restored.')).toBeInTheDocument();
     const backlog = document.querySelector('[data-list-id="l1"]')!;
     expect([...backlog.querySelectorAll('[data-card-id]')].map(element => element.getAttribute('data-card-id'))).toEqual(['c5', 'c6']);
+    await user.click(screen.getByRole('button', { name: 'List actions for Backlog' }));
     expect(screen.getByRole('button', { name: 'Sort Z to A' })).toBeEnabled();
   });
 });

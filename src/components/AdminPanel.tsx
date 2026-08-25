@@ -28,14 +28,14 @@ export function AdminPanel() {
   if(!auth.adminOpen||!canOpen)return null;
   const capabilities=directory?.actorCapabilities;
   const tabs:Array<{key:Tab;label:string}>=[{key:'people',label:'People'},...(capabilities?.canCreateUsers?[{key:'create' as const,label:'Create User'}]:[]),{key:'members',label:'Board Members'},...(capabilities?.canViewAudit?[{key:'audit' as const,label:'Audit Log'}]:[])];
-  async function changed(){ await loadDirectory(); await auth.refresh(); }
+  async function changed(){ await Promise.all([loadDirectory(),auth.refresh()]); }
   return <div className="fixed inset-0 z-40 flex items-center justify-center p-3" style={{background:'rgba(6,9,14,.62)'}} onClick={event=>{if(event.target===event.currentTarget)auth.setAdminOpen(false)}}>
     <section role="dialog" aria-modal="true" aria-labelledby="admin-title" className="flex max-h-[92vh] w-full max-w-6xl flex-col rounded-2xl border" style={{background:'#111a26',borderColor:'#334155'}}>
       <header className="flex items-center justify-between border-b p-4" style={{borderColor:'#334155'}}><div><p className="text-xs uppercase tracking-[.25em]" style={{color:'#8ca1af'}}>Administration</p><h2 id="admin-title" className="text-xl font-bold">Access &amp; Membership</h2></div><button onClick={()=>auth.setAdminOpen(false)}>Close</button></header>
       <nav className="flex overflow-x-auto border-b px-3" style={{borderColor:'#334155'}}>{tabs.map(item=><button key={item.key} className="whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold" style={{borderColor:tab===item.key?'#7ea2ff':'transparent',color:tab===item.key?'#edf2f7':'#9bb1c0'}} onClick={()=>setTab(item.key)}>{item.label}</button>)}</nav>
       <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">{error&&<p className="mb-4 rounded-lg p-3 text-sm" style={{background:'#3f1d25',color:'#fecaca'}}>{error}</p>}
         {tab==='people'&&<People directory={directory} query={query} setQuery={value=>{setQuery(value);setPage(1)}} page={page} setPage={setPage} canEdit={Boolean(capabilities?.canManageAccess)} onChanged={changed}/>}
-        {tab==='create'&&capabilities?.canCreateUsers&&<Create onChanged={async()=>{await changed();setTab('people')}}/>}
+        {tab==='create'&&capabilities?.canCreateUsers&&<Create onChanged={changed}/>}
         {tab==='members'&&<BoardMembers onChanged={changed}/>}
         {tab==='audit'&&capabilities?.canViewAudit&&<Audit directory={directory}/>}
       </main>
@@ -44,7 +44,7 @@ export function AdminPanel() {
 }
 
 function People({directory,query,setQuery,page,setPage,canEdit,onChanged}:{directory:AdminDirectoryResponse|null;query:string;setQuery:(v:string)=>void;page:number;setPage:(v:number)=>void;canEdit:boolean;onChanged:()=>Promise<void>}) {
-  const [selectedId,setSelectedId]=useState<string|null>(null); const [detail,setDetail]=useState<AdminUserRecord|null>(null); const [form,setForm]=useState<ManagedUserInput>(blankForm); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null);
+  const [selectedId,setSelectedId]=useState<string|null>(null); const [detail,setDetail]=useState<AdminUserRecord|null>(null); const [form,setForm]=useState<ManagedUserInput>(blankForm); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null); const [recoveryKey,setRecoveryKey]=useState<string|null>(null);
   useEffect(()=>{if(!selectedId)return; let live=true; void fetchAdminUser(selectedId).then(result=>{if(live){setDetail(result.user);setForm(formFor(result.user))}}).catch(cause=>{if(live)setError(cause instanceof Error?cause.message:'Unable to load user.')});return()=>{live=false}},[selectedId]);
   return <div className="grid gap-5 lg:grid-cols-[330px_1fr]">
     <aside className="rounded-xl border p-3" style={{borderColor:'#334155'}}><label className="text-xs font-bold uppercase tracking-wider">Search accounts<input aria-label="Search accounts" value={query} onChange={e=>setQuery(e.target.value)} className="mt-2 w-full rounded-lg px-3 py-2 text-sm" style={{background:'#0d141c'}}/></label>
@@ -57,18 +57,24 @@ function People({directory,query,setQuery,page,setPage,canEdit,onChanged}:{direc
       {detail&&form&&<><div className="mb-4"><h3 className="font-bold">{detail.name}</h3><p className="text-xs" style={{color:'#9bb1c0'}}>Access grants do not make this person a Board member. Workspace membership below is derived only from Board memberships.</p></div>
         <UserForm form={form} setForm={setForm} disabled={!canEdit}/>
         <div className="mt-4 flex flex-wrap gap-2">{canEdit&&<button className="rounded-lg px-4 py-2 font-bold" style={{background:'#7ea2ff',color:'#0b1822'}} onClick={()=>void updateManagedUser(detail.id,form).then(async()=>{setMessage('Saved. Active sessions were refreshed.');await onChanged();const next=await fetchAdminUser(detail.id);setDetail(next.user);setForm(formFor(next.user))}).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to save.'))}>Save changes</button>}
-          {canEdit&&<button className="rounded-lg px-4 py-2" style={{background:'#334155'}} onClick={()=>void generateRecoveryKeyForUser(detail.id).then(result=>navigator.clipboard.writeText(result.recoveryKey).then(()=>setMessage('One-time recovery key copied.')))}>Generate recovery key</button>}
+          {canEdit&&<button className="rounded-lg px-4 py-2" style={{background:'#334155'}} onClick={()=>void generateRecoveryKeyForUser(detail.id).then(result=>{setRecoveryKey(result.recoveryKey);setMessage('One-time recovery key generated. Copy it before leaving this account.');setError(null)}).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to generate a recovery key.'))}>Generate recovery key</button>}
           {canEdit&&<button className="rounded-lg px-4 py-2" style={{background:'#7f1d1d'}} onClick={()=>{if(window.prompt(`Type DELETE to permanently remove @${detail.username}`)==='DELETE')void deleteManagedUser(detail.id).then(async()=>{setSelectedId(null);await onChanged()}).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to delete.'))}}>Delete user</button>}
-        </div>{message&&<p className="mt-3 text-sm" style={{color:'#bef264'}}>{message}</p>}{error&&<p className="mt-3 text-sm" style={{color:'#fecaca'}}>{error}</p>}</>}
+        </div>{recoveryKey&&<SecretCopyPanel label="One-time recovery key" value={recoveryKey} onCopied={()=>{setMessage('Recovery key copied.');setError(null)}} onCopyFailed={()=>setError('Clipboard access was blocked. Select and copy the recovery key manually.')}/>} {message&&<p className="mt-3 text-sm" style={{color:'#bef264'}}>{message}</p>}{error&&<p className="mt-3 text-sm" style={{color:'#fecaca'}}>{error}</p>}</>}
     </section>
   </div>;
 }
 
 function Create({onChanged}:{onChanged:()=>Promise<void>}) {
-  const [form,setForm]=useState(blankForm); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null);
-  return <section className="mx-auto max-w-3xl rounded-xl border p-4" style={{borderColor:'#334155'}}><h3 className="mb-1 text-lg font-bold">Create account</h3><p className="mb-4 text-sm" style={{color:'#9bb1c0'}}>Choose any combination of Workspace and Board administration. Board membership is separate.</p><UserForm form={form} setForm={setForm}/>
-    <button className="mt-4 rounded-lg px-4 py-2 font-bold" style={{background:'#e2a56a',color:'#132530'}} onClick={()=>void createManagedUser(form).then(async result=>{const link=`${location.origin}/invite/${encodeURIComponent(result.user.username)}/${result.inviteToken}`;await navigator.clipboard.writeText(link);setMessage('Account created and one-time invite link copied.');setForm(blankForm());await onChanged()}).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to create account.'))}>Create account</button>
-    {message&&<p className="mt-3 text-sm" style={{color:'#bef264'}}>{message}</p>}{error&&<p className="mt-3 text-sm" style={{color:'#fecaca'}}>{error}</p>}</section>;
+  const [form,setForm]=useState(blankForm); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null); const [pending,setPending]=useState(false); const [inviteLink,setInviteLink]=useState<string|null>(null);
+  const submit=async()=>{if(pending)return;setPending(true);setError(null);setMessage(null);try{const result=await createManagedUser(form);const link=`${location.origin}/invite/${encodeURIComponent(result.user.username)}/${result.inviteToken}`;setInviteLink(link);setMessage('Account created. Copy this one-time invite link before creating another account.');setForm(blankForm());await onChanged()}catch(cause){setError(cause instanceof Error?cause.message:'Unable to create account.')}finally{setPending(false)}};
+  return <section className="mx-auto max-w-3xl rounded-xl border p-4" style={{borderColor:'#334155'}}><h3 className="mb-1 text-lg font-bold">Create account</h3><p className="mb-4 text-sm" style={{color:'#9bb1c0'}}>Choose any combination of Workspace and Board administration. Board membership is separate.</p>
+    {inviteLink?<><SecretCopyPanel label="One-time invite link" value={inviteLink} onCopied={()=>{setMessage('Invite link copied.');setError(null)}} onCopyFailed={()=>setError('Clipboard access was blocked. Select and copy the invite link manually.')}/><button className="mt-4 rounded-lg px-4 py-2 font-bold" style={{background:'#334155'}} onClick={()=>{setInviteLink(null);setMessage(null);setError(null)}}>Create another account</button></>:<><UserForm form={form} setForm={setForm} disabled={pending}/><button disabled={pending} className="mt-4 rounded-lg px-4 py-2 font-bold disabled:cursor-wait disabled:opacity-60" style={{background:'#e2a56a',color:'#132530'}} onClick={()=>void submit()}>{pending?'Creating account…':'Create account'}</button></>}
+    {message&&<p aria-live="polite" className="mt-3 text-sm" style={{color:'#bef264'}}>{message}</p>}{error&&<p role="alert" className="mt-3 text-sm" style={{color:'#fecaca'}}>{error}</p>}</section>;
+}
+
+function SecretCopyPanel({label,value,onCopied,onCopyFailed}:{label:string;value:string;onCopied:()=>void;onCopyFailed:()=>void}) {
+  const copy=async()=>{try{if(!navigator.clipboard)throw new Error('Clipboard unavailable');await navigator.clipboard.writeText(value);onCopied()}catch{onCopyFailed()}};
+  return <div className="rounded-xl border p-3" style={{borderColor:'#36506f',background:'#0d141c'}}><label className="text-xs font-bold uppercase tracking-wider">{label}<textarea readOnly aria-label={label} value={value} onFocus={event=>event.currentTarget.select()} className="mt-2 min-h-20 w-full resize-y rounded-lg border px-3 py-2 font-mono text-xs" style={{background:'#091019',borderColor:'#334155',color:'#dbeafe'}}/></label><button className="mt-2 rounded-lg px-4 py-2 font-bold" style={{background:'#7ea2ff',color:'#0b1822'}} onClick={()=>void copy()}>Copy {label.toLowerCase()}</button></div>;
 }
 
 function UserForm({form,setForm,disabled=false}:{form:ManagedUserInput;setForm:Dispatch<SetStateAction<ManagedUserInput>>;disabled?:boolean}) {

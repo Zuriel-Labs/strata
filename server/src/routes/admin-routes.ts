@@ -4,7 +4,8 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { createManagedUser, deleteBoardMembership, deleteManagedUser, getAdminUserDetail, listAdminResources, listAdminUsersPage, listBoardMembers, listEligibleUsers, updateManagedUser, upsertBoardMembership } from '../db/admin-repositories';
 import { deleteSessionsForUser, getBoardById, getUserById, listAuditEvents, upsertRecoveryKey } from '../db/repositories';
-import { hashPassword } from '../auth/passwords';
+import { DISABLED_PASSWORD_HASH } from '../auth/passwords';
+import { hashRecoveryKey } from '../auth/recovery-keys';
 import { createUserSession } from '../auth/session';
 import { audit } from '../audit/audit-log';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
@@ -77,10 +78,13 @@ export function createAdminRoutes(db: Database.Database) {
     if (!request.auth || !canManageUserPlatform(request.auth)) { denyMutation(db,request,response,{action:'user.create',scopeType:'platform'}); return; }
     const parsed = userSchema.safeParse(request.body); if (!parsed.success) { response.status(400).json({ message: 'Invalid user payload.', issues: parsed.error.issues }); return; }
     try {
-      const passwordHash = await hashPassword(randomBytes(32).toString('hex'));
-      const created = createManagedUser(db, request.auth.user, { ...parsed.data, passwordHash, mustChangePassword: false });
+      const inviteToken = randomBytes(32).toString('hex');
+      const created = db.transaction(() => {
+        const user = createManagedUser(db, request.auth!.user, { ...parsed.data, passwordHash: DISABLED_PASSWORD_HASH, mustChangePassword: false });
+        if (user) upsertRecoveryKey(db, user.id, hashRecoveryKey(inviteToken));
+        return user;
+      })();
       if (!created) { response.status(500).json({ message: 'Unable to create user.' }); return; }
-      const inviteToken = randomBytes(32).toString('hex'); upsertRecoveryKey(db, created.id, await hashPassword(inviteToken));
       response.status(201).json({ user: created, inviteToken });
     } catch (error) { errorResponse(response, error); }
   });
@@ -138,7 +142,7 @@ export function createAdminRoutes(db: Database.Database) {
   router.post('/users/:userId/generate-recovery-key', async (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) { denyMutation(db,request,response,{action:'auth.admin_recovery_key_generate',scopeType:'platform',targetUserId:String(request.params.userId)}); return; }
     const user = getUserById(db, String(request.params.userId)); if (!user) { response.status(404).json({ message: 'User not found.' }); return; }
-    const recoveryKey = randomBytes(32).toString('hex'); upsertRecoveryKey(db, user.id, await hashPassword(recoveryKey));
+    const recoveryKey = randomBytes(32).toString('hex'); upsertRecoveryKey(db, user.id, hashRecoveryKey(recoveryKey));
     audit(db, { actorUserId: request.auth.user.id, targetUserId: user.id, scopeType: 'auth', action: 'auth.admin_recovery_key_generate', outcome: 'success' });
     response.json({ recoveryKey });
   });

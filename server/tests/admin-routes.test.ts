@@ -7,6 +7,7 @@ import { createApp } from '../src/app';
 import { closeDatabase } from '../src/db/database';
 import { createAutomationRuleWithConditions, createNotification, createSession, getAutomationRuleById, getCardById, getRecoveryKeyByUserId, getSession, getUserById, listAuditEvents, updateCard, upsertPasswordReset, upsertRecoveryKey } from '../src/db/repositories';
 import { deleteManagedUser } from '../src/db/admin-repositories';
+import { DISABLED_PASSWORD_HASH } from '../src/auth/passwords';
 
 beforeAll(() => {
   process.env.SEED_DATA = 'true';
@@ -43,6 +44,11 @@ describe('admin routes', () => {
     expect(createResponse.status).toBe(201);
     expect(createResponse.body.inviteToken).toBeTruthy();
     expect(createResponse.body.inviteToken).toHaveLength(64);
+    expect(getUserById(db, createResponse.body.user.id)?.passwordHash).toBe(DISABLED_PASSWORD_HASH);
+    expect(getRecoveryKeyByUserId(db, createResponse.body.user.id)?.keyHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+    const loginBeforeActivation = await request(app).post('/api/auth/login').send({ username: 'jordan', password: 'anything-at-all' });
+    expect(loginBeforeActivation.status).toBe(401);
 
     // The invite token acts as the user's first recovery key —
     // consuming it via the recovery flow should work and return a new key

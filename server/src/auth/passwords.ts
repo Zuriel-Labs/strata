@@ -2,12 +2,14 @@ import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 
 const MIN_PASSWORD_LENGTH = 10;
+export const DISABLED_PASSWORD_HASH = 'disabled:invite-required';
 
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 10);
 }
 
 export async function verifyPassword(password: string, passwordHash: string) {
+  if (passwordHash === DISABLED_PASSWORD_HASH) return false;
   return bcrypt.compare(password, passwordHash);
 }
 

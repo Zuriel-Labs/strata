@@ -2,8 +2,8 @@
 
 **Date**: 2026-08-25
 **Branch**: `fix/post-beta-regressions`
-**Issues**: #23, #24, #25, #26, #28
-**Status**: Local implementation validated; exact-commit PR and canary evidence pending
+**Issues**: #23, #24, #25, #26, #28, #29
+**Status**: Local implementation and remediation validated; exact-commit canary evidence pending
 
 ## Acceptance Evidence
 
@@ -14,6 +14,7 @@
 | #25 | The active card or lane is the single explicit faded placeholder at its projected destination; final persistence uses the same preview order | Pure 100-event retention test plus pointer, touch, reduced-motion, rollback, third-card, and refresh browser tests |
 | #26 | Automations exposes labeled Workspace and Board selectors, filters both through existing authorization, and reconciles board/form context | Component role/scope regression plus browser panel-switch acceptance and unchanged server RBAC suite |
 | #28 | Admin audit retrieval is bounded in SQLite and uses the newest-first index without deleting retained history | Production OOM/root-cause evidence plus repository/route regression with more than 25 retained events |
+| #29 remediation | Unchanged session polls preserve active UI state; managed-account creation is atomic and avoids unnecessary bcrypt work; invite and recovery secrets remain visibly available and copy only on an explicit click | Admin UI refresh/clipboard regressions, route activation checks, versioned recovery-key compatibility tests, and updated layered-access Playwright flow |
 
 ## Red-Green Record
 
@@ -25,7 +26,7 @@ The first focused run failed for the expected reasons before implementation:
 - the card modal did not save a canonical date-only value.
 - the audit repository returned all retained rows even when called with a limit of 25.
 
-After implementation, the focused suite passed 7 files / 78 tests. The strengthened pure suite later passed 13 tests and targeted Playwright passed 13 workflows.
+After implementation, the focused suite passed 7 files / 78 tests. The strengthened pure suite later passed 13 tests and targeted Playwright passed 13 workflows. The canary-feedback remediation added coverage for denied clipboard access, persistent invite display, disabled pre-activation password login, legacy recovery-key compatibility, and form preservation across unchanged session refreshes.
 
 ## Full Validation
 
@@ -34,12 +35,11 @@ After implementation, the focused suite passed 7 files / 78 tests. The strengthe
 - `npm run lint`: pass
 - `npm run typecheck`: pass
 - `npm run build`: pass
-- `npm run test:ci`: pass
-  - Vitest: 33 files / 256 tests
-  - Playwright: 17 tests
+- `npm run test`: pass — 39 files / 275 tests
+- `npm run test:e2e`: pass — 19 Playwright workflows
 - `git diff --check`: pass
 
-The Vite build retains its pre-existing informational warning that the main JavaScript chunk exceeds 500 kB. No endpoint, response shape, dependency, or production configuration was added. The only schema addition is a non-destructive audit timestamp index; no history is deleted or rewritten.
+The Vite build retains its pre-existing informational warning that the main JavaScript chunk exceeds 500 kB. No endpoint, response shape, dependency, or production configuration was added. The only schema addition is a non-destructive audit timestamp index; no history is deleted or rewritten. Newly generated 256-bit recovery keys use a versioned SHA-256 digest with constant-time comparison; existing bcrypt recovery hashes remain accepted during upgrade.
 
 ## Deployment Boundary
 

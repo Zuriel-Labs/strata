@@ -19,9 +19,10 @@ const directory = {
 const resources = {items:[{id:'w1',name:'Acme Engineering',kind:'workspace',workspaceId:null,workspaceName:null},{id:'b1',name:'Platform Sprint 24',kind:'board',workspaceId:'w1',workspaceName:'Acme Engineering'}],page:{page:1,pageSize:25,total:2,totalPages:1}};
 
 function mockApi(systemAdmin = true) {
-  const fetchMock = vi.fn(async (input:RequestInfo|URL) => {
+  const fetchMock = vi.fn(async (input:RequestInfo|URL, init?:RequestInit) => {
     const path=String(input);
     if(path.endsWith('/api/auth/session'))return Response.json(session(systemAdmin));
+    if(path.endsWith('/api/admin/users')&&init?.method==='POST')return Response.json({user:{...directory.users[0],id:'u-new',name:'Jordan Lee',username:'jordan'},inviteToken:'invite-token-123'},{status:201});
     if(path.includes('/api/admin/users?'))return Response.json(systemAdmin?directory:{...directory,actorCapabilities:{canCreateUsers:false,canManageAccess:false,canViewAudit:false}});
     if(path.includes('/api/admin/resources?'))return Response.json(resources);
     if(path.includes('/api/admin/boards/')&&path.includes('/members?'))return Response.json({items:[],page:{page:1,pageSize:25,total:0,totalPages:1}});
@@ -48,6 +49,48 @@ describe('layered administration UI',()=>{
     expect(screen.getByText('Member on Boards')).toBeInTheDocument();
     expect(screen.getByText('Observer on Boards')).toBeInTheDocument();
     expect(screen.getAllByPlaceholderText('Search…')).toHaveLength(4);
+  });
+
+  it('keeps a successful invite visible and copies it only from an explicit user action',async()=>{
+    const user=userEvent.setup();
+    const clipboardWrite=vi.spyOn(navigator.clipboard,'writeText').mockResolvedValue(undefined);
+    render(<App/>);
+    await user.click(await screen.findByRole('button',{name:'Open admin panel'}));
+    await user.click(screen.getByRole('button',{name:'Create User'}));
+    await user.type(screen.getByLabelText('Name'),'Jordan Lee');
+    await user.type(screen.getByLabelText('Username'),'jordan');
+    await user.type(screen.getByLabelText('Initials'),'JL');
+    await user.click(screen.getByRole('button',{name:'Create account'}));
+
+    const invite=await screen.findByLabelText('One-time invite link');
+    expect(invite).toHaveValue('http://localhost:3000/invite/jordan/invite-token-123');
+    expect(clipboardWrite).not.toHaveBeenCalled();
+    expect(screen.getByRole('button',{name:'Create User'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Create another account'})).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button',{name:'Copy one-time invite link'}));
+    expect(clipboardWrite).toHaveBeenCalledWith('http://localhost:3000/invite/jordan/invite-token-123');
+    expect(await screen.findByText('Invite link copied.')).toBeInTheDocument();
+
+    clipboardWrite.mockRejectedValueOnce(new Error('NotAllowedError'));
+    await user.click(screen.getByRole('button',{name:'Copy one-time invite link'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Select and copy the invite link manually.');
+    expect(screen.getByLabelText('One-time invite link')).toHaveValue('http://localhost:3000/invite/jordan/invite-token-123');
+  });
+
+  it('preserves the active admin form across an unchanged session refresh',async()=>{
+    const fetchMock=mockApi(true);
+    const user=userEvent.setup(); render(<App/>);
+    await user.click(await screen.findByRole('button',{name:'Open admin panel'}));
+    await user.click(screen.getByRole('button',{name:'Create User'}));
+    await user.type(screen.getByLabelText('Name'),'Unsubmitted administrator');
+    const sessionCallsBefore=fetchMock.mock.calls.filter(([input])=>String(input).endsWith('/api/auth/session')).length;
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(()=>expect(fetchMock.mock.calls.filter(([input])=>String(input).endsWith('/api/auth/session')).length).toBeGreaterThan(sessionCallsBefore));
+
+    expect(screen.getByLabelText('Name')).toHaveValue('Unsubmitted administrator');
+    expect(screen.getByRole('heading',{name:'Create account'})).toBeInTheDocument();
   });
 
   it('lets scoped administrators manage Board members without exposing account or audit escalation',async()=>{

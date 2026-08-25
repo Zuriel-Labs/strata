@@ -41,6 +41,9 @@ test('System Administrators create mixed access and membership assignments indep
   await observerBoards.getByText('Marketing / Q1 Campaign Plan', { exact: true }).click();
 
   await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByLabel('One-time invite link')).toBeVisible();
+  await expect(page.getByLabel('One-time invite link')).toHaveValue(new RegExp(`/invite/${username}/`));
+  await page.getByRole('button', { name: 'People' }).click();
   await expect(page.getByLabel('Search accounts')).toBeVisible();
   await page.getByLabel('Search accounts').fill(username);
   await page.getByRole('button', { name: new RegExp(`@${username}`) }).click();

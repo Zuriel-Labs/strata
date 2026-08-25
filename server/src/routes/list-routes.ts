@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createList, updateList, archiveList, restoreList, deleteArchivedList, moveList, sortListCards, getListById, getMaxListPosition, createAuditEvent } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { canArchiveBoardContent, canEditBoardCards, canManageBoard } from '../rbac/permissions';
+import { canArchiveBoardContent, canManageBoard } from '../rbac/permissions';
 
 const createListSchema = z.object({
   boardId: z.string().min(1),
@@ -62,7 +62,7 @@ export function createListRoutes(db: Database.Database) {
     const list = getListById(db, listId);
     if (!list) { response.status(404).json({ message: 'List not found.' }); return; }
     if (list.archived) { response.status(400).json({ message: 'Archived lists cannot be sorted.' }); return; }
-    if (!canEditBoardCards(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    if (!canManageBoard(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     const parsed = sortListSchema.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ message: 'Invalid sort payload.' }); return; }
 

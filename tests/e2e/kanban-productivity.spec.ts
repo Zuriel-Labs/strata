@@ -434,17 +434,17 @@ test('round-trips rich descriptions, manages labels in-card, and duplicates an i
   await expect(page.getByRole('button', { name: renamedLabel, exact: true })).toHaveCount(0);
 });
 
-test('hides mutation controls from a read-only board member', async ({ page }) => {
+test('exposes card collaboration but not list administration to a Board Member', async ({ page }) => {
   await signIn(page, 'priya', 'Member12345!');
   const boardSelect = page.locator('header select').filter({ has: page.locator('option[value="b1"]') });
   if (await boardSelect.count()) await boardSelect.selectOption('b1');
 
   await expect(page.getByRole('button', { name: 'List actions for Backlog' })).toHaveCount(0);
   await page.locator('[data-card-id="c1"]').click();
-  await expect(page.getByRole('button', { name: 'Duplicate card' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Duplicate card' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit description' })).toBeVisible();
   await expect(page.getByText('Lint & typecheck')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add checklist' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Add checklist' })).toBeVisible();
   await page.getByRole('button', { name: 'Labels', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Manage labels in card' })).toHaveCount(0);
 });

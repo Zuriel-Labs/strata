@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { initialState } from '../store';
 import type { SessionPayload } from '../types';
-import { canManageBoardForSession, canManageWorkspaceForSession } from './auth-context';
+import { canEditBoardCardsForSession, canManageBoardForSession, canManageWorkspaceForSession } from './auth-context';
 
 function session(input: Partial<SessionPayload['permissions']>): SessionPayload {
   return {
@@ -43,5 +43,16 @@ describe('client layered access helpers', () => {
     const member = session({ boardMemberships: [{ id: 'bm', userId: 'u', boardId: 'b1', role: 'member', createdAt: '' }], derivedWorkspaceIds: ['w1'] });
     expect(canManageBoardForSession(member, 'b1')).toBe(false);
     expect(canManageWorkspaceForSession(member, 'w1')).toBe(false);
+  });
+
+  it('grants card editing only to exact Member memberships and managing administrators', () => {
+    const member = session({ boardMemberships: [{ id: 'bm', userId: 'u', boardId: 'b1', role: 'member', createdAt: '' }] });
+    const observer = session({ boardMemberships: [{ id: 'bo', userId: 'u', boardId: 'b1', role: 'observer', createdAt: '' }] });
+    const admin = session({ boardAdminGrants: [{ id: 'bg', userId: 'u', boardId: 'b1', grantedByUserId: null, createdAt: '' }] });
+
+    expect(canEditBoardCardsForSession(member, 'b1')).toBe(true);
+    expect(canEditBoardCardsForSession(member, 'b2')).toBe(false);
+    expect(canEditBoardCardsForSession(observer, 'b1')).toBe(false);
+    expect(canEditBoardCardsForSession(admin, 'b1')).toBe(true);
   });
 });

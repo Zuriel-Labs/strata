@@ -17,6 +17,10 @@ export function hasBoardMembership(auth: AuthContextValue, boardId: string) {
   return auth.boardMemberships.some(membership => membership.boardId === boardId);
 }
 
+export function hasBoardMemberRole(auth: AuthContextValue, boardId: string) {
+  return auth.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'member');
+}
+
 export function getBoardWorkspaceId(db: Database.Database, boardId: string) {
   const row = db.prepare('SELECT workspace_id as workspaceId FROM boards WHERE id = ?').get(boardId) as { workspaceId?: string } | undefined;
   return row?.workspaceId ?? null;
@@ -57,5 +61,5 @@ export function canArchiveBoardContent(db: Database.Database, auth: AuthContextV
 }
 
 export function canEditBoardCards(db: Database.Database, auth: AuthContextValue, boardId: string) {
-  return canManageBoard(db, auth, boardId);
+  return canManageBoard(db, auth, boardId) || hasBoardMemberRole(auth, boardId);
 }

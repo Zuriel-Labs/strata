@@ -59,7 +59,7 @@ const updateRuleSchema = z.object({
   action: actionEnum.optional(),
   actionConfig: actionConfigSchema.optional(),
   enabled: z.boolean().optional(),
-});
+}).strict();
 
 function validateRuleForBoard(db: Database.Database, boardId: string, rule: Pick<AutomationRule, 'trigger' | 'triggerConfig' | 'conditions' | 'action' | 'actionConfig'>) {
   const board = getBoardById(db, boardId);

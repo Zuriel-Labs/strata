@@ -417,9 +417,9 @@ function selectAutomationRules(db: Database.Database, boardIds: string[]) {
 }
 
 function selectScopedUsers(db: Database.Database, user: UserRecord, boardIds: string[]) {
-  const membershipRows = db.prepare('SELECT user_id AS userId, board_id AS boardId FROM board_memberships').all() as Array<{ userId: string; boardId: string }>;
+  const membershipRows = db.prepare('SELECT user_id AS userId, board_id AS boardId, role FROM board_memberships').all() as Array<{ userId: string; boardId: string; role: string }>;
   const membershipMap = new Map<string, string[]>();
-  membershipRows.forEach(row => membershipMap.set(row.userId, [...(membershipMap.get(row.userId) ?? []), row.boardId]));
+  membershipRows.filter(row => row.role === 'member').forEach(row => membershipMap.set(row.userId, [...(membershipMap.get(row.userId) ?? []), row.boardId]));
   if (user.platformRole === 'system_admin') {
     return listUsers(db).map(safeUser => ({
       id: safeUser.id,

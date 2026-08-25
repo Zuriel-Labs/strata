@@ -1,4 +1,4 @@
-import { buildAutomationRuleInput, createDefaultAutomationForm } from './automation-rule-form';
+import { automationRuleToForm, buildAutomationRuleInput, createDefaultAutomationForm } from './automation-rule-form';
 
 describe('automation rule form helpers', () => {
   it('builds a trimmed assign-member rule payload', () => {
@@ -98,5 +98,30 @@ describe('automation rule form helpers', () => {
 
     expect(buildAutomationRuleInput('b1', addLabelForm)).toEqual({ input: null, error: 'Select a label to add.' });
     expect(buildAutomationRuleInput('b1', moveForm)).toEqual({ input: null, error: 'Select the destination list.' });
+  });
+
+  it('maps every editable field from an existing rule back into the shared form', () => {
+    expect(automationRuleToForm({
+      id: 'rule-edit',
+      boardId: 'b1',
+      name: 'Weekly assignment',
+      trigger: 'weekday',
+      triggerConfig: { weekdays: [1, 3], time: '14:30' },
+      conditions: { listId: 'l1', labelId: 'lb2' },
+      action: 'assign_member',
+      actionConfig: { memberId: 'u3' },
+      enabled: false,
+      lastRunAt: null,
+    })).toMatchObject({
+      name: 'Weekly assignment',
+      trigger: 'weekday',
+      scheduleWeekdays: [1, 3],
+      scheduleTime: '14:30',
+      conditionListId: 'l1',
+      conditionLabelId: 'lb2',
+      action: 'assign_member',
+      actionMemberId: 'u3',
+      enabled: false,
+    });
   });
 });

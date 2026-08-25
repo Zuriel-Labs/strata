@@ -72,7 +72,7 @@ describe('layered admin access routes',()=>{
     const invalidCardAssignment=await marcus.patch('/api/cards/c5').send({memberIds:['u4']}); expect(invalidCardAssignment.status).toBe(400);
     const alexAdd=await alex.put('/api/admin/boards/b2/members/u2').send({role:'member'}); expect(alexAdd.status).toBe(200);
     expect(db.prepare('SELECT * FROM workspace_memberships WHERE user_id=\'u2\'').all()).toEqual([]);
-    expect((await marcus.put('/api/admin/boards/b1/members/u2').send({role:'observer'})).status).toBe(200);
+    expect((await marcus.put('/api/admin/boards/b1/members/u2').send({role:'member'})).status).toBe(200);
     expect((await marcus.patch('/api/cards/c5').send({memberIds:['u2']})).status).toBe(200);
     expect((await marcus.put('/api/admin/boards/b2/members/u2').send({role:'member'})).status).toBe(403);
     expect((await marcus.post('/api/admin/users').send({})).status).toBe(403);

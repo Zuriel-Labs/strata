@@ -30,15 +30,11 @@ const updateCardSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   descriptionDocument: z.unknown().optional(),
-  listId: z.string().optional(),
-  position: z.number().optional(),
   memberIds: z.array(z.string()).optional(),
   labelIds: z.array(z.string()).optional(),
   checklists: z.array(checklistSchema).max(100).optional(),
   dueDate: z.string().nullable().optional(),
   dueDateComplete: z.boolean().optional(),
-  comments: z.array(z.unknown()).optional(),
-  activity: z.array(z.unknown()).optional(),
   attachments: z.array(z.unknown()).optional(),
   watching: z.boolean().optional(),
   archived: z.boolean().optional(),
@@ -51,25 +47,25 @@ const moveCardSchema = z.object({
 
 const duplicateCardSchema = z.object({}).strict();
 
+const commentMutationSchema = z.object({
+  text: z.string().trim().min(1).max(10_000),
+}).strict();
+
 export function createCardRoutes(db: Database.Database) {
   const router = Router();
 
-  const validateCardUpdates = (boardId: string, labelIds?: string[], listId?: string, memberIds?: string[]) => {
+  const validateCardUpdates = (boardId: string, labelIds?: string[], memberIds?: string[]) => {
     const board = getBoardById(db, boardId);
     if (!board) return 'Board not found.';
     const validLabelIds = new Set(board.labels.map(label => label.id));
     if (labelIds && labelIds.some(labelId => !validLabelIds.has(labelId))) {
       return 'One or more labels do not belong to this board.';
     }
-    if (listId) {
-      const listExists = db.prepare('SELECT 1 FROM lists WHERE id = ? AND board_id = ?').get(listId, boardId);
-      if (!listExists) return 'Selected list does not belong to this board.';
-    }
     if (memberIds) {
       if (new Set(memberIds).size !== memberIds.length) return 'Card members cannot contain duplicates.';
       if (memberIds.length > 0) {
         const placeholders = memberIds.map(() => '?').join(', ');
-        const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM board_memberships JOIN users ON users.id = board_memberships.user_id WHERE board_memberships.board_id = ? AND users.active = 1 AND board_memberships.user_id IN (${placeholders})`).get(boardId, ...memberIds) as { count: number }).count);
+        const count = Number((db.prepare(`SELECT COUNT(*) AS count FROM board_memberships JOIN users ON users.id = board_memberships.user_id WHERE board_memberships.board_id = ? AND board_memberships.role = 'member' AND users.active = 1 AND board_memberships.user_id IN (${placeholders})`).get(boardId, ...memberIds) as { count: number }).count);
         if (count !== memberIds.length) return 'One or more selected people are not active members of this board.';
       }
     }
@@ -83,8 +79,13 @@ export function createCardRoutes(db: Database.Database) {
       response.status(400).json({ message: 'Invalid card payload.' });
       return;
     }
-    if (!canManageBoard(db, request.auth!, parsed.data.boardId)) {
+    if (!canEditBoardCards(db, request.auth!, parsed.data.boardId)) {
       response.status(403).json({ message: 'You do not have permission to add cards to this board.' });
+      return;
+    }
+    const listExists = db.prepare('SELECT 1 FROM lists WHERE id = ? AND board_id = ? AND archived = 0').get(parsed.data.listId, parsed.data.boardId);
+    if (!listExists) {
+      response.status(400).json({ message: 'Selected list does not belong to this board.' });
       return;
     }
     const id = randomUUID();
@@ -108,7 +109,7 @@ export function createCardRoutes(db: Database.Database) {
       ? canArchiveBoardContent(db, request.auth!, card.boardId)
       : canEditBoardCards(db, request.auth!, card.boardId);
     if (!canUpdate) { response.status(403).json({ message: 'Access denied.' }); return; }
-    const validationMessage = validateCardUpdates(card.boardId, parsed.data.labelIds, parsed.data.listId, parsed.data.memberIds);
+    const validationMessage = validateCardUpdates(card.boardId, parsed.data.labelIds, parsed.data.memberIds);
     if (validationMessage) {
       response.status(validationMessage === 'Board not found.' ? 404 : 400).json({ message: validationMessage });
       return;
@@ -146,7 +147,7 @@ export function createCardRoutes(db: Database.Database) {
     const cardId = String(request.params.cardId);
     const card = getCardById(db, cardId);
     if (!card) { response.status(404).json({ message: 'Card not found.' }); return; }
-    if (!canManageBoard(db, request.auth!, card.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    if (!canEditBoardCards(db, request.auth!, card.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     const parsed = moveCardSchema.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ message: 'Invalid payload.' }); return; }
 
@@ -188,6 +189,79 @@ export function createCardRoutes(db: Database.Database) {
       }
       response.status(500).json({ message: 'Unable to duplicate card.' });
     }
+  });
+
+  router.post('/:cardId/comments', requireAuth, (request: AuthenticatedRequest, response) => {
+    const card = getCardById(db, String(request.params.cardId));
+    if (!card) { response.status(404).json({ message: 'Card not found.' }); return; }
+    if (!canEditBoardCards(db, request.auth!, card.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    const parsed = commentMutationSchema.safeParse(request.body);
+    if (!parsed.success) { response.status(400).json({ message: 'Invalid comment payload.' }); return; }
+
+    const now = new Date().toISOString();
+    const comment = { id: randomUUID(), userId: request.auth!.user.id, text: parsed.data.text, createdAt: now };
+    const activity = [...card.activity, { id: randomUUID(), userId: request.auth!.user.id, action: 'commented on this card', createdAt: now }];
+    db.transaction(() => {
+      updateCard(db, card.id, { comments: [...card.comments, comment], activity, watching: true });
+      createAuditEvent(db, {
+        actorUserId: request.auth!.user.id,
+        scopeType: 'board',
+        scopeId: card.boardId,
+        action: 'card.comment.create',
+        outcome: 'success',
+        metadata: { cardId: card.id, commentId: comment.id },
+      });
+    })();
+    response.status(201).json(getCardById(db, card.id));
+  });
+
+  router.patch('/:cardId/comments/:commentId', requireAuth, (request: AuthenticatedRequest, response) => {
+    const card = getCardById(db, String(request.params.cardId));
+    if (!card) { response.status(404).json({ message: 'Card not found.' }); return; }
+    if (!canEditBoardCards(db, request.auth!, card.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    const parsed = commentMutationSchema.safeParse(request.body);
+    if (!parsed.success) { response.status(400).json({ message: 'Invalid comment payload.' }); return; }
+
+    const commentId = String(request.params.commentId);
+    const comment = card.comments.find(entry => entry.id === commentId);
+    if (!comment) { response.status(404).json({ message: 'Comment not found.' }); return; }
+    if (comment.userId !== request.auth!.user.id) { response.status(403).json({ message: 'You can edit only your own comments.' }); return; }
+
+    const comments = card.comments.map(entry => entry.id === commentId ? { ...entry, text: parsed.data.text } : entry);
+    db.transaction(() => {
+      updateCard(db, card.id, { comments });
+      createAuditEvent(db, {
+        actorUserId: request.auth!.user.id,
+        scopeType: 'board',
+        scopeId: card.boardId,
+        action: 'card.comment.update',
+        outcome: 'success',
+        metadata: { cardId: card.id, commentId },
+      });
+    })();
+    response.json(getCardById(db, card.id));
+  });
+
+  router.delete('/:cardId/comments/:commentId', requireAuth, (request: AuthenticatedRequest, response) => {
+    const card = getCardById(db, String(request.params.cardId));
+    if (!card) { response.status(404).json({ message: 'Card not found.' }); return; }
+    if (!canManageBoard(db, request.auth!, card.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+
+    const commentId = String(request.params.commentId);
+    if (!card.comments.some(entry => entry.id === commentId)) { response.status(404).json({ message: 'Comment not found.' }); return; }
+    const comments = card.comments.filter(entry => entry.id !== commentId);
+    db.transaction(() => {
+      updateCard(db, card.id, { comments });
+      createAuditEvent(db, {
+        actorUserId: request.auth!.user.id,
+        scopeType: 'board',
+        scopeId: card.boardId,
+        action: 'card.comment.delete',
+        outcome: 'success',
+        metadata: { cardId: card.id, commentId },
+      });
+    })();
+    response.json(getCardById(db, card.id));
   });
 
   // Delete card

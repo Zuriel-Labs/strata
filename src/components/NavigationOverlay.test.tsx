@@ -5,8 +5,9 @@ import { AppProvider, initialState } from '../store';
 import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/admin';
 import { createBoardApi, deleteBoardApi, updateBoardApi } from '../services/data';
 
-const { createAutomationRuleApiMock, createBoardApiMock, updateBoardApiMock, deleteBoardApiMock, authState } = vi.hoisted(() => ({
+const { createAutomationRuleApiMock, updateAutomationRuleApiMock, createBoardApiMock, updateBoardApiMock, deleteBoardApiMock, authState } = vi.hoisted(() => ({
   createAutomationRuleApiMock: vi.fn(),
+  updateAutomationRuleApiMock: vi.fn(),
   createBoardApiMock: vi.fn(),
   updateBoardApiMock: vi.fn(),
   deleteBoardApiMock: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('../services/data', async () => {
   return {
     ...actual,
     createAutomationRuleApi: createAutomationRuleApiMock,
+    updateAutomationRuleApi: updateAutomationRuleApiMock,
     createBoardApi: createBoardApiMock,
     updateBoardApi: updateBoardApiMock,
     deleteBoardApi: deleteBoardApiMock,
@@ -65,6 +67,7 @@ async function openAutomationForm(user: ReturnType<typeof userEvent.setup>) {
 describe('NavigationOverlay automations', () => {
   beforeEach(() => {
     createAutomationRuleApiMock.mockReset();
+    updateAutomationRuleApiMock.mockReset();
     createWorkspaceMock.mockReset();
     deleteWorkspaceMockInstance.mockReset();
     updateWorkspaceMock.mockReset();
@@ -427,5 +430,53 @@ describe('NavigationOverlay automations', () => {
 
     expect(await screen.findByText('Assign reviewer')).toBeInTheDocument();
     expect(screen.queryByText('Select a member to assign.')).not.toBeInTheDocument();
+  });
+
+  it('opens an existing automation in edit mode and persists the complete updated rule', async () => {
+    const user = userEvent.setup();
+    const existing = initialState.automationRules.find(rule => rule.id === 'ar1')!;
+    updateAutomationRuleApiMock.mockResolvedValue({ ...existing, name: 'Updated reviewer automation' });
+    renderOverlay();
+
+    await user.click(screen.getByRole('button', { name: 'Automations' }));
+    await user.click(screen.getByRole('button', { name: `Edit automation ${existing.name}` }));
+    const nameInput = screen.getByPlaceholderText('Rule name…');
+    expect(nameInput).toHaveValue(existing.name);
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Updated reviewer automation');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(updateAutomationRuleApiMock).toHaveBeenCalledWith('ar1', {
+      name: 'Updated reviewer automation',
+      trigger: 'card_moved',
+      triggerConfig: { toListId: 'l4' },
+      conditions: { listId: null, labelId: null },
+      action: 'assign_member',
+      actionConfig: { memberId: 'u2' },
+      enabled: true,
+    }));
+    expect(screen.getByText('Updated reviewer automation')).toBeInTheDocument();
+  });
+
+  it('preserves the existing rule and draft when an edit fails, and Cancel discards the draft', async () => {
+    const user = userEvent.setup();
+    const existing = initialState.automationRules.find(rule => rule.id === 'ar2')!;
+    updateAutomationRuleApiMock.mockRejectedValue(new Error('Automation update unavailable'));
+    renderOverlay();
+
+    await user.click(screen.getByRole('button', { name: 'Automations' }));
+    await user.click(screen.getByRole('button', { name: `Edit automation ${existing.name}` }));
+    const nameInput = screen.getByPlaceholderText('Rule name…');
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Unsaved automation title');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    expect(await screen.findByText('Automation update unavailable')).toBeInTheDocument();
+    expect(nameInput).toHaveValue('Unsaved automation title');
+    expect(screen.getByRole('heading', { name: existing.name })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByPlaceholderText('Rule name…')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: existing.name })).toBeInTheDocument();
   });
 });

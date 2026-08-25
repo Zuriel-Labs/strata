@@ -138,6 +138,23 @@ describe('BoardView', () => {
     expect(document.querySelector('[data-list-drag-handle]')).not.toBeInTheDocument();
   });
 
+  it('lets a card collaborator move and create cards without exposing list administration', () => {
+    canManageBoardMock.mockReturnValue(false);
+    canArchiveMock.mockReturnValue(false);
+
+    render(
+      <AppProvider initialAppState={initialState}>
+        <BoardView />
+      </AppProvider>,
+    );
+
+    expect(screen.getByText('Migrate to Node 20 LTS').closest('[data-card-id="c6"]')).toHaveAttribute('data-drag-activator', 'card');
+    expect(screen.getAllByRole('button', { name: /add a card/i }).length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-list-drag-handle]')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'List actions for Backlog' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add another list/i })).not.toBeInTheDocument();
+  });
+
   it('keeps cards readable but removes reorder controls for read-only users', () => {
     canEditCardsMock.mockReturnValue(false);
 
@@ -180,7 +197,7 @@ describe('BoardView', () => {
     expect(screen.queryByRole('button', { name: 'Archive list' })).not.toBeInTheDocument();
     unmount();
 
-    canEditCardsMock.mockReturnValue(false);
+    canManageBoardMock.mockReturnValue(false);
     canArchiveMock.mockReturnValue(true);
     render(
       <AppProvider initialAppState={initialState}>

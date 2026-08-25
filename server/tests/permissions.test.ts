@@ -3,7 +3,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabase, closeDatabase } from '../src/db/database';
 import { getBoardAdminGrantsForUser, getBoardMembershipsForUser, getDerivedWorkspaceIdsForUser, getUserByUsername, getWorkspaceAdminGrantsForUser } from '../src/db/repositories';
-import { canAccessBoard, canAccessWorkspace, canManageBoard, canManageWorkspace } from '../src/rbac/permissions';
+import { canAccessBoard, canAccessWorkspace, canEditBoardCards, canManageBoard, canManageWorkspace } from '../src/rbac/permissions';
 import { canManageUserBoard, canManageUserPlatform, canManageUserWorkspace } from '../src/rbac/policies';
 
 beforeAll(() => {
@@ -58,5 +58,16 @@ describe('rbac permissions', () => {
     expect(canManageBoard(db, auth, 'b1')).toBe(true);
     expect(canAccessBoard(db, auth, 'b2')).toBe(true);
     expect(canManageBoard(db, auth, 'b2')).toBe(false);
+  });
+
+  it('grants card editing to exact Board Members but not Observers or out-of-scope users', async () => {
+    const priya = await authContext('priya');
+    expect(canEditBoardCards(priya.db, priya.auth, 'b1')).toBe(true);
+    expect(canEditBoardCards(priya.db, priya.auth, 'b2')).toBe(false);
+    closeDatabase();
+
+    const marcus = await authContext('marcus');
+    expect(canEditBoardCards(marcus.db, marcus.auth, 'b1')).toBe(true);
+    expect(canEditBoardCards(marcus.db, marcus.auth, 'b2')).toBe(false);
   });
 });

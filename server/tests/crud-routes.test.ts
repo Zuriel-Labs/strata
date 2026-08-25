@@ -455,10 +455,12 @@ describe('card CRUD routes', () => {
     expect(invalidChecklist.status).toBe(400);
     expect(invalidChecklist.body).toEqual({ message: 'Invalid payload.' });
 
-    // Update comments
-    const comments = [{ id: 'cm1', userId: 'u1', text: 'Hello', createdAt: new Date().toISOString() }];
-    const r9 = await agent.patch(`/api/cards/${cardId}`).send({ comments });
-    expect(r9.body.comments).toEqual(comments);
+    // Comments use ownership-safe endpoints; generic history replacement is rejected.
+    const genericCommentReplacement = await agent.patch(`/api/cards/${cardId}`).send({ comments: [] });
+    expect(genericCommentReplacement.status).toBe(400);
+    const r9 = await agent.post(`/api/cards/${cardId}/comments`).send({ text: 'Hello' });
+    expect(r9.status).toBe(201);
+    expect(r9.body.comments).toContainEqual(expect.objectContaining({ userId: 'u1', text: 'Hello' }));
 
     // Update attachments
     const attachments = [{ id: 'at1', name: 'test.pdf', url: 'https://example.com/test.pdf', type: 'link' as const, addedAt: new Date().toISOString() }];

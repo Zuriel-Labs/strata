@@ -37,9 +37,6 @@ export function createBootstrapRoutes(db: Database.Database) {
     db.prepare('INSERT INTO workspaces (id, name, description, visibility, created_at) VALUES (?, ?, ?, ?, ?)').run(
       id, parsed.data.name, parsed.data.description, parsed.data.visibility, timestamp,
     );
-    db.prepare('INSERT INTO workspace_memberships (id, user_id, workspace_id, role, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      randomUUID(), request.auth.user.id, id, 'workspace_admin', timestamp,
-    );
     createAuditEvent(db, { actorUserId: request.auth.user.id, scopeType: 'workspace', scopeId: id, action: 'workspace.create', outcome: 'success' });
     response.status(201).json({ id, name: parsed.data.name, description: parsed.data.description, visibility: parsed.data.visibility });
   });

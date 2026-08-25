@@ -240,6 +240,18 @@ describe('board CRUD routes', () => {
 describe('workspace routes', () => {
   afterEach(() => { closeDatabase(); });
 
+  it('creates a workspace without conflating administrative access and membership', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const response = await agent.post('/api/workspaces').send({ name: 'Independent Workspace', description: '', visibility: 'private' });
+
+    expect(response.status).toBe(201);
+    expect(db.prepare('SELECT * FROM workspace_memberships WHERE workspace_id = ?').all(response.body.id)).toEqual([]);
+    expect(db.prepare('SELECT * FROM workspace_admin_grants WHERE workspace_id = ?').all(response.body.id)).toEqual([]);
+  });
+
   it('renames a workspace', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);

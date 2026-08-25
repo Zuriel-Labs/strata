@@ -8,6 +8,7 @@ Branch: `fix/post-beta-regressions`
 
 - Dedicated Workspace and Board administrator grant tables, indexed unique relationships, cascades, and an idempotent legacy migration.
 - Board membership is the only collaboration assignment; derived Workspace membership comes from Board memberships.
+- Creating a Workspace no longer writes a legacy administrative membership row.
 - Existing card assignees are migrated to Board memberships so upgrades preserve collaboration.
 - System Administrators can atomically manage mixed scoped grants and Board membership; scoped administrators cannot escalate account or access authority.
 - Workspace and Board Administrators can manage existing active accounts only in effective Board scope, without becoming members themselves.
@@ -23,7 +24,7 @@ Branch: `fix/post-beta-regressions`
 |---|---|
 | `npm run typecheck` | PASS |
 | `npm run lint` | PASS |
-| Vitest unit/integration/contract suites | PASS — 38 files / 270 tests |
+| Vitest unit/integration/contract suites | PASS — 38 files / 271 tests |
 | `npm run build` | PASS |
 | Playwright E2E, including System and scoped layered access | PASS — 19 tests |
 | `npm run test:ci` | PASS |

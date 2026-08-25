@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AlignLeft, CheckSquare, Clock3, Copy, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
 import { uid } from '../data';
-import { deleteCardApi, duplicateCardApi, updateBoardLabelsApi, updateCardApi, moveCardApi } from '../services/data';
+import { createCardCommentApi, deleteCardApi, deleteCardCommentApi, duplicateCardApi, updateBoardLabelsApi, updateCardApi, updateCardCommentApi, moveCardApi } from '../services/data';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import type { Attachment, Checklist, RichTextDocument } from '../types';
@@ -72,6 +72,11 @@ export function CardModal() {
   const [descPending, setDescPending] = useState(false);
   const [descError, setDescError] = useState('');
   const [comment, setComment] = useState('');
+  const [commentPending, setCommentPending] = useState(false);
+  const [commentError, setCommentError] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [attachmentLink, setAttachmentLink] = useState('');
   const [titleEditing, setTitleEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
@@ -89,6 +94,8 @@ export function CardModal() {
   const [duplicateStatus, setDuplicateStatus] = useState('');
   const [addingChecklist, setAddingChecklist] = useState(false);
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
+  const [editingChecklistTitle, setEditingChecklistTitle] = useState('');
   const [addingItemTo, setAddingItemTo] = useState<string | null>(null);
   const [newItemText, setNewItemText] = useState('');
   const [checklistPending, setChecklistPending] = useState(false);
@@ -130,11 +137,11 @@ export function CardModal() {
   const canEditCard = auth.canEditBoardCards(card.boardId);
   const canDeleteCard = auth.canManageBoard(card.boardId);
   const canManageLabels = auth.canManageBoardLabels(card.boardId);
-  const hiddenSectionButtons = [
+  const hiddenSectionButtons = canEditCard ? [
     { key: 'members' as const, label: 'Members', icon: Users, visible: card.memberIds.length > 0 || revealedSections.members },
     { key: 'dueDate' as const, label: 'Dates', icon: Clock3, visible: Boolean(card.dueDate) || revealedSections.dueDate },
     { key: 'attachments' as const, label: 'Attachment', icon: Paperclip, visible: card.attachments.length > 0 || revealedSections.attachments },
-  ].filter(section => !section.visible);
+  ].filter(section => !section.visible) : [];
 
   const close = () => dispatch({ type: 'SET_ACTIVE_CARD', payload: null });
   const closeLabelPicker = () => {
@@ -145,8 +152,12 @@ export function CardModal() {
   };
 
   const persistCard = (updates: Record<string, unknown>) => {
+    if (!canEditCard) return;
     dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, ...updates } });
-    updateCardApi(card.id, updates);
+    void updateCardApi(card.id, updates).catch(error => restoreFromServer(
+      'Card change not saved',
+      error instanceof Error ? error.message : 'The card change could not be saved.',
+    ));
   };
 
   const toggleCardLabel = async (labelId: string) => {
@@ -239,21 +250,24 @@ export function CardModal() {
   };
 
   const handleMoveList = (nextListId: string) => {
-    if (!nextListId || nextListId === card.listId) return;
+    if (!canEditCard || !nextListId || nextListId === card.listId) return;
     dispatch({ type: 'MOVE_CARD', payload: { cardId: card.id, toListId: nextListId, toPosition: 0 } });
     moveCardApi(card.id, nextListId, 0);
   };
 
   const handleToggleWatch = () => {
+    if (!canEditCard) return;
     persistCard({ watching: !card.watching });
   };
 
   const beginTitleEdit = () => {
+    if (!canEditCard) return;
     setDraftTitle(card.title);
     setTitleEditing(true);
   };
 
   const commitTitle = () => {
+    if (!canEditCard) return;
     const nextTitle = draftTitle.trim();
     if (!nextTitle) {
       setDraftTitle(card.title);
@@ -283,6 +297,7 @@ export function CardModal() {
   };
 
   const handleMemberChange = (nextMemberIds: string[]) => {
+    if (!canEditCard) return;
     revealSection('members');
     persistCard({ memberIds: nextMemberIds, watching: getWatchingForMemberChange(nextMemberIds) });
   };
@@ -391,7 +406,33 @@ export function CardModal() {
     void persistChecklists(nextChecklists);
   };
 
+  const saveChecklistTitle = (checklistId: string) => {
+    const title = editingChecklistTitle.trim();
+    if (!title) return;
+    const nextChecklists = card.checklists.map(checklist => checklist.id === checklistId
+      ? { ...checklist, title }
+      : checklist);
+    void persistChecklists(nextChecklists, () => {
+      setEditingChecklistId(null);
+      setEditingChecklistTitle('');
+    });
+  };
+
+  const deleteChecklist = (checklistId: string) => {
+    void persistChecklists(card.checklists.filter(checklist => checklist.id !== checklistId), () => {
+      if (editingChecklistId === checklistId) {
+        setEditingChecklistId(null);
+        setEditingChecklistTitle('');
+      }
+      if (addingItemTo === checklistId) {
+        setAddingItemTo(null);
+        setNewItemText('');
+      }
+    });
+  };
+
   const handleLinkAttachment = async () => {
+    if (!canEditCard) return;
     const value = attachmentLink.trim();
     if (!value) return;
 
@@ -422,7 +463,7 @@ export function CardModal() {
   };
 
   const handleFileAttachment = async (files: FileList | null) => {
-    if (!files) return;
+    if (!canEditCard || !files) return;
 
     const newAttachments = await Promise.all(Array.from(files).map(async file => ({
       id: uid(),
@@ -453,6 +494,67 @@ export function CardModal() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleCreateComment = async () => {
+    const text = comment.trim();
+    if (!canEditCard || !text || commentPending) return;
+    setCommentPending(true);
+    setCommentError('');
+    try {
+      const updatedCard = await createCardCommentApi(card.id, text);
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: updatedCard });
+      setComment('');
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : 'The comment could not be added.');
+    } finally {
+      setCommentPending(false);
+    }
+  };
+
+  const beginCommentEdit = (commentId: string, text: string) => {
+    if (!canEditCard || commentPending) return;
+    setEditingCommentId(commentId);
+    setEditingCommentText(text);
+    setCommentError('');
+  };
+
+  const cancelCommentEdit = () => {
+    if (commentPending) return;
+    setEditingCommentId(null);
+    setEditingCommentText('');
+    setCommentError('');
+  };
+
+  const saveCommentEdit = async () => {
+    const text = editingCommentText.trim();
+    if (!editingCommentId || !text || commentPending) return;
+    setCommentPending(true);
+    setCommentError('');
+    try {
+      const updatedCard = await updateCardCommentApi(card.id, editingCommentId, text);
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: updatedCard });
+      setEditingCommentId(null);
+      setEditingCommentText('');
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : 'The comment could not be updated.');
+    } finally {
+      setCommentPending(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!canDeleteCard || commentPending || deletingCommentId) return;
+    setDeletingCommentId(commentId);
+    setCommentError('');
+    try {
+      const updatedCard = await deleteCardCommentApi(card.id, commentId);
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: updatedCard });
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : 'The comment could not be deleted.');
+    } finally {
+      setDeletingCommentId(null);
+    }
+  };
+
   return (
     <div
       ref={overlayRef}
@@ -470,6 +572,7 @@ export function CardModal() {
           <select
             aria-label="Card list"
             value={card.listId}
+            disabled={!canEditCard}
             onChange={event => handleMoveList(event.target.value)}
             className="min-h-[40px] rounded-md border px-3 text-sm font-medium outline-none"
             style={{ background: '#2a2d36', borderColor: 'transparent', color: 'var(--text-primary)' }}
@@ -506,14 +609,14 @@ export function CardModal() {
                 <Trash2 size={18} />
               </button>
             )}
-            <button
+            {canEditCard && <button
               aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
               onClick={handleToggleWatch}
               className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
               style={{ background: 'rgba(255,255,255,0.06)', color: card.watching ? 'var(--text-primary)' : 'var(--text-secondary)' }}
             >
               {card.watching ? <Eye size={18} /> : <EyeOff size={18} />}
-            </button>
+            </button>}
             <button
               aria-label="Close card"
               onClick={close}
@@ -540,7 +643,7 @@ export function CardModal() {
                 className="w-full border-none bg-transparent text-[2rem] font-bold leading-tight outline-none"
                 style={{ color: 'var(--text-primary)' }}
               />
-            ) : (
+            ) : canEditCard ? (
               <button
                 type="button"
                 onClick={beginTitleEdit}
@@ -549,6 +652,8 @@ export function CardModal() {
               >
                 {card.title}
               </button>
+            ) : (
+              <h2 className="text-[2rem] font-bold leading-tight" style={{ color: 'var(--text-primary)' }}>{card.title}</h2>
             )}
             {list && (
               <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -574,7 +679,7 @@ export function CardModal() {
                   </button>
                 );
               })}
-              <button
+              {canEditCard && <button
                 type="button"
                 onClick={() => {
                   revealSection('labels');
@@ -586,7 +691,7 @@ export function CardModal() {
               >
                 <Tag size={15} />
                 Labels
-              </button>
+              </button>}
           </div>
 
           {labelPickerOpen && (
@@ -742,6 +847,7 @@ export function CardModal() {
                 <input
                   type="date"
                   aria-label="Card due date"
+                  disabled={!canEditCard}
                   value={normalizeDateOnly(card.dueDate) ?? ''}
                   onChange={event => {
                     const dueDate = normalizeDateOnly(event.target.value);
@@ -756,11 +862,23 @@ export function CardModal() {
                     <input
                       type="checkbox"
                       checked={card.dueDateComplete}
+                      disabled={!canEditCard}
                       onChange={() => persistCard({ dueDateComplete: !card.dueDateComplete })}
                       className="rounded"
                     />
                     Complete
                   </label>
+                )}
+                {card.dueDate && canEditCard && (
+                  <button
+                    type="button"
+                    aria-label="Remove due date"
+                    onClick={() => persistCard({ dueDate: null, dueDateComplete: false })}
+                    className="inline-flex min-h-[44px] items-center gap-2 rounded-md px-3 text-sm font-medium disabled:opacity-50"
+                    style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}
+                  >
+                    <Trash2 size={16} /> Remove
+                  </button>
                 )}
               </div>
             </section>
@@ -889,7 +1007,59 @@ export function CardModal() {
               <div className="space-y-4">
                 {card.checklists.map(checklist => (
                   <div key={checklist.id} className="rounded-xl border p-3" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)' }}>
-                    <h4 className="mb-2 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{checklist.title}</h4>
+                    {editingChecklistId === checklist.id && canEditCard ? (
+                      <div className="mb-2 flex flex-col gap-2 sm:flex-row">
+                        <input
+                          autoFocus
+                          aria-label={`Checklist title ${checklist.title}`}
+                          value={editingChecklistTitle}
+                          disabled={checklistPending}
+                          onChange={event => setEditingChecklistTitle(event.target.value)}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              saveChecklistTitle(checklist.id);
+                            }
+                            if (event.key === 'Escape') {
+                              setEditingChecklistId(null);
+                              setEditingChecklistTitle('');
+                            }
+                          }}
+                          className="min-h-[44px] flex-1 rounded-md border px-3 text-sm outline-none disabled:opacity-50"
+                          style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                        />
+                        <button type="button" aria-label="Save checklist title" disabled={checklistPending || !editingChecklistTitle.trim()} onClick={() => saveChecklistTitle(checklist.id)} className="min-h-[44px] rounded-md px-3 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Save</button>
+                        <button type="button" disabled={checklistPending} onClick={() => { setEditingChecklistId(null); setEditingChecklistTitle(''); }} className="min-h-[44px] px-3 text-sm" style={{ color: 'var(--text-secondary)' }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{checklist.title}</h4>
+                        {canEditCard && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              aria-label={`Edit checklist ${checklist.title}`}
+                              disabled={checklistPending}
+                              onClick={() => {
+                                setChecklistError('');
+                                setEditingChecklistId(checklist.id);
+                                setEditingChecklistTitle(checklist.title);
+                              }}
+                              className="min-h-[44px] rounded-md px-3 text-xs font-semibold disabled:opacity-50"
+                              style={{ color: 'var(--accent)' }}
+                            >Edit</button>
+                            <button
+                              type="button"
+                              aria-label={`Delete checklist ${checklist.title}`}
+                              disabled={checklistPending}
+                              onClick={() => deleteChecklist(checklist.id)}
+                              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md disabled:opacity-50"
+                              style={{ color: '#ef4444' }}
+                            ><Trash2 size={16} /></button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {checklist.items.length === 0 && addingItemTo !== checklist.id && (
                       <p className="mb-2 text-sm" style={{ color: 'var(--text-secondary)' }}>No items yet.</p>
                     )}
@@ -967,7 +1137,7 @@ export function CardModal() {
             <section className="mb-5">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <SectionHeading icon={Paperclip} title="Attachments" className="mb-0" />
-                <input
+                {canEditCard && <input
                   ref={fileInputRef}
                   type="file"
                   multiple
@@ -975,17 +1145,17 @@ export function CardModal() {
                   onChange={event => {
                     void handleFileAttachment(event.target.files);
                   }}
-                />
-                <button
+                />}
+                {canEditCard && <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="min-h-[44px] text-sm font-medium"
                   style={{ color: 'var(--accent)' }}
                 >
                   Upload files
-                </button>
+                </button>}
               </div>
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+              {canEditCard && <div className="mb-3 flex flex-col gap-2 sm:flex-row">
                 <input
                   value={attachmentLink}
                   onChange={event => setAttachmentLink(event.target.value)}
@@ -1007,7 +1177,7 @@ export function CardModal() {
                 >
                   Attach
                 </button>
-              </div>
+              </div>}
               <div className="space-y-2">
                 {card.attachments.length === 0 && (
                   <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -1052,7 +1222,7 @@ export function CardModal() {
                           <Eye size={16} />
                         </a>
                       )}
-                      <button
+                      {canEditCard && <button
                         type="button"
                         aria-label={`Remove ${attachment.name}`}
                         onClick={async () => {
@@ -1070,7 +1240,7 @@ export function CardModal() {
                         style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
                       >
                         <Trash2 size={16} />
-                      </button>
+                      </button>}
                     </div>
                   </div>
                 ))}
@@ -1080,12 +1250,13 @@ export function CardModal() {
 
           <section>
             <SectionHeading icon={MessageSquare} title="Comments and activity" />
-            <div className="mb-4 flex gap-3">
+            {canEditCard && <div className="mb-4 flex gap-3">
               <AvatarBadge initials={currentUser?.initials ?? '??'} color={currentUser?.color ?? '#6366f1'} />
               <div className="flex-1">
                 <textarea
                   value={comment}
                   onChange={event => setComment(event.target.value)}
+                  disabled={commentPending}
                   placeholder="Write a comment..."
                   rows={2}
                   className="w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none"
@@ -1094,20 +1265,18 @@ export function CardModal() {
                 {comment.trim() && (
                   <button
                     type="button"
-                    onClick={() => {
-                      const newComment = { id: uid(), userId: state.currentUserId, text: comment.trim(), createdAt: new Date().toISOString() };
-                      dispatch({ type: 'ADD_COMMENT', payload: { cardId: card.id, text: comment.trim() } });
-                      updateCardApi(card.id, { comments: [...card.comments, newComment] });
-                      setComment('');
-                    }}
-                    className="mt-2 min-h-[44px] rounded-md px-4 text-sm font-medium text-white"
+                    disabled={commentPending}
+                    onClick={() => void handleCreateComment()}
+                    className="mt-2 min-h-[44px] rounded-md px-4 text-sm font-medium text-white disabled:cursor-wait disabled:opacity-60"
                     style={{ background: 'var(--accent)' }}
                   >
-                    Send
+                    {commentPending ? 'Sending…' : 'Send'}
                   </button>
                 )}
               </div>
-            </div>
+            </div>}
+
+            {commentError && <p role="alert" className="mb-4 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">{commentError}</p>}
 
             <div className="space-y-4">
               {card.comments.slice().reverse().map(entry => {
@@ -1120,7 +1289,36 @@ export function CardModal() {
                         <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{user.name}</span>
                         <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(entry.createdAt).toLocaleString()}</span>
                       </div>
-                      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{entry.text}</p>
+                      {editingCommentId === entry.id ? (
+                        <div className="mt-2">
+                          <textarea
+                            autoFocus
+                            aria-label="Edit comment"
+                            value={editingCommentText}
+                            disabled={commentPending}
+                            onChange={event => setEditingCommentText(event.target.value)}
+                            rows={2}
+                            className="w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none disabled:opacity-60"
+                            style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                          />
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button type="button" aria-label="Save comment" disabled={commentPending || !editingCommentText.trim()} onClick={() => void saveCommentEdit()} className="min-h-[44px] rounded-md px-3 text-sm font-semibold text-white disabled:opacity-60" style={{ background: 'var(--accent)' }}>Save</button>
+                            <button type="button" aria-label="Cancel comment editing" disabled={commentPending} onClick={cancelCommentEdit} className="min-h-[44px] px-3 text-sm" style={{ color: 'var(--text-secondary)' }}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{entry.text}</p>
+                          <div className="mt-1 flex flex-wrap gap-3">
+                            {canEditCard && entry.userId === state.currentUserId && (
+                              <button type="button" aria-label={`Edit comment ${entry.text}`} disabled={commentPending || Boolean(deletingCommentId)} onClick={() => beginCommentEdit(entry.id, entry.text)} className="min-h-[40px] text-xs font-semibold disabled:opacity-50" style={{ color: 'var(--accent)' }}>Edit</button>
+                            )}
+                            {canDeleteCard && (
+                              <button type="button" aria-label={`Delete comment ${entry.text}`} disabled={commentPending || Boolean(deletingCommentId)} onClick={() => void handleDeleteComment(entry.id)} className="min-h-[40px] text-xs font-semibold disabled:opacity-50" style={{ color: '#ef4444' }}>{deletingCommentId === entry.id ? 'Deleting…' : 'Delete'}</button>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 );

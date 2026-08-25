@@ -10,6 +10,7 @@ const authState = {
   canEditBoardCards: vi.fn(() => true),
   canManageBoard: vi.fn(() => true),
   canManageBoardLabels: vi.fn(() => true),
+  refresh: vi.fn(async () => {}),
 };
 
 vi.mock('../lib/auth-context', () => ({
@@ -57,6 +58,8 @@ describe('CardModal', () => {
     authState.canManageBoard.mockReturnValue(true);
     authState.canManageBoardLabels.mockReset();
     authState.canManageBoardLabels.mockReturnValue(true);
+    authState.refresh.mockReset();
+    authState.refresh.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -178,6 +181,28 @@ describe('CardModal', () => {
     authState.canEditBoardCards.mockReturnValue(false);
     render(<AppProvider initialAppState={buildState('c5')}><CardModal /></AppProvider>);
     expect(screen.queryByRole('button', { name: 'Duplicate card' })).not.toBeInTheDocument();
+  });
+
+  it('keeps card content readable while hiding or disabling every mutation for read-only roles', () => {
+    authState.canEditBoardCards.mockReturnValue(false);
+    authState.canManageBoard.mockReturnValue(false);
+    authState.canManageBoardLabels.mockReturnValue(false);
+
+    render(<AppProvider initialAppState={buildState('c5', {
+      memberIds: [],
+      labelIds: [],
+      dueDate: null,
+      attachments: [],
+      comments: [],
+      activity: [],
+    })}><CardModal /></AppProvider>);
+
+    expect(screen.getByText('Evaluate state management options')).toBeInTheDocument();
+    expect(screen.getByLabelText('Card list')).toBeDisabled();
+    expect(screen.queryByLabelText(/watch card/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Labels' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /members/i })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Write a comment...')).not.toBeInTheDocument();
   });
 
   it('shows a searchable Labels picker and applies labels through it', async () => {
@@ -349,6 +374,36 @@ describe('CardModal', () => {
     });
   });
 
+  it('removes a due date and clears its completion state', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', { dueDate: '2026-08-27', dueDateComplete: true });
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const updates = JSON.parse(String(init?.body ?? '{}'));
+      return Response.json({ ...state.cards.find(card => card.id === 'c5'), ...updates });
+    });
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Remove due date' }));
+
+    await waitFor(() => {
+      const payload = JSON.parse(String((fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body));
+      expect(payload).toEqual({ dueDate: null, dueDateComplete: false });
+    });
+  });
+
+  it('refreshes authoritative card state when an optimistic card change fails', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ message: 'Card update unavailable' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    render(<AppProvider initialAppState={buildState('c5', { dueDate: '2026-08-27' })}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Remove due date' }));
+
+    await waitFor(() => expect(authState.refresh).toHaveBeenCalledTimes(1));
+  });
+
   it('renders a saved rich-text Description with preserved multiline formatting', () => {
     const descriptionDocument = {
       type: 'doc' as const,
@@ -487,6 +542,31 @@ describe('CardModal', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it('renames and removes complete checklists', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', {
+      checklists: [{ id: 'checklist-edit', title: 'Old title', items: [{ id: 'item-1', text: 'Keep me', completed: false }] }],
+    });
+    let serverCard = state.cards.find(card => card.id === 'c5')!;
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const updates = JSON.parse(String(init?.body ?? '{}'));
+      serverCard = { ...serverCard, ...updates };
+      return Response.json(serverCard);
+    });
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Edit checklist Old title' }));
+    const titleInput = screen.getByRole('textbox', { name: 'Checklist title Old title' });
+    await user.clear(titleInput);
+    await user.type(titleInput, 'Release checks');
+    await user.click(screen.getByRole('button', { name: 'Save checklist title' }));
+    expect(await screen.findByText('Release checks')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Delete checklist Release checks' }));
+    await waitFor(() => expect(screen.queryByText('Release checks')).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps checklist content read-only when card editing is unavailable', () => {
     authState.canEditBoardCards.mockReturnValue(false);
     render(
@@ -502,6 +582,8 @@ describe('CardModal', () => {
     expect(screen.queryByRole('button', { name: 'Add checklist' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add item to Read only' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete checklist item Visible item' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit checklist Read only' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete checklist Read only' })).not.toBeInTheDocument();
   });
 
   it('retains an unsaved checklist item and authoritative card state when persistence fails', async () => {
@@ -618,11 +700,17 @@ describe('CardModal', () => {
 
   it('renders preserved history and sends new comments from the modal', async () => {
     const user = userEvent.setup();
+    const state = buildState('c5', {
+      comments: [{ id: 'cm-legacy', userId: 'u999', text: 'Legacy context', createdAt: '2026-03-14T12:00:00.000Z' }],
+      activity: [{ id: 'ac-system', userId: 'system', action: 'generated a summary', createdAt: '2026-03-14T12:05:00.000Z' }],
+    });
+    const source = state.cards.find(card => card.id === 'c5')!;
+    fetchMock.mockResolvedValue(Response.json({
+      ...source,
+      comments: [...source.comments, { id: 'cm-new', userId: state.currentUserId, text: 'Need an updated draft', createdAt: '2026-08-25T00:00:00.000Z' }],
+    }));
     render(
-      <AppProvider initialAppState={buildState('c5', {
-        comments: [{ id: 'cm-legacy', userId: 'u999', text: 'Legacy context', createdAt: '2026-03-14T12:00:00.000Z' }],
-        activity: [{ id: 'ac-system', userId: 'system', action: 'generated a summary', createdAt: '2026-03-14T12:05:00.000Z' }],
-      })}>
+      <AppProvider initialAppState={state}>
         <CardModal />
       </AppProvider>,
     );
@@ -635,16 +723,60 @@ describe('CardModal', () => {
     await user.type(screen.getByPlaceholderText('Write a comment...'), 'Need an updated draft');
     await user.click(screen.getByRole('button', { name: 'Send' }));
 
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/cards/c5/comments', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ text: 'Need an updated draft' }),
+    })));
     expect(screen.getByPlaceholderText('Write a comment...')).toHaveValue('');
+    expect(screen.getByText('Need an updated draft')).toBeInTheDocument();
+  });
 
-    const lastCall = fetchMock.mock.calls.at(-1);
-    const requestInit = lastCall?.[1] as RequestInit | undefined;
-    const payload = JSON.parse(String(requestInit?.body ?? '{}'));
+  it('lets a Member edit only their own comments and exposes no delete action', async () => {
+    const user = userEvent.setup();
+    authState.canManageBoard.mockReturnValue(false);
+    const state = buildState('c5', {
+      comments: [
+        { id: 'cm-own', userId: initialState.currentUserId, text: 'Own draft', createdAt: '2026-08-25T00:00:00.000Z' },
+        { id: 'cm-other', userId: 'u2', text: 'Other context', createdAt: '2026-08-25T00:01:00.000Z' },
+      ],
+    });
+    const source = state.cards.find(card => card.id === 'c5')!;
+    fetchMock.mockResolvedValue(Response.json({
+      ...source,
+      comments: source.comments.map(comment => comment.id === 'cm-own' ? { ...comment, text: 'Corrected draft' } : comment),
+    }));
 
-    expect(payload.comments).toEqual([
-      expect.objectContaining({ text: 'Legacy context', userId: 'u999' }),
-      expect.objectContaining({ text: 'Need an updated draft', userId: initialState.currentUserId }),
-    ]);
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    expect(screen.getByRole('button', { name: 'Edit comment Own draft' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit comment Other context' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete comment/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit comment Own draft' }));
+    const editor = screen.getByRole('textbox', { name: 'Edit comment' });
+    await user.clear(editor);
+    await user.type(editor, 'Corrected draft');
+    await user.click(screen.getByRole('button', { name: 'Save comment' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/cards/c5/comments/cm-own', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ text: 'Corrected draft' }),
+    })));
+    expect(screen.getByText('Corrected draft')).toBeInTheDocument();
+  });
+
+  it('lets a managing administrator delete any comment through the dedicated route', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', {
+      comments: [{ id: 'cm-delete', userId: 'u2', text: 'Remove this', createdAt: '2026-08-25T00:00:00.000Z' }],
+    });
+    const source = state.cards.find(card => card.id === 'c5')!;
+    fetchMock.mockResolvedValue(Response.json({ ...source, comments: [] }));
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Delete comment Remove this' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/cards/c5/comments/cm-delete', expect.objectContaining({ method: 'DELETE' })));
+    expect(screen.queryByText('Remove this')).not.toBeInTheDocument();
   });
 
   it('requires DELETE confirmation before deleting a card', async () => {

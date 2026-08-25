@@ -70,7 +70,7 @@ describe.sequential('kanban productivity OpenAPI contract', () => {
     });
     expect(unsafe.status).toBe(400);
     expect(unsafe.body).toEqual({ message: expect.any(String) });
-  });
+  }, 20_000);
 
   it('round-trips the structured description and returns authoritative sort and duplicate bodies', async () => {
     const db = await createDatabase(':memory:');

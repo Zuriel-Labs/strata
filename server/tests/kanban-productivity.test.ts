@@ -88,7 +88,7 @@ describe('transactional card ordering', () => {
     expect(JSON.parse(events[0].metadataJson)).toMatchObject({ cardId: 'c6', fromListId: 'l1', toListId: 'l2', toPosition: 1 });
   });
 
-  it('denies a board member from moving a card directly', async () => {
+  it('allows a board member to move a card directly', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
     const agent = request.agent(app);
@@ -96,8 +96,9 @@ describe('transactional card ordering', () => {
 
     const response = await agent.post('/api/cards/c6/move').send({ toListId: 'l2', toPosition: 0 });
 
-    expect(response.status).toBe(403);
-    expect(activeOrder(db, 'l1')).toEqual([{ id: 'c5', position: 0 }, { id: 'c6', position: 1 }]);
+    expect(response.status).toBe(200);
+    expect(activeOrder(db, 'l1')).toEqual([{ id: 'c5', position: 0 }]);
+    expect(activeOrder(db, 'l2')).toEqual([{ id: 'c6', position: 0 }, { id: 'c3', position: 1 }, { id: 'c4', position: 2 }]);
   });
 });
 
@@ -115,11 +116,11 @@ describe('transactional card duplication', () => {
       checklists: [{ id: 'source-checklist', title: 'Release', items: [{ id: 'source-item', text: 'Verify', completed: true }] }],
       dueDate: '2026-09-01T00:00:00.000Z',
       dueDateComplete: true,
-      comments: [{ id: 'source-comment', userId: 'u1', text: 'History', createdAt: '2026-08-01T00:00:00.000Z' }],
       attachments: [{ id: 'source-attachment', name: 'brief.txt', kind: 'file', url: 'data:text/plain;base64,SGk=', size: 2, mimeType: 'text/plain', createdAt: '2026-08-01T00:00:00.000Z' }],
       watching: true,
     });
     expect(sourceUpdate.status).toBe(200);
+    expect((await agent.post('/api/cards/c5/comments').send({ text: 'History' })).status).toBe(201);
 
     const response = await agent.post('/api/cards/c5/duplicate').send({});
 
@@ -204,15 +205,15 @@ describe('transactional card duplication', () => {
     expect(db.prepare("SELECT id FROM audit_events WHERE action = 'card.duplicate'").all()).toEqual([]);
   });
 
-  it('rejects missing sources and direct read-only requests', async () => {
+  it('rejects missing sources and Observer requests', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
     const admin = await loginAdmin(app);
     expect((await admin.post('/api/cards/missing/duplicate').send({})).status).toBe(404);
 
-    const member = request.agent(app);
-    await member.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
-    expect((await member.post('/api/cards/c5/duplicate').send({})).status).toBe(403);
+    const observer = request.agent(app);
+    await observer.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' });
+    expect((await observer.post('/api/cards/c10/duplicate').send({})).status).toBe(403);
   });
 });
 

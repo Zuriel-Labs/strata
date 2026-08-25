@@ -76,6 +76,18 @@ export function deleteCardApi(cardId: string) {
   return apiRequest<void>(`/api/cards/${cardId}`, { method: 'DELETE' });
 }
 
+export function createCardCommentApi(cardId: string, text: string) {
+  return apiRequest<Card>(`/api/cards/${cardId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+}
+
+export function updateCardCommentApi(cardId: string, commentId: string, text: string) {
+  return apiRequest<Card>(`/api/cards/${cardId}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ text }) });
+}
+
+export function deleteCardCommentApi(cardId: string, commentId: string) {
+  return apiRequest<Card>(`/api/cards/${cardId}/comments/${commentId}`, { method: 'DELETE' });
+}
+
 // ── Automation Rule API ──────────────────────────────────────────────
 export function createAutomationRuleApi(input: Omit<AutomationRule, 'id' | 'lastRunAt'>) {
   return apiRequest<AutomationRule>('/api/automation-rules', { method: 'POST', body: JSON.stringify(input) });

@@ -18,6 +18,7 @@ export interface AutomationFormState {
   actionMemberId: string;
   actionLabelId: string;
   actionListId: string;
+  enabled: boolean;
 }
 
 export const supportedTriggers: AutomationRule['trigger'][] = ['card_moved', 'card_created', 'checklist_complete', 'date_time', 'weekday', 'monthly', 'heartbeat'];
@@ -58,6 +59,36 @@ export function createDefaultAutomationForm(): AutomationFormState {
     actionMemberId: '',
     actionLabelId: '',
     actionListId: '',
+    enabled: true,
+  };
+}
+
+function toLocalDateTimeInput(value: string | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function automationRuleToForm(rule: AutomationRule): AutomationFormState {
+  return {
+    name: rule.name,
+    trigger: rule.trigger,
+    triggerListId: rule.triggerConfig.toListId ?? '',
+    conditionListId: rule.conditions.listId ?? '',
+    conditionLabelId: rule.conditions.labelId ?? '',
+    scheduleDateTime: toLocalDateTimeInput(rule.triggerConfig.runAt),
+    scheduleWeekdays: [...(rule.triggerConfig.weekdays ?? [])],
+    scheduleTime: rule.triggerConfig.time ?? '09:00',
+    scheduleDayOfMonth: String(rule.triggerConfig.dayOfMonth ?? 1),
+    scheduleIntervalValue: String(rule.triggerConfig.intervalValue ?? 1),
+    scheduleIntervalUnit: rule.triggerConfig.intervalUnit ?? 'hours',
+    action: rule.action,
+    actionMemberId: rule.actionConfig.memberId ?? '',
+    actionLabelId: rule.actionConfig.labelId ?? '',
+    actionListId: rule.actionConfig.listId ?? '',
+    enabled: rule.enabled,
   };
 }
 
@@ -149,7 +180,7 @@ export function buildAutomationRuleInput(boardId: string, form: AutomationFormSt
       },
       action: form.action,
       actionConfig,
-      enabled: true,
+      enabled: form.enabled,
     },
     error: null,
   };

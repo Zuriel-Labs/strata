@@ -44,6 +44,12 @@ export function canManageBoardForSession(session: SessionPayload | null, boardId
   return board ? (session.permissions.workspaceAdminGrants ?? []).some(grant => grant.workspaceId === board.workspaceId) : false;
 }
 
+export function canEditBoardCardsForSession(session: SessionPayload | null, boardId: string | null) {
+  if (!boardId || !session) return false;
+  return canManageBoardForSession(session, boardId)
+    || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'member');
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [session, setSession] = useState<SessionPayload | null>(null);
@@ -179,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     canManageAutomation: boardId => canManageBoardForSession(session, boardId),
     canManageBoardLabels: boardId => canManageBoardForSession(session, boardId),
     canArchiveBoardContent: boardId => canManageBoardForSession(session, boardId),
-    canEditBoardCards: boardId => canManageBoardForSession(session, boardId),
+    canEditBoardCards: boardId => canEditBoardCardsForSession(session, boardId),
   }), [accessDenied, adminOpen, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword, updatePreferences, updateProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

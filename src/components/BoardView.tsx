@@ -252,7 +252,7 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
   };
 
   const sortCards = (direction: CardSortDirection) => {
-    if (sortPending || !canEditCards) return;
+    if (sortPending || !canMoveList) return;
     const snapshot = state.cards;
     const activeListCards = state.cards.filter(card => card.listId === list.id && !card.archived);
     const optimisticCards = sortCardsByTitle(activeListCards, direction).map((card, position) => ({ ...card, position }));
@@ -312,11 +312,11 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
           ) : (
             <h3
               onClick={() => {
-                if (!canEditCards) return;
+                if (!canMoveList) return;
                 setEditingTitle(true);
                 setListTitle(list.title);
               }}
-              className={`truncate text-[11px] font-bold uppercase tracking-widest ${canEditCards ? 'cursor-pointer' : ''}`}
+              className={`truncate text-[11px] font-bold uppercase tracking-widest ${canMoveList ? 'cursor-pointer' : ''}`}
               style={{ color: 'var(--text-muted)' }}
             >
               {list.title} <span className="font-normal">({cards.length})</span>
@@ -324,14 +324,14 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
           )}
         </div>
         <div className="relative mr-2 shrink-0">
-          {(canEditCards || canArchiveContent) && <button type="button" disabled={Boolean(sortPending)} aria-label={`List actions for ${list.title}`} aria-expanded={menuOpen} onPointerDown={event => event.stopPropagation()} onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
+          {(canMoveList || canArchiveContent) && <button type="button" disabled={Boolean(sortPending)} aria-label={`List actions for ${list.title}`} aria-expanded={menuOpen} onPointerDown={event => event.stopPropagation()} onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
           {menuOpen && (
             <div aria-busy={Boolean(sortPending)} className="absolute right-0 top-full mt-1 w-40 rounded-lg shadow-xl border z-50 py-1" style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}>
-              {canEditCards && <>
+              {canMoveList && <>
                 <button type="button" disabled={Boolean(sortPending)} onClick={() => sortCards('asc')} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Sort A to Z</button>
                 <button type="button" disabled={Boolean(sortPending)} onClick={() => sortCards('desc')} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Sort Z to A</button>
               </>}
-              {canEditCards && canArchiveContent && <div role="separator" className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />}
+              {canMoveList && canArchiveContent && <div role="separator" className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />}
               {canArchiveContent && <button type="button" disabled={Boolean(sortPending)} onClick={() => { dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); void archiveListApi(list.id); setMenuOpen(false); }} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Archive list</button>}
             </div>
           )}

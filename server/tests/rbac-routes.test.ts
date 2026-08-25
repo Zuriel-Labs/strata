@@ -287,13 +287,15 @@ describe('card CRUD RBAC', () => {
     expect(update.status).toBe(200);
   });
 
-  it('denies board member from creating cards', async () => {
+  it('allows a board member to create and update cards but not delete them', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
     // priya is member on b1
     const agent = await login(app, 'priya', 'Member12345!');
-    const res = await agent.post('/api/cards').send({ boardId: 'b1', listId: 'l1', title: 'Denied Card' });
-    expect(res.status).toBe(403);
+    const res = await agent.post('/api/cards').send({ boardId: 'b1', listId: 'l1', title: 'Member Card' });
+    expect(res.status).toBe(201);
+    expect((await agent.patch(`/api/cards/${res.body.id}`).send({ title: 'Updated Member Card' })).status).toBe(200);
+    expect((await agent.delete(`/api/cards/${res.body.id}`)).status).toBe(403);
   });
 
   it('denies observer from creating cards', async () => {

@@ -8,6 +8,7 @@ import type { AutomationRule, Board, Workspace } from '../types';
 import { createAutomationRuleApi, updateAutomationRuleApi, deleteAutomationRuleApi } from '../services/data';
 import {
   actionLabels,
+  automationRuleToForm,
   buildAutomationRuleInput,
   createDefaultAutomationForm,
   supportedActions,
@@ -719,6 +720,7 @@ function AutomationsContent({ selectedWorkspaceId, setSelectedWorkspaceId, selec
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(createDefaultAutomationForm);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
 
   const workspaceOptions = state.workspaces.filter(workspace => auth.canManageWorkspace(workspace.id)
     || state.boards.some(board => board.workspaceId === workspace.id && auth.canManageAutomation(board.id)));
@@ -745,6 +747,7 @@ function AutomationsContent({ selectedWorkspaceId, setSelectedWorkspaceId, selec
               .sort((left, right) => left.title.localeCompare(right.title))[0];
             setSelectedBoardId(nextBoard?.id ?? null);
             setAdding(false);
+            setEditingRuleId(null);
             setError(null);
             setForm(createDefaultAutomationForm());
           }}
@@ -761,7 +764,13 @@ function AutomationsContent({ selectedWorkspaceId, setSelectedWorkspaceId, selec
         <select
           aria-label="Automation board"
           value={boardId ?? ''}
-          onChange={event => setSelectedBoardId(event.target.value || null)}
+          onChange={event => {
+            setSelectedBoardId(event.target.value || null);
+            setAdding(false);
+            setEditingRuleId(null);
+            setError(null);
+            setForm(createDefaultAutomationForm());
+          }}
           className="block min-h-[44px] w-full rounded-md border px-3 text-sm font-semibold outline-none"
           style={{ background: '#2a2d36', borderColor: 'transparent', color: 'var(--text-primary)' }}
           disabled={manageableBoards.length === 0}
@@ -790,12 +799,27 @@ function AutomationsContent({ selectedWorkspaceId, setSelectedWorkspaceId, selec
 
     setSaving(true);
     try {
-      const rule = await createAutomationRuleApi(input);
-      dispatch({ type: 'ADD_AUTOMATION_RULE_FROM_API', payload: rule });
+      if (editingRuleId) {
+        const updates = {
+          name: input.name,
+          trigger: input.trigger,
+          triggerConfig: input.triggerConfig,
+          conditions: input.conditions,
+          action: input.action,
+          actionConfig: input.actionConfig,
+          enabled: input.enabled,
+        };
+        const rule = await updateAutomationRuleApi(editingRuleId, updates);
+        dispatch({ type: 'UPDATE_AUTOMATION_RULE', payload: rule });
+      } else {
+        const rule = await createAutomationRuleApi(input);
+        dispatch({ type: 'ADD_AUTOMATION_RULE_FROM_API', payload: rule });
+      }
       setForm(createDefaultAutomationForm());
       setAdding(false);
+      setEditingRuleId(null);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to create automation rule.');
+      setError(requestError instanceof Error ? requestError.message : `Unable to ${editingRuleId ? 'update' : 'create'} automation rule.`);
     } finally {
       setSaving(false);
     }
@@ -831,6 +855,20 @@ function AutomationsContent({ selectedWorkspaceId, setSelectedWorkspaceId, selec
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>{rule.name}</h4>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label={`Edit automation ${rule.name}`}
+                  onClick={() => {
+                    setError(null);
+                    setForm(automationRuleToForm(rule));
+                    setEditingRuleId(rule.id);
+                    setAdding(true);
+                  }}
+                  className="min-h-[44px] rounded px-2 text-xs font-medium"
+                  style={{ color: 'var(--accent)', background: 'var(--active-bg)' }}
+                >
+                  Edit
+                </button>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" checked={rule.enabled} onChange={() => { dispatch({ type: 'UPDATE_AUTOMATION_RULE', payload: { id: rule.id, enabled: !rule.enabled } }); updateAutomationRuleApi(rule.id, { enabled: !rule.enabled }); }} className="sr-only peer" />
                   <div className="w-7 h-4 rounded-full peer" style={{ background: rule.enabled ? 'var(--accent)' : 'var(--border)' }}><div className="w-3 h-3 rounded-full absolute top-[2px] transition-all" style={{ background: '#fff', left: rule.enabled ? '14px' : '2px' }} /></div>
@@ -949,12 +987,12 @@ function AutomationsContent({ selectedWorkspaceId, setSelectedWorkspaceId, selec
             </select>
           )}
           <div className="flex gap-1 pt-1">
-            <button onClick={() => void handleSave()} disabled={saving} className="px-3 min-h-[44px] rounded text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" style={{ background: 'var(--accent)' }}>{saving ? 'Creating…' : 'Create Rule'}</button>
-            <button onClick={() => { setAdding(false); setError(null); setForm(createDefaultAutomationForm()); }} className="px-3 min-h-[44px] text-xs" style={{ color: 'var(--text-muted)' }}>Cancel</button>
+            <button onClick={() => void handleSave()} disabled={saving} className="px-3 min-h-[44px] rounded text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" style={{ background: 'var(--accent)' }}>{saving ? (editingRuleId ? 'Saving…' : 'Creating…') : (editingRuleId ? 'Save Changes' : 'Create Rule')}</button>
+            <button onClick={() => { setAdding(false); setEditingRuleId(null); setError(null); setForm(createDefaultAutomationForm()); }} className="px-3 min-h-[44px] text-xs" style={{ color: 'var(--text-muted)' }}>Cancel</button>
           </div>
         </div>
       ) : (
-        <button onClick={() => { setError(null); setForm(createDefaultAutomationForm()); setAdding(true); }} className="w-full px-3 min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium border border-dashed transition-colors" style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}>
+        <button onClick={() => { setError(null); setEditingRuleId(null); setForm(createDefaultAutomationForm()); setAdding(true); }} className="w-full px-3 min-h-[44px] flex items-center justify-center rounded-lg text-xs font-medium border border-dashed transition-colors" style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}>
           + Create automation rule
         </button>
       )}

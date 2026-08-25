@@ -1,0 +1,157 @@
+openapi: 3.1.0
+info:
+  title: Strata Board Member Collaboration Contract
+  version: 1.0.0
+paths:
+  /api/cards:
+    post:
+      summary: Create a card as a Board collaborator
+      responses:
+        '201': { description: Created card }
+        '400': { description: Invalid card or list scope }
+        '401': { description: Authentication required }
+        '403': { description: Member or managing-admin capability required }
+  /api/cards/{cardId}:
+    patch:
+      summary: Update supported collaborative card fields
+      description: Comments, activity, archive state, and Board/list structural administration are excluded from Member updates.
+      parameters:
+        - in: path
+          name: cardId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title: { type: string }
+                description: { type: string }
+                descriptionDocument: { type: object }
+                memberIds: { type: array, items: { type: string } }
+                labelIds: { type: array, items: { type: string } }
+                checklists: { type: array, items: { type: object } }
+                dueDate: { type: [string, 'null'] }
+                dueDateComplete: { type: boolean }
+                attachments: { type: array, items: { type: object } }
+                watching: { type: boolean }
+      responses:
+        '200': { description: Authoritative updated card }
+        '400': { description: Invalid field, assignee, label, list, checklist, attachment, or rich-text payload }
+        '401': { description: Authentication required }
+        '403': { description: Member or managing-admin capability required }
+        '404': { description: Card not found }
+  /api/cards/{cardId}/move:
+    post:
+      summary: Move a card within its Board
+      parameters:
+        - in: path
+          name: cardId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Authoritative moved card }
+        '400': { description: Invalid destination list or position }
+        '401': { description: Authentication required }
+        '403': { description: Member or managing-admin capability required }
+        '404': { description: Card not found }
+  /api/cards/{cardId}/duplicate:
+    post:
+      summary: Duplicate an active card as a Board collaborator
+      parameters:
+        - in: path
+          name: cardId
+          required: true
+          schema: { type: string }
+      responses:
+        '201': { description: Authoritative duplicate card }
+        '400': { description: Archived or invalid source card }
+        '401': { description: Authentication required }
+        '403': { description: Member or managing-admin capability required }
+        '404': { description: Card not found }
+  /api/cards/{cardId}/comments:
+    post:
+      summary: Add a comment as the authenticated user
+      parameters:
+        - in: path
+          name: cardId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1, maxLength: 10000 }
+      responses:
+        '201': { description: Authoritative card containing the new comment }
+        '400': { description: Invalid comment }
+        '401': { description: Authentication required }
+        '403': { description: Member or managing-admin capability required }
+        '404': { description: Card not found }
+  /api/cards/{cardId}/comments/{commentId}:
+    patch:
+      summary: Edit a comment owned by the authenticated user
+      parameters:
+        - in: path
+          name: cardId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: commentId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text]
+              properties:
+                text: { type: string, minLength: 1, maxLength: 10000 }
+      responses:
+        '200': { description: Authoritative card containing the edited comment }
+        '400': { description: Invalid comment }
+        '401': { description: Authentication required }
+        '403': { description: Authenticated user is not the comment author or cannot collaborate on the Board }
+        '404': { description: Card or comment not found }
+    delete:
+      summary: Delete a comment as a managing administrator
+      parameters:
+        - in: path
+          name: cardId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: commentId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Authoritative card after comment deletion }
+        '401': { description: Authentication required }
+        '403': { description: Board Admin or higher in scope required }
+        '404': { description: Card or comment not found }
+  /api/automation-rules/{ruleId}:
+    patch:
+      summary: Edit an existing Board-scoped automation
+      description: Board scope is immutable. Omitted fields retain their current values.
+      parameters:
+        - in: path
+          name: ruleId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Authoritative updated automation rule }
+        '400': { description: Invalid rule configuration or out-of-Board reference }
+        '401': { description: Authentication required }
+        '403': { description: Board Admin or higher in scope required }
+        '404': { description: Rule not found }

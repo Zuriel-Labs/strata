@@ -30,10 +30,6 @@ export function LabelEditor({ labels, onSave, onCancel, usageCount = () => 0, au
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setDraftLabels(labels.map(label => ({ ...label })));
-  }, [labels]);
-
-  useEffect(() => {
     if (autoFocus) firstInputRef.current?.focus();
   }, [autoFocus]);
 

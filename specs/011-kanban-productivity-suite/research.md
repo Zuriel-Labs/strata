@@ -2,13 +2,13 @@
 
 ## Decision 1: Current dnd-kit React API for sortable cards
 
-**Decision**: Use `@dnd-kit/react` with `@dnd-kit/helpers`, `DragDropProvider`, and `useSortable`. Model each list as a sortable group, use pointer and keyboard sensors, render a drag overlay, update the local list order during drag-over, and restore the snapshot on cancellation or failed persistence.
+**Decision**: Use `@dnd-kit/react` with `@dnd-kit/helpers`, `DragDropProvider`, and `useSortable`. Model each list as a sortable group, bind both sortable node and activator to the full card, use pointer distance and touch hold activation constraints, render a drag overlay, and restore the snapshot on cancellation or failed persistence. Do not expose a separate handle or keyboard-drag contract.
 
-**Rationale**: The current dnd-kit API supports React 19, built-in sensors, sortable operations, collision-aware multi-list patterns, and drag overlays without relying on HTML5 drag-and-drop. Its official multiple-sortable-lists guide directly covers kanban/Trello-style interaction and optimistic rollback.
+**Rationale**: The current dnd-kit API supports React 19, configurable built-in sensors, sortable operations, collision-aware multi-list patterns, and drag overlays without HTML5 drag-and-drop. Activation constraints let one full-card surface distinguish click/tap from deliberate drag while preserving Trello-style interaction.
 
 **Alternatives considered**:
 
-- Native HTML drag events: already present but cannot provide high-quality keyboard behavior, consistent overlay/gap animation, or reliable touch behavior.
+- Native HTML drag events: already present but cannot provide consistent overlay/gap animation or reliable touch hold behavior.
 - Legacy `@dnd-kit/core` + `@dnd-kit/sortable`: supported, but the newer API removes `SortableContext`, centralizes sensors, and is the documented forward path.
 - A bespoke pointer system: rejected because it duplicates accessibility, collision, cancellation, and sensor work.
 
@@ -98,3 +98,15 @@ For API compatibility, callers may submit either legacy `description` or structu
 **Decision**: Build the clean committed feature branch to an immutable image tag, record its digest, update only the canary Helm value through Gitea, wait for ArgoCD health, create a dedicated canary test login, and execute the acceptance matrix in the deployed UI. Keep the GitHub PR unmerged and production unchanged.
 
 **Rationale**: This produces a uniquely identifiable candidate that the user can approve as a whole and allows exact rollback to the previous canary image.
+
+## Decision 8: Treat checklists as a regression, not a new feature
+
+**Decision**: Restore checklist rendering and mutation controls in the redesigned modal using the existing `Card.checklists` aggregate and `PATCH /api/cards/{cardId}` contract.
+
+**Rationale**: Git history before `8f72786` contains working checklist create/item/toggle/delete UI. Current types, store actions, persistence, badges, duplication, and automation still depend on checklists. Deferring the UI would leave existing data inaccessible and an automation trigger impossible to drive.
+
+## Decision 9: Parent-aware archive projection and archived-list deletion
+
+**Decision**: Derive independent archived cards by excluding any card whose parent list is archived. Add an archived-only `DELETE /api/lists/{listId}` route using existing board archive permission; delete the list in one transaction and rely on the existing `ON DELETE CASCADE` relationship for its cards.
+
+**Rationale**: Archiving a list intentionally marks its child cards archived, so rendering both levels duplicates one logical archive action. A dedicated archived-only delete precondition prevents accidental removal of active board content while satisfying board-admin cleanup needs.

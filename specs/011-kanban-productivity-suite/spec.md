@@ -3,8 +3,8 @@
 **Feature Branch**: `feat/kanban-productivity-suite`
 **Feature ID**: `011-kanban-productivity-suite`
 **Created**: 2026-08-24
-**Status**: Implemented — local validation complete; canary delivery in progress
-**Input**: Complete every open Strata Issue (#15, #16, #17, #18, and #19), validate each task with explicit acceptance criteria, and deliver one combined candidate to Strata Canary without changing production.
+**Status**: Acceptance remediation in progress after first canary feedback
+**Input**: Complete every open Strata Issue (#15–#19, #21, and #22), remediate the first canary feedback round with explicit acceptance criteria, and deliver one replacement candidate to Strata Canary without changing production.
 
 ## Scope Traceability
 
@@ -15,6 +15,8 @@
 | US3 | #18 | Complete board-label management from inside a card |
 | US4 | #17 | Atomic card duplication with defined copy semantics |
 | US5 | #16 | Persisted A-to-Z and Z-to-A swimlane sorting |
+| US6 | #22 | Restore the card checklist experience removed by the modal redesign |
+| US7 | #21 | Remove phantom archive rows and allow authorized archived-list deletion |
 
 ## User Scenarios & Testing
 
@@ -31,10 +33,11 @@ As an authorized board administrator, I can drag a card to an exact position wit
 1. **Given** an authorized user drags a card within its swimlane, **When** the card crosses another card's insertion boundary, **Then** neighboring cards animate aside and a card-sized gap identifies the exact destination.
 2. **Given** a card is dropped at the beginning, middle, end, or its original position, **When** the save completes, **Then** the visible and persisted order is exact, contiguous, and stable after refresh.
 3. **Given** a card is dragged into another swimlane, **When** it is placed between two destination cards, **Then** it occupies that exact position and existing cross-swimlane behavior remains intact.
-4. **Given** pointer, touch, or keyboard input, **When** a user starts, moves, drops, or cancels a reorder, **Then** the interaction is operable and communicates its state accessibly.
+4. **Given** pointer or touch input anywhere on an editable card, **When** the user presses and holds or moves beyond the drag threshold, **Then** the whole card becomes draggable without a dedicated handle.
 5. **Given** filters hide cards, **When** a visible card is reordered, **Then** hidden cards retain a deterministic relative order and no card is lost or duplicated.
 6. **Given** a reorder cannot be persisted, **When** the request fails, **Then** the board restores authoritative order and displays actionable failure feedback.
 7. **Given** a read-only user, **When** they interact with a card, **Then** they can open and read it but cannot begin or persist a reorder.
+8. **Given** an editable card, **When** a pointer or finger is pressed and released without activating drag, **Then** the card opens immediately on release; drag completion never also opens the card.
 
 ---
 
@@ -55,6 +58,8 @@ As an authorized card editor, I can write a multiline formatted description and 
 5. **Given** legacy plain-text descriptions containing multiple lines or blank lines, **When** the upgraded application starts, **Then** every character and meaningful line boundary remains represented in the new description.
 6. **Given** pasted or submitted unsafe content, **When** it is processed or viewed, **Then** executable markup, event handlers, and unsafe links cannot execute or remain active.
 7. **Given** a read-only user, **When** they open a card, **Then** they can read formatted content but cannot enter editing or submit mutations.
+8. **Given** formatted content in edit mode, **When** the editor renders, **Then** lists, headings, quotes, code blocks, inline code, links, and separators use the same visual language and hierarchy as read mode.
+9. **Given** a safe hyperlink in read mode, **When** the user selects it, **Then** the link opens without switching Description into edit mode.
 
 ---
 
@@ -75,6 +80,7 @@ As an authorized board-label manager, I can create, rename, recolor, and delete 
 5. **Given** a card editor without label-management permission, **When** they open Labels, **Then** they can assign or remove existing allowed labels but cannot create, edit, or delete definitions.
 6. **Given** any pending or failed label mutation, **When** the user interacts again, **Then** duplicate/stale submission is prevented and the interface returns to authoritative board state with clear feedback.
 7. **Given** the existing board-level label manager, **When** labels are managed from either surface, **Then** both surfaces remain consistent and fully usable.
+8. **Given** an unsaved new or edited label, **When** background state refreshes or unrelated application state changes, **Then** the draft remains intact until Save or Cancel.
 
 ---
 
@@ -90,7 +96,7 @@ As an authorized card editor, I can duplicate a card in one action, so recurring
 
 1. **Given** a fully populated active card, **When** an authorized user duplicates it, **Then** exactly one new active card is created immediately after the source with the title `<source title> (copy)`.
 2. **Given** source content, **When** duplication succeeds, **Then** description, labels, members, checklist content and completion, due date and completion, and attachments are copied with independent identities.
-3. **Given** source history and user-specific state, **When** duplication succeeds, **Then** comments, prior activity, watching, archived state, source identity, and source creation time are not copied.
+3. **Given** source history and user-specific state, **When** duplication succeeds, **Then** comments, prior activity, archived state, source identity, and source creation time are not copied; watching is copied only when the duplicating user is both a source-card member and currently watching it.
 4. **Given** creation automations, **When** a duplicate is created, **Then** those automations execute exactly once and the final returned card reflects their effects.
 5. **Given** any failure during duplication, **When** the operation aborts, **Then** no partial card remains and existing card order is unchanged.
 6. **Given** a successful duplicate, **When** the client receives it, **Then** the new card opens for immediate editing and success feedback is shown.
@@ -116,6 +122,44 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 6. **Given** a sort failure, **When** persistence does not complete, **Then** authoritative order is restored and failure feedback is shown.
 7. **Given** action-specific permissions, **When** the corner menu is displayed, **Then** only actions the user may perform are enabled or visible.
 
+---
+
+### User Story 6 - Manage card checklists again (Priority: P1)
+
+As an authorized card editor, I can view and manage the checklists that Strata already stores, so checklist-backed work and completion automations are usable from the redesigned card modal.
+
+**Why this priority**: Repository history proves the modal redesign removed an existing production capability while leaving checklist data, badges, API persistence, and automation active.
+
+**Independent Test**: Open an existing checklist card, create a checklist and items, toggle completion in both directions, delete an item, refresh, duplicate it, and repeat as a read-only user.
+
+**Acceptance Scenarios**:
+
+1. **Given** a card with existing checklist data, **When** its modal opens, **Then** every checklist, item, completion state, and aggregate progress value is visible.
+2. **Given** card-edit authority, **When** the user creates a checklist or adds/deletes/toggles an item, **Then** the complete checklist state persists and survives refresh.
+3. **Given** the final incomplete item is completed, **When** persistence succeeds, **Then** checklist-complete automation runs exactly once for that transition and not for unrelated edits.
+4. **Given** a failed checklist mutation, **When** persistence is rejected, **Then** the modal returns to authoritative state and provides actionable feedback.
+5. **Given** a read-only user, **When** the card opens, **Then** checklist content and progress are visible but mutation controls are unavailable.
+6. **Given** a duplicated card with checklists, **When** an item in the copy is changed, **Then** the source checklist remains unchanged.
+
+---
+
+### User Story 7 - Keep the board archive truthful and manageable (Priority: P1)
+
+As a System Admin, Workspace Admin, or Board Admin, I see each archived object exactly once and can permanently delete an archived list, so test data and intentionally discarded board content do not become stuck or misleading.
+
+**Why this priority**: The current archive duplicates list-owned cards as apparent phantom rows and provides no list deletion path, creating a data-management defect that could carry into production.
+
+**Independent Test**: Archive a populated list and a separate card, inspect both Archive surfaces, delete the list with confirmation, refresh, and verify role denial, cascade boundaries, audit evidence, and failure recovery.
+
+**Acceptance Scenarios**:
+
+1. **Given** a list is archived with child cards, **When** the Archive opens, **Then** the list appears exactly once and its child cards do not appear as independent archived-card rows.
+2. **Given** a card was archived independently from an active list, **When** the Archive opens, **Then** it appears once with Restore and Delete.
+3. **Given** a System Admin, Workspace Admin, or Board Admin selects Delete on an archived list, **When** they confirm the explicit permanent-deletion warning, **Then** the list and only its child cards are deleted atomically.
+4. **Given** an active list, missing list, or unauthorized user, **When** archived-list deletion is requested directly, **Then** the server rejects it without mutation.
+5. **Given** archived-list deletion fails, **When** the request returns, **Then** the Archive remains authoritative and displays actionable failure feedback.
+6. **Given** either Archive surface, **When** the same board state is shown, **Then** its rows, permissions, Restore actions, and Delete actions are consistent.
+
 ## Edge Cases
 
 - A card is dropped back onto its original insertion point.
@@ -133,6 +177,10 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 - A duplicate creation automation immediately changes its labels, due state, members, or swimlane.
 - A request fails after optimistic client state changes but before the server confirms persistence.
 - The user switches boards, closes the modal, or loses the session while a mutation is pending.
+- A label draft remains open while session/background state refreshes with an equivalent board-label array.
+- A short tap/click has tiny pointer movement below the drag threshold; a long press is released without moving; a completed drag ends over the source card.
+- A checklist has no items, all items complete, duplicate text, or an automation that moves the card after final completion.
+- A list and one child card are archived together while another card is archived independently from an active list.
 
 ## Requirements
 
@@ -143,9 +191,9 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 - **FR-001**: Authorized users MUST be able to place an active card at any exact position within its current swimlane.
 - **FR-002**: Authorized users MUST be able to place an active card at any exact position in another active swimlane on the same board.
 - **FR-003**: During reordering, surrounding cards MUST animate to reveal a destination gap that matches the dragged card's space.
-- **FR-004**: Reordering MUST support pointer, touch, and keyboard operation, including start, movement, drop, and cancel.
-- **FR-005**: Reordering MUST expose understandable state and instructions to assistive technology.
-- **FR-006**: Reordering MUST preserve click-to-open behavior and avoid accidental drag activation.
+- **FR-004**: Reordering MUST support pointer and touch operation from the complete editable card surface, including hold/movement activation, drop, and cancel, with no separate handle.
+- **FR-005**: Reordering MUST expose understandable state changes without claiming a separate keyboard-drag interaction.
+- **FR-006**: A press-and-release that does not activate drag MUST open the card on release; an activated or completed drag MUST NOT also open it.
 - **FR-007**: The saved order MUST remain exact after refresh and session restoration.
 - **FR-008**: Reordering under filters MUST preserve every hidden card and deterministic relative order.
 - **FR-009**: Invalid, archived, missing, or cross-board destinations MUST be rejected without mutation.
@@ -157,7 +205,7 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 
 - **FR-013**: Authorized users MUST be able to edit card descriptions as structured rich text.
 - **FR-014**: The supported content set MUST include paragraphs, hard breaks, bold, italic, strikethrough, level-two and level-three headings, bullet lists, numbered lists, blockquotes, inline code, code blocks, and safe links.
-- **FR-015**: The editor MUST provide undo, redo, common keyboard shortcuts, visible focus, and meaningfully named formatting controls.
+- **FR-015**: The editor MUST rely on native platform undo/redo behavior while providing common formatting shortcuts, visible focus, and meaningfully named formatting controls; dedicated Undo and Redo toolbar controls MUST NOT be shown.
 - **FR-016**: Read mode MUST faithfully render saved semantic structure and multiline boundaries.
 - **FR-017**: Save MUST persist one complete description revision and Cancel MUST preserve the last saved revision.
 - **FR-018**: A failed Save MUST retain a recoverable draft and MUST NOT replace persisted content.
@@ -168,6 +216,8 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 - **FR-023**: An empty description MUST retain the existing placeholder experience and MUST NOT appear non-empty elsewhere.
 - **FR-024**: One successful save MUST create at most one description activity event.
 - **FR-025**: Read-only users MUST be able to view formatted descriptions but MUST NOT edit them.
+- **FR-063**: Edit mode MUST apply visual styling equivalent to read mode for lists, headings, blockquotes, code blocks, inline code, links, and horizontal rules.
+- **FR-064**: Safe links in read mode MUST be directly clickable and MUST NOT use the Description edit trigger as their interactive ancestor.
 
 #### In-card label management (Issue #18)
 
@@ -183,6 +233,7 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 - **FR-035**: Invalid colors, malformed labels, duplicate identities, and unauthorized mutations MUST be rejected without partial state.
 - **FR-036**: Pending and failed label mutations MUST prevent duplicate/stale submissions and recover to authoritative state.
 - **FR-037**: Card-level and board-level label management MUST remain behaviorally consistent and accessible.
+- **FR-065**: Unsaved label drafts MUST NOT be replaced by equivalent or unrelated incoming application-state refreshes; only explicit Save, Cancel, close/reopen, or a confirmed authoritative replacement may reset them.
 
 #### Card duplication (Issue #17)
 
@@ -190,8 +241,8 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 - **FR-039**: A duplicate MUST be created directly after the source in the same board and swimlane with the title `<source title> (copy)`.
 - **FR-040**: A duplicate MUST copy description, labels, members, checklist content/completion, due date/completion, and attachments.
 - **FR-041**: A duplicate and its nested checklist, checklist-item, and attachment records MUST have identities independent from the source.
-- **FR-042**: A duplicate MUST NOT copy comments, prior activity, watching, archived state, source identity, or source creation time.
-- **FR-043**: A duplicate MUST begin active and not watched with a fresh creation time and a source-attributed creation activity.
+- **FR-042**: A duplicate MUST NOT copy comments, prior activity, archived state, source identity, or source creation time.
+- **FR-043**: A duplicate MUST begin active with a fresh creation time and source-attributed creation activity; it MUST begin watched only when the duplicating actor is both assigned to the source and watching it, and otherwise begin not watched.
 - **FR-044**: Card-created automation MUST execute exactly once for the duplicate, and the returned card MUST represent the final result.
 - **FR-045**: Duplication MUST be all-or-nothing and leave existing positions unchanged on failure.
 - **FR-046**: A successful duplicate MUST open the new card and provide success feedback; a failed duplicate MUST preserve the source and provide failure feedback.
@@ -209,6 +260,22 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 - **FR-055**: Empty and single-card sorts MUST be safe no-ops.
 - **FR-056**: Invalid order membership, unauthorized access, and failed persistence MUST produce no partial state and MUST restore authoritative client order.
 - **FR-057**: Sorting MUST NOT be represented as a cross-swimlane move or trigger card-moved automation.
+
+#### Checklist regression (Issue #22)
+
+- **FR-066**: Existing checklists, items, completion states, and aggregate progress MUST render in the card modal.
+- **FR-067**: Authorized card editors MUST be able to create checklists and add, delete, complete, and uncomplete checklist items.
+- **FR-068**: Each checklist mutation MUST persist the complete validated checklist state and survive refresh.
+- **FR-069**: Completing the final incomplete item MUST retain the existing exactly-once checklist-complete automation behavior.
+- **FR-070**: Failed checklist persistence MUST restore authoritative state and display actionable feedback.
+- **FR-071**: Read-only users MUST be able to view checklist content but MUST NOT see or invoke checklist mutations.
+
+#### Archive integrity and deletion (Issue #21)
+
+- **FR-072**: Cards whose parent list is archived MUST NOT appear as independent archived-card rows; independently archived cards in active lists MUST remain visible.
+- **FR-073**: Authorized System Admins, Workspace Admins, and Board Admins MUST be able to permanently delete an archived list only after explicit confirmation.
+- **FR-074**: Archived-list deletion MUST be server-authorized, audited, atomic, reject active or missing lists, and cascade only to cards owned by the selected list.
+- **FR-075**: Both Archive surfaces MUST show consistent rows and actions, and a failed Restore/Delete MUST recover to authoritative state with actionable feedback.
 
 #### Cross-cutting delivery
 
@@ -232,7 +299,7 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 
 ### Measurable Outcomes
 
-- **SC-001**: In acceptance testing, beginning, middle, end, same-position, and cross-swimlane card placements are correct after refresh for pointer, touch, and keyboard paths with zero lost or duplicated cards.
+- **SC-001**: In acceptance testing, beginning, middle, end, same-position, and cross-swimlane card placements are correct after refresh for pointer and touch paths with zero lost or duplicated cards.
 - **SC-002**: Every supported description block/mark round-trips through Save, modal reopen, page refresh, and session restoration with exact semantic structure, and 100% of tested legacy multiline descriptions retain their text and line boundaries after two application starts.
 - **SC-003**: From one open card, an authorized label manager completes create-and-assign, rename, recolor, and confirmed delete without leaving the modal, and every tested board surface reflects the same definition after refresh.
 - **SC-004**: A fully populated duplicated card matches 100% of the specified copied/reset field contract, has independent nested identities, occupies the exact next position, and leaves zero partial records under injected failure.
@@ -240,3 +307,7 @@ As an authorized board administrator, I can sort a swimlane A to Z or Z to A fro
 - **SC-006**: The allowed/denied role matrix passes for every new UI control and direct mutation path with zero unauthorized state changes.
 - **SC-007**: All focused tests and the repository's typecheck, lint, unit/integration, build, E2E, and full CI commands pass on the exact candidate source.
 - **SC-008**: The immutable candidate reaches `strata-canary` with ArgoCD Synced/Healthy, ready workloads, healthy `/api/health`, successful authentication and changed user journeys, no new warning events or application errors, and no production Strata change.
+- **SC-009**: Twenty consecutive draft-hold intervals in both label managers preserve unsaved labels through background refreshes, while Save and Cancel remain deterministic.
+- **SC-010**: Whole-card mouse and touch tests produce zero accidental modal opens after drag and zero missed modal opens after short click/tap across beginning, middle, end, and cross-list moves.
+- **SC-011**: Checklist create/add/toggle/delete and duplicate-independence flows survive refresh with exactly one completion automation at the final-item transition.
+- **SC-012**: A populated archived list produces exactly one archive row, authorized permanent deletion removes exactly the list and its children, and all denied/failure paths produce zero state change.

@@ -31,15 +31,6 @@ vi.mock('../lib/auth-context', () => ({
   }),
 }));
 
-function mockCardLayout() {
-  const cardTops: Record<string, number> = { c5: 0, c6: 110 };
-  return vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    const cardElement = this.closest('[data-card-id]') as HTMLElement | null;
-    const top = cardElement ? cardTops[cardElement.dataset.cardId ?? ''] ?? 0 : 0;
-    return { x: 0, y: top, top, left: 0, right: 280, bottom: top + 100, width: 280, height: 100, toJSON: () => ({}) } as DOMRect;
-  });
-}
-
 describe('BoardView', () => {
   beforeEach(() => {
     createListApiMock.mockReset();
@@ -104,16 +95,17 @@ describe('BoardView', () => {
     expect(screen.queryByPlaceholderText('List title…')).not.toBeInTheDocument();
   });
 
-  it('provides named keyboard drag handles without native draggable cards', () => {
+  it('uses the whole editable card as the pointer/touch drag surface without a separate handle', () => {
     render(
       <AppProvider initialAppState={initialState}>
         <BoardView />
       </AppProvider>,
     );
 
-    const handle = screen.getByRole('button', { name: 'Drag Migrate to Node 20 LTS' });
-    expect(handle).toHaveAttribute('aria-describedby', 'card-drag-instructions');
-    expect(screen.getByText('Migrate to Node 20 LTS').closest('[data-card-id="c6"]')).not.toHaveAttribute('draggable');
+    const card = screen.getByText('Migrate to Node 20 LTS').closest('[data-card-id="c6"]');
+    expect(card).toHaveAttribute('data-drag-activator', 'card');
+    expect(card).toHaveClass('cursor-grab');
+    expect(screen.queryByRole('button', { name: 'Drag Migrate to Node 20 LTS' })).not.toBeInTheDocument();
   });
 
   it('keeps cards readable but removes reorder controls for read-only users', () => {
@@ -127,68 +119,7 @@ describe('BoardView', () => {
 
     expect(screen.getByText('Migrate to Node 20 LTS')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Drag Migrate to Node 20 LTS' })).not.toBeInTheDocument();
-    expect(screen.getByText('Migrate to Node 20 LTS').closest('[data-card-id="c6"]')).not.toHaveAttribute('aria-disabled');
-  });
-
-  it('persists one keyboard reorder through the authoritative move endpoint', async () => {
-    const user = userEvent.setup();
-    const movingCard = initialState.cards.find(card => card.id === 'c6')!;
-    moveCardApiMock.mockResolvedValue({ ...movingCard, position: 0 });
-    mockCardLayout();
-    render(
-      <AppProvider initialAppState={initialState}>
-        <BoardView />
-      </AppProvider>,
-    );
-
-    const handle = screen.getByRole('button', { name: 'Drag Migrate to Node 20 LTS' });
-    handle.focus();
-    await user.keyboard(' ');
-    await user.keyboard('{ArrowUp}');
-    await user.keyboard(' ');
-
-    await waitFor(() => expect(moveCardApiMock).toHaveBeenCalledWith('c6', 'l1', 0));
-    expect(moveCardApiMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('cancels a keyboard drag without a request', async () => {
-    const user = userEvent.setup();
-    mockCardLayout();
-    render(
-      <AppProvider initialAppState={initialState}>
-        <BoardView />
-      </AppProvider>,
-    );
-
-    const handle = screen.getByRole('button', { name: 'Drag Migrate to Node 20 LTS' });
-    handle.focus();
-    await user.keyboard(' ');
-    await user.keyboard('{ArrowUp}');
-    await user.keyboard('{Escape}');
-
-    expect(moveCardApiMock).not.toHaveBeenCalled();
-    expect(await screen.findByText('Canceled moving Migrate to Node 20 LTS.')).toBeInTheDocument();
-  });
-
-  it('restores the previous card order when persistence fails', async () => {
-    const user = userEvent.setup();
-    mockCardLayout();
-    moveCardApiMock.mockRejectedValue(new Error('Network unavailable'));
-    render(
-      <AppProvider initialAppState={initialState}>
-        <BoardView />
-      </AppProvider>,
-    );
-
-    const handle = screen.getByRole('button', { name: 'Drag Migrate to Node 20 LTS' });
-    handle.focus();
-    await user.keyboard(' ');
-    await user.keyboard('{ArrowUp}');
-    await user.keyboard(' ');
-
-    expect(await screen.findByText('Could not move Migrate to Node 20 LTS. The previous order was restored.')).toBeInTheDocument();
-    const backlog = document.querySelector('[data-list-id="l1"]')!;
-    expect([...backlog.querySelectorAll('[data-card-id]')].map(element => element.getAttribute('data-card-id'))).toEqual(['c5', 'c6']);
+    expect(screen.getByText('Migrate to Node 20 LTS').closest('[data-card-id="c6"]')).not.toHaveAttribute('data-drag-activator');
   });
 
   it('offers both sort directions alongside a separated archive action', async () => {

@@ -59,7 +59,21 @@ function cardOrder(page: Page, listId: string) {
   return page.locator(`[data-list-id="${listId}"] [data-card-id]`).evaluateAll(elements => elements.map(element => element.getAttribute('data-card-id')));
 }
 
-test('sorts the complete list persistently and keeps manual keyboard drag available afterward', async ({ page }) => {
+async function dragCard(page: Page, sourceCardId: string, targetCardId: string) {
+  const source = page.locator(`[data-card-id="${sourceCardId}"]`);
+  const target = page.locator(`[data-card-id="${targetCardId}"]`);
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  expect(sourceBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2 + 12, sourceBox!.y + sourceBox!.height / 2 + 12, { steps: 3 });
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + 4, { steps: 12 });
+  await page.mouse.up();
+}
+
+test('sorts the complete list persistently and keeps whole-card pointer drag available afterward', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await signIn(page);
   const title = `Ordering acceptance ${suffix}`;
@@ -118,13 +132,9 @@ test('sorts the complete list persistently and keeps manual keyboard drag availa
   await page.getByRole('button', { name: 'Archive list' }).click();
   await expect(page.locator(`[data-list-id="${emptyLane.id}"]`)).toHaveCount(0);
 
-  const alphaHandle = page.getByRole('button', { name: 'Drag Alpha' });
-  await alphaHandle.focus();
-  await page.keyboard.press('Space');
-  await page.keyboard.press('ArrowUp');
-  await page.keyboard.press('Space');
+  await dragCard(page, sortLane.cardIds[2], sortLane.cardIds[0]);
   await expect.poll(() => cardOrder(page, sortLane.id)).toEqual([
-    sortLane.cardIds[0], sortLane.cardIds[1], sortLane.cardIds[2], sortLane.cardIds[3],
+    sortLane.cardIds[2], sortLane.cardIds[0], sortLane.cardIds[1], sortLane.cardIds[3],
   ]);
 });
 
@@ -135,18 +145,13 @@ test('supports pointer cross-lane reordering with persisted destination order', 
     { title: 'Pointer target', cards: [`Pointer target ${suffix}`] },
   ]);
   const [sourceList, targetList] = fixture.lists;
-  const sourceHandle = page.getByRole('button', { name: `Drag Pointer source ${suffix}` });
-  const targetCard = page.locator(`[data-card-id="${targetList.cardIds[0]}"]`);
-  const sourceBox = await sourceHandle.boundingBox();
-  const targetBox = await targetCard.boundingBox();
-  expect(sourceBox).not.toBeNull();
-  expect(targetBox).not.toBeNull();
+  const sourceCard = page.locator(`[data-card-id="${sourceList.cardIds[0]}"]`);
+  await sourceCard.click();
+  await expect(page.locator('button').filter({ hasText: `Pointer source ${suffix}` }).last()).toBeVisible();
+  await page.getByRole('button', { name: 'Close card' }).click();
 
-  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2 + 12, sourceBox!.y + sourceBox!.height / 2 + 12, { steps: 3 });
-  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 12 });
-  await page.mouse.up();
+  await dragCard(page, sourceList.cardIds[0], targetList.cardIds[0]);
+  await expect(page.getByRole('button', { name: 'Close card' })).toHaveCount(0);
 
   await expect.poll(() => cardOrder(page, sourceList.id)).toEqual([]);
   await page.reload();
@@ -174,12 +179,16 @@ test('round-trips rich descriptions, manages labels in-card, and duplicates an i
   await editor.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
   await page.getByRole('button', { name: 'Bold' }).click();
   await page.getByRole('button', { name: 'Save description' }).click();
-  await expect(page.getByRole('button', { name: 'Edit description' }).locator('strong').first()).toContainText('Launch plan');
+  await expect(page.getByTestId('rich-text-description').locator('strong').first()).toContainText('Launch plan');
+  await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Redo' })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Labels', exact: true }).click();
   await page.getByRole('button', { name: 'Manage labels in card' }).click();
   await page.getByRole('button', { name: 'Add new label' }).click();
   await page.getByPlaceholder('Label name').last().fill(labelName);
+  await page.waitForTimeout(5_500);
+  await expect(page.getByPlaceholder('Label name').last()).toHaveValue(labelName);
   await page.getByRole('button', { name: 'Save labels' }).click();
   await expect(page.getByRole('button', { name: 'Manage labels in card' })).toBeVisible();
   await page.getByRole('button', { name: 'Close labels panel' }).click();
@@ -210,14 +219,21 @@ test('round-trips rich descriptions, manages labels in-card, and duplicates an i
   await selectBoard(page, fixture.boardId);
   await page.getByText(sourceTitle, { exact: true }).click();
 
+  await expect(page.getByRole('heading', { name: 'Checklists' })).toBeVisible();
+  await expect(page.getByText('Verify launch')).toBeVisible();
+
   await page.getByRole('button', { name: 'Duplicate card' }).click();
   await expect(page.getByRole('button', { name: `${sourceTitle} (copy)`, exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit description' }).locator('strong').first()).toContainText('Launch plan');
+  await expect(page.getByTestId('rich-text-description').locator('strong').first()).toContainText('Launch plan');
   await expect(page.getByRole('button', { name: labelName, exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Feature', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'launch-brief.example' })).toBeVisible();
   await expect(page.locator('input[type="date"]')).toHaveValue('2026-09-15');
-  await expect(page.getByRole('button', { name: 'Watch card' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop watching card' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add item to Release' }).click();
+  await page.getByPlaceholder('Checklist item').fill('Copy-only verification');
+  await page.getByRole('button', { name: 'Save checklist item' }).click();
+  await expect(page.getByText('Copy-only verification')).toBeVisible();
 
   await page.getByRole('button', { name: 'Labels', exact: true }).click();
   await page.getByRole('button', { name: 'Manage labels in card' }).click();
@@ -246,7 +262,8 @@ test('round-trips rich descriptions, manages labels in-card, and duplicates an i
   await expect(page.getByText(sourceTitle, { exact: true })).toBeVisible();
   await expect(page.getByText(`Independent copy ${suffix}`, { exact: true })).toBeVisible();
   await page.getByText(sourceTitle, { exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Edit description' }).locator('strong').first()).toContainText('Launch plan');
+  await expect(page.getByTestId('rich-text-description').locator('strong').first()).toContainText('Launch plan');
+  await expect(page.getByText('Copy-only verification')).toHaveCount(0);
   await expect(page.getByRole('button', { name: renamedLabel, exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Labels', exact: true }).click();
@@ -269,9 +286,76 @@ test('hides mutation controls from a read-only board member', async ({ page }) =
   if (await boardSelect.count()) await boardSelect.selectOption('b1');
 
   await expect(page.getByRole('button', { name: 'List actions for Backlog' })).toHaveCount(0);
-  await page.locator('[data-card-id="c5"]').click();
+  await page.locator('[data-card-id="c1"]').click();
   await expect(page.getByRole('button', { name: 'Duplicate card' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Edit description' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Edit description' })).toHaveCount(0);
+  await expect(page.getByText('Lint & typecheck')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add checklist' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Labels', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Manage labels in card' })).toHaveCount(0);
+});
+
+test('projects archived lists once and permits board administrators to delete them with their cards', async ({ page }) => {
+  await signIn(page);
+  const fixture = await createBoardFixture(page, `Archive acceptance ${suffix}`, [
+    { title: `Archived parent ${suffix}`, cards: [`Child card ${suffix}`] },
+    { title: `Active parent ${suffix}`, cards: [`Independent archive ${suffix}`] },
+  ]);
+  const [archivedList, activeList] = fixture.lists;
+
+  await page.getByRole('button', { name: `List actions for Archived parent ${suffix}` }).click();
+  await page.getByRole('button', { name: 'Archive list' }).click();
+  const archivedCard = await page.request.patch(`/api/cards/${activeList.cardIds[0]}`, { data: { archived: true } });
+  expect(archivedCard.ok()).toBeTruthy();
+  await page.reload();
+  await selectBoard(page, fixture.boardId);
+
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(page.getByText(new RegExp(`Archived parent ${suffix}`))).toHaveCount(1);
+  await expect(page.getByText(new RegExp(`Child card ${suffix}`))).toHaveCount(0);
+  await expect(page.getByText(new RegExp(`Independent archive ${suffix}`))).toHaveCount(1);
+
+  await page.getByRole('button', { name: `Delete archived list Archived parent ${suffix}` }).click();
+  await page.getByRole('button', { name: 'Confirm delete archived list' }).click();
+  await expect(page.getByText(new RegExp(`Archived parent ${suffix}`))).toHaveCount(0);
+  expect((await page.request.get(`/api/cards/${archivedList.cardIds[0]}`)).status()).toBe(404);
+});
+
+test.describe('touch card interaction', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 430, height: 932 } });
+
+  test('opens on a tap release and drags from a held whole-card touch', async ({ page, context }) => {
+    await signIn(page);
+    const fixture = await createBoardFixture(page, `Touch acceptance ${suffix}`, [
+      { title: 'Touch source', cards: [`Touch source ${suffix}`] },
+      { title: 'Touch target', cards: [`Touch target ${suffix}`] },
+    ]);
+    const [sourceList, targetList] = fixture.lists;
+    const sourceCard = page.locator(`[data-card-id="${sourceList.cardIds[0]}"]`);
+    const targetCard = page.locator(`[data-card-id="${targetList.cardIds[0]}"]`);
+    const sourceBox = await sourceCard.boundingBox();
+    const targetBox = await targetCard.boundingBox();
+    expect(sourceBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+
+    await page.touchscreen.tap(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+    await expect(page.getByRole('button', { name: 'Close card' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close card' }).click();
+
+    const cdp = await context.newCDPSession(page);
+    const start = { x: sourceBox!.x + sourceBox!.width / 2, y: sourceBox!.y + sourceBox!.height / 2 };
+    const finish = { x: targetBox!.x + targetBox!.width / 2, y: targetBox!.y + 8 };
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [start] });
+    await page.waitForTimeout(350);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: (start.x + finish.x) / 2, y: (start.y + finish.y) / 2 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [finish] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+    await expect.poll(() => cardOrder(page, sourceList.id)).toEqual([]);
+    await expect(page.getByRole('button', { name: 'Close card' })).toHaveCount(0);
+    await page.reload();
+    await selectBoard(page, fixture.boardId);
+    await expect.poll(() => cardOrder(page, targetList.id)).toEqual([sourceList.cardIds[0], targetList.cardIds[0]]);
+  });
 });

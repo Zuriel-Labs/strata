@@ -66,7 +66,7 @@ function renderNode(node: RichTextNode, key: number): ReactNode {
 
 export function RichTextRenderer({ document, className }: RichTextRendererProps) {
   return (
-    <div className={`break-words leading-6 ${className ?? ''}`} data-testid="rich-text-description">
+    <div className={`rich-text-content break-words leading-6 ${className ?? ''}`} data-testid="rich-text-description">
       {renderChildren(document)}
     </div>
   );

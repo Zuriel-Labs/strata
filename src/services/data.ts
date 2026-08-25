@@ -40,6 +40,10 @@ export function restoreListApi(listId: string) {
   return apiRequest<{ success: boolean }>(`/api/lists/${listId}/restore`, { method: 'POST' });
 }
 
+export function deleteListApi(listId: string) {
+  return apiRequest<{ success: boolean; deletedCardCount: number }>(`/api/lists/${listId}`, { method: 'DELETE' });
+}
+
 export function moveListApi(listId: string, toPosition: number) {
   return apiRequest<{ success: boolean }>(`/api/lists/${listId}/move`, { method: 'POST', body: JSON.stringify({ toPosition }) });
 }

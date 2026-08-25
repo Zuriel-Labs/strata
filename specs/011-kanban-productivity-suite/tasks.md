@@ -1,5 +1,5 @@
 ---
-description: "Dependency-ordered Red/Green/Refactor execution ledger for Strata Issues #15–#19"
+description: "Dependency-ordered Red/Green/Refactor execution ledger for Strata Issues #15–#19, #21, and #22"
 ---
 
 # Tasks: Kanban Productivity Suite
@@ -35,15 +35,15 @@ description: "Dependency-ordered Red/Green/Refactor execution ledger for Strata 
 
 ## Phase 3: User Story 1 — Modern card reordering (Issue #15, P1)
 
-**Independent acceptance**: Exact same/cross-list order survives reload for pointer and keyboard paths; cards animate around a visible gap; cancellation/failure/filtering/RBAC preserve every card.
+**Independent acceptance**: Exact same/cross-list order survives reload for whole-card pointer and touch paths; cards animate around a visible gap; click/tap release, cancellation, failure, filtering, and RBAC preserve every card.
 
 - [x] T014 [US1] **RED** Add pure tests for mapping a visible filtered insertion target into the complete active-card sequence in `src/lib/card-order.test.ts`.
 - [x] T015 [US1] **GREEN** Implement deterministic visible-to-complete insertion mapping in `src/lib/card-order.ts`.
-- [x] T016 [US1] **RED** Add component tests for delayed pointer activation, drag overlay/gap state, same-list and cross-list hover order, Escape cancellation, keyboard operation, click-to-open preservation, read-only behavior, and failed-save rollback/toast in `src/components/BoardView.test.tsx`.
-- [x] T017 [US1] **GREEN** Replace card native drag handlers with dnd-kit sortable cards/containers in `src/components/BoardView.tsx`, including optimistic snapshots, overlay, animation, focus restoration, live-region instructions, and reduced-motion behavior.
+- [x] T016 [US1] **RED** Add component tests for delayed pointer/touch activation, drag overlay/gap state, same-list and cross-list hover order, click/tap-to-open preservation, read-only behavior, and failed-save rollback/toast in `src/components/BoardView.test.tsx`.
+- [x] T017 [US1] **GREEN** Replace card native drag handlers with whole-card dnd-kit sortable cards/containers in `src/components/BoardView.tsx`, including optimistic snapshots, overlay, animation, drag-open suppression, live-region status, and reduced-motion behavior.
 - [x] T018 [US1] **GREEN** Update `src/services/data.ts` and `src/store.tsx` so one completed drag persists once, applies the authoritative returned state, and restores/refetches after failure.
 - [x] T019 [US1] **REFACTOR** Extract sortable card/list UI boundaries, eliminate stale closures and unnecessary rerenders, and keep T014–T018 tests green.
-- [x] T020 [US1] Add Playwright acceptance coverage for pointer/keyboard same-list and cross-list reordering, refresh persistence, cancellation, filters, and read-only controls in `tests/e2e/kanban-productivity.spec.ts`.
+- [x] T020 [US1] Add Playwright acceptance coverage for pointer/touch same-list and cross-list reordering, tap release, refresh persistence, filters, and read-only controls in `tests/e2e/kanban-productivity.spec.ts`.
 
 ## Phase 4: User Story 2 — Rich-text descriptions (Issue #19, P1)
 
@@ -51,7 +51,7 @@ description: "Dependency-ordered Red/Green/Refactor execution ledger for Strata 
 
 - [x] T021 [US2] **RED** Add renderer tests for every supported node/mark, safe external links, empty/legacy documents, malformed fallback, and no HTML execution in `src/components/RichTextRenderer.test.tsx`.
 - [x] T022 [US2] **GREEN** Implement semantic React rendering without `dangerouslySetInnerHTML` in `src/components/RichTextRenderer.tsx`.
-- [x] T023 [US2] **RED** Add editor tests for toolbar names/states, keyboard shortcuts, multiline initialization, undo/redo, safe paste/link normalization, Save/Cancel, focus, read-only mode, and recoverable failed draft in `src/components/RichTextEditor.test.tsx` and `src/components/CardModal.test.tsx`.
+- [x] T023 [US2] **RED** Add editor tests for toolbar names/states, native keyboard shortcuts, multiline initialization, safe paste/link normalization, Save/Cancel, focus, read-only mode, and recoverable failed draft in `src/components/RichTextEditor.test.tsx` and `src/components/CardModal.test.tsx`.
 - [x] T024 [US2] **GREEN** Implement the constrained Tiptap editor and accessible formatting toolbar in `src/components/RichTextEditor.tsx`.
 - [x] T025 [US2] **GREEN** Integrate rich read/edit modes and pending/error draft semantics in `src/components/CardModal.tsx`, `src/services/data.ts`, and `src/store.tsx`.
 - [x] T026 [US2] **REFACTOR** Separate editor commands, renderer concerns, and modal persistence state; keep T021–T025 and legacy modal tests green.
@@ -114,6 +114,27 @@ description: "Dependency-ordered Red/Green/Refactor execution ledger for Strata 
 - [ ] T062 Publish the exact candidate tuple and evidence to the PR and all five Issues; replace `agent:working` with `agent:canary` and `agent:awaiting-feedback`; leave Issues open for human validation.
 - [ ] T063 Verify production image/config/workloads remain exactly at the pre-session baseline and hand off the unified canary candidate for explicit approval.
 
+## Phase 10: First Canary Acceptance Remediation
+
+- [x] T064 Reopen Issues #15–#19 as active work, create researched regression Issues #21 and #22 from repository templates, and invalidate the prior exact candidate.
+- [x] T065 [US1] **RED** Replace handle/keyboard assertions with whole-card click-vs-drag mouse/touch activation, suppression, read-only, animation-gap, persistence, and rollback tests in `src/components/BoardView.test.tsx` and `tests/e2e/kanban-productivity.spec.ts`.
+- [x] T066 [US1] **GREEN** Bind the full card as dnd-kit activator, configure pointer/touch constraints, remove the handle/keyboard contract, and suppress modal opening after active drag in `src/components/BoardView.tsx`.
+- [x] T067 [US3] **RED** Add a label-manager test that rerenders with equivalent/incoming labels after a hold interval and proves an unsaved draft is preserved in `src/components/LabelEditor.test.tsx`.
+- [x] T068 [US3] **GREEN** Stop passive prop refresh from replacing active label drafts in `src/components/LabelEditor.tsx` while preserving mount, Save, and Cancel semantics.
+- [x] T069 [US4] **RED** Extend duplicate repository/route tests for the four assigned/watching actor combinations in `server/tests/crud-routes.test.ts` and `server/tests/rbac-routes.test.ts`.
+- [x] T070 [US4] **GREEN** Derive duplicate watching from source membership, source watch state, and actor identity in `server/src/db/repositories.ts`.
+- [x] T071 [US2] **RED** Add edit/view style-parity, direct-link interaction, and absent Undo/Redo control tests in `src/components/RichTextEditor.test.tsx`, `src/components/CardModal.test.tsx`, and E2E.
+- [x] T072 [US2] **GREEN** Share rich-text presentation classes between editor/renderer, remove Undo/Redo toolbar controls, and replace the view-mode edit-button wrapper with a non-nested click surface in `src/components/RichTextEditor.tsx`, `src/components/RichTextRenderer.tsx`, `src/components/CardModal.tsx`, and `src/index.css`.
+- [x] T073 [US6] **RED** Add modal, server, automation, persistence-failure, read-only, and duplicate-independence tests for restored checklists.
+- [x] T074 [US6] **GREEN** Restore checklist progress and create/add/toggle/delete controls with authoritative persistence and failure feedback in `src/components/CardModal.tsx`.
+- [x] T075 [US7] **RED** Add archive projection, list-delete API/RBAC/audit/cascade, failure, and both-surface UI tests.
+- [x] T076 [US7] **GREEN** Add archived-list repository/route/service/store deletion and parent-aware archive selectors with consistent confirmed actions in both Archive surfaces.
+- [x] T077 **REFACTOR** Extract shared archive row/projection helpers, remove hover-only destructive controls, and rerun all Phase 10 focused tests.
+- [x] T078 Update OpenAPI contract, consistency analysis, requirements checklists, quickstart, and validation report for the seven-Issue replacement candidate.
+- [x] T079 Run `npm audit`, SQLite integrity/migration checks, `npm run test:ci`, focused serial Playwright, and interactive desktop/mobile/touch visual QA on the exact clean source.
+- [ ] T080 Commit/push the replacement exact head, wait for exact-head GitHub CI, update PR #20 and all seven Issues with evidence, build/push the immutable image, and deploy only `strata-canary` through Gitea/ArgoCD.
+- [ ] T081 Verify exact running digest, health, logs/events, first-account/auth state, all changed live journeys, and production non-change; then replace working labels with canary/feedback labels and hand off the updated checklist.
+
 ## Dependencies
 
 ```text
@@ -124,7 +145,7 @@ Setup T001–T004
 Board-label aggregate (existing) ──> US3 T028–T035
 Card row mapping + ordering foundation ──> US4 T036–T042
 
-All five stories ──> T050–T055 ──> T056–T063
+All five original stories ──> T050–T055 ──> T056–T063 ──> remediation T064–T081
 ```
 
 - US3 can begin after Setup because it reuses the existing board-label aggregate.

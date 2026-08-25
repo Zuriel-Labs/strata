@@ -323,6 +323,27 @@ describe('list CRUD routes', () => {
     expect(restoreRes.status).toBe(200);
   });
 
+  it('permanently deletes only an archived list and cascades its child cards', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const created = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Disposable archive list' });
+    const listId = created.body.id;
+    const child = await agent.post('/api/cards').send({ boardId: 'b1', listId, title: 'Disposable child' });
+
+    expect((await agent.delete(`/api/lists/${listId}`).send()).status).toBe(400);
+    expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(listId)).toBeTruthy();
+
+    await agent.post(`/api/lists/${listId}/archive`).send();
+    const deleted = await agent.delete(`/api/lists/${listId}`).send();
+    expect(deleted.status).toBe(200);
+    expect(deleted.body).toEqual({ success: true, deletedCardCount: 1 });
+    expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(listId)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM cards WHERE id = ?').get(child.body.id)).toBeUndefined();
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'list.delete' AND scope_id = 'b1'").all()).toHaveLength(1);
+  });
+
   it('moves a list position', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
@@ -415,6 +436,12 @@ describe('card CRUD routes', () => {
     const checklists = [{ id: 'cl1', title: 'Todo', items: [{ id: 'ci1', text: 'Item 1', completed: false }] }];
     const r8 = await agent.patch(`/api/cards/${cardId}`).send({ checklists });
     expect(r8.body.checklists).toEqual(checklists);
+
+    const invalidChecklist = await agent.patch(`/api/cards/${cardId}`).send({
+      checklists: [{ id: 'cl-bad', title: '', items: [{ id: 'ci-bad', text: 'Missing completion state' }] }],
+    });
+    expect(invalidChecklist.status).toBe(400);
+    expect(invalidChecklist.body).toEqual({ message: 'Invalid payload.' });
 
     // Update comments
     const comments = [{ id: 'cm1', userId: 'u1', text: 'Hello', createdAt: new Date().toISOString() }];

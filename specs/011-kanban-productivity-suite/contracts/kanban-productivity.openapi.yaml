@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Strata Kanban Productivity API
   version: 1.0.0
-  description: Contract additions and changed card semantics for Issues 15 through 19.
+  description: Contract additions and changed card semantics for Issues 15 through 19, 21, and 22.
 servers:
   - url: /api
 security:
@@ -85,6 +85,34 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /lists/{listId}:
+    delete:
+      operationId: deleteArchivedList
+      summary: Permanently delete one archived list and all of its child cards
+      parameters:
+        - $ref: '#/components/parameters/ListId'
+      responses:
+        '200':
+          description: The archived list and its child cards were deleted atomically.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [success, deletedCardCount]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  deletedCardCount:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /cards/{cardId}/duplicate:
     post:
       operationId: duplicateCard
@@ -142,7 +170,9 @@ paths:
                     type: string
                 checklists:
                   type: array
-                  items: {}
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/Checklist'
                 dueDate:
                   type: [string, 'null']
                 dueDateComplete:
@@ -332,6 +362,39 @@ components:
           properties:
             type:
               const: doc
+    ChecklistItem:
+      type: object
+      additionalProperties: false
+      required: [id, text, completed]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        completed:
+          type: boolean
+    Checklist:
+      type: object
+      additionalProperties: false
+      required: [id, title, items]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
     Card:
       type: object
       required: [id, title, description, descriptionDocument, listId, boardId, position, memberIds, labelIds, checklists, dueDate, dueDateComplete, comments, activity, attachments, watching, archived, createdAt]
@@ -351,7 +414,8 @@ components:
           items: { type: string }
         checklists:
           type: array
-          items: {}
+          items:
+            $ref: '#/components/schemas/Checklist'
         dueDate:
           type: [string, 'null']
         dueDateComplete: { type: boolean }

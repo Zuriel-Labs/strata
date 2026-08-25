@@ -57,4 +57,16 @@ describe('LabelEditor', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(screen.getByDisplayValue('Urgent')).toBeInTheDocument();
   });
+
+  it('preserves an unsaved new label when equivalent authoritative labels rerender', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<LabelEditor labels={labels} onSave={vi.fn()} onCancel={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add new label' }));
+    const newLabel = screen.getAllByPlaceholderText('Label name').at(-1)!;
+    await user.type(newLabel, 'Do not disappear');
+
+    rerender(<LabelEditor labels={labels.map(label => ({ ...label }))} onSave={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByDisplayValue('Do not disappear')).toBeInTheDocument();
+  });
 });

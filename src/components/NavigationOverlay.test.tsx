@@ -92,7 +92,7 @@ describe('NavigationOverlay automations', () => {
     expect(screen.getByRole('button', { name: 'Workspaces' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Boards' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Automations' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
   });
 
   it('renames a workspace inline on Enter without switching tabs', async () => {

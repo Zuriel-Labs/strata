@@ -11,3 +11,5 @@
 - [x] API005 - Are authoritative refresh/rollback and stable safe error responses required for all client/server mutation failures? [Failure Handling]
 - [x] API006 - Is audit evidence required with enough context and without sensitive data? [Security, FR-048, FR-058]
 - [x] API007 - Are session persistence and cross-feature regression requirements explicit? [Integration, FR-060]
+- [x] API008 - Does archived-list deletion define archived-only preconditions, authorization, cascade scope, audit, atomicity, and failure behavior? [Completeness, FR-073–FR-075]
+- [x] API009 - Does checklist persistence retain the existing complete-aggregate and exactly-once completion-automation contract? [Consistency, FR-066–FR-071]

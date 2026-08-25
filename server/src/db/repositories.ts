@@ -551,6 +551,12 @@ export function restoreList(db: Database.Database, listId: string) {
   db.prepare('UPDATE cards SET archived = 0 WHERE list_id = ?').run(listId);
 }
 
+export function deleteArchivedList(db: Database.Database, listId: string) {
+  const childCardCount = Number(db.prepare('SELECT COUNT(*) FROM cards WHERE list_id = ?').pluck().get(listId));
+  db.prepare('DELETE FROM lists WHERE id = ?').run(listId);
+  return childCardCount;
+}
+
 export function moveList(db: Database.Database, listId: string, boardId: string, toPosition: number) {
   const lists = db.prepare('SELECT id FROM lists WHERE board_id = ? AND archived = 0 ORDER BY position ASC').all(boardId) as Array<{ id: string }>;
   const reordered = lists.filter(l => l.id !== listId);
@@ -651,7 +657,7 @@ export function duplicateCard(
         id, title, description, description_json, list_id, board_id, position,
         member_ids_json, label_ids_json, checklists_json, due_date, due_date_complete,
         comments_json, activity_json, attachments_json, watching, archived, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 0, 0, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, 0, ?)
     `).run(
       duplicateId,
       `${source.title} (copy)`,
@@ -667,6 +673,7 @@ export function duplicateCard(
       source.dueDateComplete ? 1 : 0,
       JSON.stringify(activity),
       JSON.stringify(duplicateAttachments(source.attachments)),
+      source.watching && source.memberIds.includes(actorUserId) ? 1 : 0,
       timestamp,
     );
 

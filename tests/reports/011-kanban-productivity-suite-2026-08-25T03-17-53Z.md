@@ -1,5 +1,7 @@
 # Validation Report: Kanban Productivity Suite
 
+> The first-candidate evidence below is retained as history. Its keyboard-handle, reset-watcher, and five-Issue conclusions were superseded by the first canary acceptance remediation recorded at the end of this report.
+
 **Started (UTC)**: 2026-08-25T03:17:53Z
 **Worktree**: `/Users/chris/Documents/Github/strata-kanban-productivity`
 **Branch**: `feat/kanban-productivity-suite`
@@ -117,4 +119,34 @@ Focused RED/GREEN/REFACTOR and full command results will be appended as implemen
 
 ## Local acceptance conclusion
 
-All 62 functional requirements and 35 Given/When/Then scenarios have implementation evidence across pure, component, route, contract, and real-browser layers. No open Strata Issue exists outside #15–#19. Source remains based on current `origin/main` `bfa003122589e9b290ca32c0816a66549b71aa0c`; production remains unauthorized and unchanged.
+All 62 first-candidate functional requirements and 35 Given/When/Then scenarios had implementation evidence across pure, component, route, contract, and real-browser layers. That candidate was invalidated by canary acceptance feedback. Source remained based on `origin/main` `bfa003122589e9b290ca32c0816a66549b71aa0c`; production remained unauthorized and unchanged.
+
+## First Canary Acceptance Remediation — replacement candidate
+
+### Scope and RED/GREEN evidence
+
+- Reopened #15–#19 and created researched regression Issues #21 and #22; the suite now has 75 functional requirements, 51 Given/When/Then scenarios, and 81 contiguous tasks.
+- Whole-card interaction: removed the dedicated handle and keyboard sensor, retained dnd-kit gap/overlay animation, added click-after-release and post-drag open suppression, and covered same-list, cross-list, read-only, mouse, and real Chromium touch input.
+- Label stability: reproduced the five-second auth-refresh reset and removed passive prop-to-draft replacement; unit rerender and 5.5-second browser hold tests pass.
+- Duplication: watching now persists only when the duplicating actor is both a source member and watching; copied checklists retain independent IDs and mutation isolation.
+- Description: editor and renderer use one rich-content style contract; read-mode links remain direct links, Undo/Redo controls are absent, and responsive dark-mode visual comparison matches view/edit structure.
+- Checklists: restored progress, create, add, toggle, un-toggle, and delete-item controls; updates remain authoritative on failures; strict nested server validation, completion automation, read-only view, refresh, and duplicate independence pass.
+- Archive: archived parent lists project once, child cards no longer appear as phantom rows, independent archived cards remain visible, and System/Workspace/Board administrators can confirm permanent archived-list deletion with atomic cascade and audit evidence.
+
+### Exact local validation
+
+- Fresh `origin/main`: `bfa003122589e9b290ca32c0816a66549b71aa0c`; merge base unchanged.
+- `npm audit --audit-level=high`: PASS, 0 vulnerabilities.
+- `npm audit --omit=dev --audit-level=high`: PASS, 0 vulnerabilities.
+- `sqlite3 server/data/e2e.sqlite 'PRAGMA integrity_check;'`: `ok`.
+- `npx vitest run server/tests/foundation.test.ts`: 4/4 PASS for additive/idempotent migration and malformed legacy fallback.
+- Focused component/contract validation: 7 files, 63/63 PASS.
+- Focused route/repository/RBAC validation: 3 files, 88/88 PASS.
+- `npm run test:ci`: PASS on the complete replacement tree: lint; 30 Vitest files / 233 tests; typecheck; client/server build; 10/10 Chromium E2E tests.
+- Build output: client JS `944.90 kB` (`280.90 kB` gzip), CSS `76.61 kB` (`14.64 kB` gzip), server `136.5 kB`; existing non-blocking large-chunk warning remains.
+- In-app browser visual QA: desktop and 390×844 mobile dark-mode card modal, checklist/progress/touch targets, shared rich-text edit/view presentation, zero Undo/Redo controls, and zero console warnings/errors all PASS.
+- `git diff --check`: PASS.
+
+### Replacement local conclusion
+
+All seven Issue stories (#15–#19, #21, #22) have local spec, unit, integration, contract, browser, touch, security, persistence, RBAC, and visual evidence. The replacement source remains based on current `origin/main`; canary deployment is authorized, while production remains unauthorized and must remain unchanged.

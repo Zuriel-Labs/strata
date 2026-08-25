@@ -4,13 +4,16 @@ import { RichTextEditor } from './RichTextEditor';
 import { plainTextToRichTextDocument } from '../lib/rich-text';
 
 describe('RichTextEditor', () => {
-  it('provides an accessible multiline editor and complete formatting toolbar', async () => {
+  it('provides an accessible multiline editor and requested formatting toolbar without redundant undo controls', async () => {
     render(<RichTextEditor value={plainTextToRichTextDocument('Existing details')} onChange={vi.fn()} />);
 
     expect(await screen.findByRole('textbox', { name: 'Description editor' })).toHaveTextContent('Existing details');
-    for (const name of ['Bold', 'Italic', 'Strikethrough', 'Inline code', 'Heading 2', 'Heading 3', 'Bulleted list', 'Numbered list', 'Quote', 'Code block', 'Link', 'Horizontal rule', 'Undo', 'Redo']) {
+    for (const name of ['Bold', 'Italic', 'Strikethrough', 'Inline code', 'Heading 2', 'Heading 3', 'Bulleted list', 'Numbered list', 'Quote', 'Code block', 'Link', 'Horizontal rule']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Redo' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Description editor' })).toHaveClass('rich-text-content');
   });
 
   it('emits a structured document as content changes', async () => {

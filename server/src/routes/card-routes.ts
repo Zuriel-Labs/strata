@@ -14,6 +14,18 @@ const createCardSchema = z.object({
   title: z.string().min(1),
 });
 
+const checklistItemSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  text: z.string().trim().min(1).max(1_000),
+  completed: z.boolean(),
+}).strict();
+
+const checklistSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  title: z.string().trim().min(1).max(200),
+  items: z.array(checklistItemSchema).max(500),
+}).strict();
+
 const updateCardSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
@@ -22,7 +34,7 @@ const updateCardSchema = z.object({
   position: z.number().optional(),
   memberIds: z.array(z.string()).optional(),
   labelIds: z.array(z.string()).optional(),
-  checklists: z.array(z.unknown()).optional(),
+  checklists: z.array(checklistSchema).max(100).optional(),
   dueDate: z.string().nullable().optional(),
   dueDateComplete: z.boolean().optional(),
   comments: z.array(z.unknown()).optional(),

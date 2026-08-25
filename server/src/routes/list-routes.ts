@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { createList, updateList, archiveList, restoreList, moveList, sortListCards, getListById, getMaxListPosition, createAuditEvent } from '../db/repositories';
+import { createList, updateList, archiveList, restoreList, deleteArchivedList, moveList, sortListCards, getListById, getMaxListPosition, createAuditEvent } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canArchiveBoardContent, canEditBoardCards, canManageBoard } from '../rbac/permissions';
 
@@ -94,6 +94,33 @@ export function createListRoutes(db: Database.Database) {
     restoreList(db, listId);
     createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.restore', outcome: 'success' });
     response.json({ success: true });
+  });
+
+  // Permanently delete an archived list and its child cards.
+  router.delete('/:listId', requireAuth, (request: AuthenticatedRequest, response) => {
+    const listId = String(request.params.listId);
+    const list = getListById(db, listId);
+    if (!list) { response.status(404).json({ message: 'List not found.' }); return; }
+    if (!canArchiveBoardContent(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    if (!list.archived) { response.status(400).json({ message: 'Only archived lists can be permanently deleted.' }); return; }
+
+    try {
+      const deletedCardCount = db.transaction(() => {
+        const count = deleteArchivedList(db, listId);
+        createAuditEvent(db, {
+          actorUserId: request.auth!.user.id,
+          scopeType: 'board',
+          scopeId: list.boardId,
+          action: 'list.delete',
+          outcome: 'success',
+          metadata: { listId, deletedCardCount: count },
+        });
+        return count;
+      })();
+      response.json({ success: true, deletedCardCount });
+    } catch {
+      response.status(500).json({ message: 'Unable to permanently delete list.' });
+    }
   });
 
   // Move list

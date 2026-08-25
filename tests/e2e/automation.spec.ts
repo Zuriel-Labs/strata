@@ -124,7 +124,7 @@ test('card-created automations can label and route cards in the browser', async 
 
   await expect(page.getByText(cardTitle)).toBeVisible();
   await page.getByText(cardTitle).click();
-  await expect(page.getByRole('button', { name: 'Urgent' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Urgent', exact: true })).toBeVisible();
   await expect(page.getByText(`In list ${triageList}`)).toBeVisible();
 });
 
@@ -153,7 +153,7 @@ test('date-time automations update visible cards after the scheduled time', asyn
   await page.getByText('Evaluate state management options').click();
 
   await expect.poll(async () => {
-    const urgentCount = await page.getByRole('button', { name: 'Urgent' }).count();
+    const urgentCount = await page.getByRole('button', { name: 'Urgent', exact: true }).count();
     return urgentCount > 0;
   }, { timeout: 15000 }).toBe(true);
 });

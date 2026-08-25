@@ -11,3 +11,4 @@
 - [x] SEC005 - Are safe error response and no-sensitive-data audit requirements explicit? [Data Exposure]
 - [x] SEC006 - Does the specification require allowed and denied role validation through both UI and direct mutation paths? [Coverage, SC-006]
 - [x] SEC007 - Is production explicitly protected behind approval of an exact immutable canary candidate? [Operational Security, FR-062]
+- [x] SEC008 - Is permanent list deletion restricted to archived lists and System/Workspace/Board administrators with exact cascade and audit boundaries? [Authorization, FR-073–FR-075]

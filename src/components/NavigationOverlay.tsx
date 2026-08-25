@@ -3,7 +3,7 @@ import { Trash2 } from 'lucide-react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/admin';
-import { createBoardApi, deleteBoardApi, toggleBoardStarApi, updateBoardApi, updateCardApi, deleteCardApi, restoreListApi } from '../services/data';
+import { createBoardApi, deleteBoardApi, toggleBoardStarApi, updateBoardApi } from '../services/data';
 import type { AutomationRule, Board, Workspace } from '../types';
 import { createAutomationRuleApi, updateAutomationRuleApi, deleteAutomationRuleApi } from '../services/data';
 import {
@@ -14,6 +14,7 @@ import {
   supportedTriggers,
   triggerLabels,
 } from './automation-rule-form';
+import { ArchiveItems } from './ArchiveItems';
 
 type NavTab = 'workspaces' | 'boards' | 'automations' | 'archive';
 type DeleteTarget = { kind: 'workspace' | 'board'; id: string; name: string };
@@ -41,8 +42,8 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
     ...(canOpenNavigation ? [{ key: 'workspaces' as const, label: 'Workspaces', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> }] : []),
     ...(canOpenNavigation ? [{ key: 'boards' as const, label: 'Boards', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> }] : []),
     ...(isSystemAdmin || canManageCurrentWorkspace ? [{ key: 'automations' as const, label: 'Automations', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> }] : []),
-    ...(isSystemAdmin || canManageCurrentWorkspace ? [{ key: 'archive' as const, label: 'Archive', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg> }] : []),
-  ], [canManageCurrentWorkspace, canOpenNavigation, isSystemAdmin]);
+    ...(isSystemAdmin || canManageCurrentWorkspace || canManageCurrentBoard ? [{ key: 'archive' as const, label: 'Archive', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg> }] : []),
+  ], [canManageCurrentBoard, canManageCurrentWorkspace, canOpenNavigation, isSystemAdmin]);
   const defaultTab = tabs[0]?.key ?? 'boards';
   const visibleActiveTab = tabs.some(tab => tab.key === activeTab) ? activeTab : defaultTab;
 
@@ -931,35 +932,5 @@ function AutomationsContent({ workspaceId, selectedBoardId, setSelectedBoardId }
 /* ── Archive Tab ── */
 
 function ArchiveContent() {
-  const state = useAppState();
-  const dispatch = useDispatch();
-
-  if (!state.currentBoardId) return <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Select a board to view its archive.</p>;
-
-  const archivedLists = state.lists.filter(l => l.archived && l.boardId === state.currentBoardId);
-  const archivedCards = state.cards.filter(c => c.archived && c.boardId === state.currentBoardId);
-
-  if (archivedLists.length === 0 && archivedCards.length === 0) {
-    return <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Nothing archived on this board.</p>;
-  }
-
-  return (
-    <div className="space-y-2">
-      {archivedLists.map(l => (
-        <div key={l.id} className="flex items-center justify-between px-3 min-h-[44px] text-xs rounded-lg" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
-          <span className="truncate">📋 {l.title}</span>
-          <button onClick={() => { dispatch({ type: 'RESTORE_LIST', payload: l.id }); restoreListApi(l.id); }} className="text-xs underline shrink-0 ml-1 min-h-[44px] flex items-center" style={{ color: 'var(--accent)' }}>Restore</button>
-        </div>
-      ))}
-      {archivedCards.map(c => (
-        <div key={c.id} className="flex items-center justify-between px-3 min-h-[44px] text-xs rounded-lg" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
-          <span className="truncate">🃏 {c.title}</span>
-          <div className="flex gap-1 shrink-0 ml-1">
-            <button onClick={() => { dispatch({ type: 'RESTORE_CARD', payload: c.id }); updateCardApi(c.id, { archived: false }); }} className="text-xs underline min-h-[44px] flex items-center" style={{ color: 'var(--accent)' }}>Restore</button>
-            <button onClick={() => { dispatch({ type: 'DELETE_CARD', payload: c.id }); deleteCardApi(c.id); }} className="text-xs underline min-h-[44px] flex items-center" style={{ color: '#ef4444' }}>Delete</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  return <ArchiveItems />;
 }

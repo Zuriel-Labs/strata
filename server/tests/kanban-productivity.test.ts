@@ -172,6 +172,21 @@ describe('transactional card duplication', () => {
     expect(JSON.parse(audit[0].metadataJson)).toEqual({ sourceCardId: 'c5', duplicateCardId: response.body.id });
   });
 
+  it('keeps watching only when the duplicating actor is assigned to and watching the source', async () => {
+    const db = await createDatabase(':memory:');
+    const agent = await loginAdmin(createApp(db));
+
+    await agent.patch('/api/cards/c5').send({ memberIds: ['u1'], watching: true });
+    const memberWatcherCopy = await agent.post('/api/cards/c5/duplicate').send({});
+    expect(memberWatcherCopy.status).toBe(201);
+    expect(memberWatcherCopy.body.watching).toBe(true);
+
+    await agent.patch('/api/cards/c6').send({ memberIds: ['u1'], watching: false });
+    const memberNotWatchingCopy = await agent.post('/api/cards/c6/duplicate').send({});
+    expect(memberNotWatchingCopy.status).toBe(201);
+    expect(memberNotWatchingCopy.body.watching).toBe(false);
+  });
+
   it('rolls back inserted content and positions after an injected failure', async () => {
     const db = await createDatabase(':memory:');
     const agent = await loginAdmin(createApp(db));

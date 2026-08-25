@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type ComponentProps } from 'react';
 import { DragDropProvider, DragOverlay, useDroppable } from '@dnd-kit/react';
 import { useSortable } from '@dnd-kit/react/sortable';
 import { move as moveSortable } from '@dnd-kit/helpers';
+import { PointerSensor } from '@dnd-kit/dom';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import type { Card as CardType, List as ListType } from '../types';
@@ -107,15 +108,16 @@ function StaticCardItem({ card }: { card: CardType }) {
   );
 }
 
-function SortableCardItem({ card, index, group }: { card: CardType; index: number; group: string }) {
+function SortableCardItem({ card, index, group, shouldSuppressOpen }: { card: CardType; index: number; group: string; shouldSuppressOpen: (cardId: string) => boolean }) {
   const dispatch = useDispatch();
-  const { ref, handleRef, isDragSource, isDropTarget } = useSortable({
+  const { ref, isDragSource, isDropTarget } = useSortable({
     id: card.id,
     index,
     group,
     type: 'card',
     accept: 'card',
     data: { cardId: card.id, listId: group },
+    sensors: [PointerSensor],
     transition: { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', idle: true },
   });
 
@@ -123,8 +125,12 @@ function SortableCardItem({ card, index, group }: { card: CardType; index: numbe
     <div
       ref={ref}
       data-card-id={card.id}
-      onClick={() => dispatch({ type: 'SET_ACTIVE_CARD', payload: card.id })}
-      className="group relative rounded-lg p-3 mb-2 cursor-pointer transition-[border-color,box-shadow,opacity] duration-200"
+      data-drag-activator="card"
+      onClick={() => {
+        if (shouldSuppressOpen(card.id)) return;
+        dispatch({ type: 'SET_ACTIVE_CARD', payload: card.id });
+      }}
+      className="group relative rounded-lg p-3 mb-2 cursor-grab active:cursor-grabbing touch-manipulation select-none transition-[border-color,box-shadow,opacity] duration-200"
       style={{
         background: 'var(--card-bg)',
         border: `1px solid ${isDropTarget ? 'var(--accent)' : 'var(--card-border)'}`,
@@ -134,25 +140,14 @@ function SortableCardItem({ card, index, group }: { card: CardType; index: numbe
       onMouseEnter={event => { if (!isDropTarget) event.currentTarget.style.borderColor = 'var(--accent)'; }}
       onMouseLeave={event => { if (!isDropTarget) event.currentTarget.style.borderColor = 'var(--card-border)'; }}
     >
-      <button
-        ref={handleRef}
-        type="button"
-        aria-label={`Drag ${card.title}`}
-        aria-describedby="card-drag-instructions"
-        onClick={event => event.stopPropagation()}
-        className="absolute right-1.5 top-1.5 w-7 h-7 rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 flex items-center justify-center cursor-grab active:cursor-grabbing transition-opacity"
-        style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}
-      >
-        ⠿
-      </button>
       <CardContents card={card} />
     </div>
   );
 }
 
-function CardItem({ card, index, group, canReorder }: { card: CardType; index: number; group: string; canReorder: boolean }) {
+function CardItem({ card, index, group, canReorder, shouldSuppressOpen }: { card: CardType; index: number; group: string; canReorder: boolean; shouldSuppressOpen: (cardId: string) => boolean }) {
   return canReorder
-    ? <SortableCardItem card={card} index={index} group={group} />
+    ? <SortableCardItem card={card} index={index} group={group} shouldSuppressOpen={shouldSuppressOpen} />
     : <StaticCardItem card={card} />;
 }
 
@@ -169,7 +164,7 @@ function CardOverlay({ card }: { card: CardType }) {
 }
 
 /* ───── List Component ───── */
-function ListColumn({ list, cards }: { list: ListType; cards: CardType[] }) {
+function ListColumn({ list, cards, shouldSuppressOpen }: { list: ListType; cards: CardType[]; shouldSuppressOpen: (cardId: string) => boolean }) {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
@@ -284,7 +279,7 @@ function ListColumn({ list, cards }: { list: ListType; cards: CardType[] }) {
 
       {/* Cards */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-[40px]">
-        {cards.map((card, index) => <CardItem key={card.id} card={card} index={index} group={list.id} canReorder={canEditCards} />)}
+        {cards.map((card, index) => <CardItem key={card.id} card={card} index={index} group={list.id} canReorder={canEditCards} shouldSuppressOpen={shouldSuppressOpen} />)}
       </div>
 
       {/* Add card */}
@@ -335,6 +330,7 @@ export function BoardView() {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [dragAnnouncement, setDragAnnouncement] = useState('');
   const dragSnapshot = useRef<{ cards: CardType[]; notifications: typeof state.notifications } | null>(null);
+  const suppressOpenCardId = useRef<string | null>(null);
   const canManageBoard = auth.canManageBoard(state.currentBoardId);
 
   const lists = state.lists
@@ -372,6 +368,9 @@ export function BoardView() {
     const cardId = String(event.operation.source?.id ?? '');
     const movingCard = state.cards.find(card => card.id === cardId);
     setActiveCardId(null);
+    window.setTimeout(() => {
+      if (suppressOpenCardId.current === cardId) suppressOpenCardId.current = null;
+    }, 0);
     if (!movingCard || event.canceled) {
       dragSnapshot.current = null;
       setDragAnnouncement(event.canceled && movingCard ? `Canceled moving ${movingCard.title}.` : '');
@@ -431,15 +430,26 @@ export function BoardView() {
         const card = state.cards.find(candidate => candidate.id === cardId);
         if (!card) return;
         dragSnapshot.current = { cards: state.cards, notifications: state.notifications };
+        suppressOpenCardId.current = cardId;
         setActiveCardId(cardId);
-        setDragAnnouncement(`Picked up ${card.title}. Use arrow keys to choose a position, Space to drop, or Escape to cancel.`);
+        setDragAnnouncement(`Picked up ${card.title}. Move the pointer to choose a position, then release to drop.`);
       }}
       onDragEnd={handleDragEnd}
     >
-      <p id="card-drag-instructions" className="sr-only">Press Space to pick up a card, use the arrow keys to move it, press Space again to drop, or Escape to cancel.</p>
       <div className="sr-only" aria-live="polite" aria-atomic="true">{dragAnnouncement}</div>
       <div className="flex gap-4 p-4 overflow-x-auto flex-1 items-start" style={{ height: 'calc(100% - 0px)' }}>
-        {lists.map(list => <ListColumn key={list.id} list={list} cards={visibleCardsByList[list.id] ?? []} />)}
+        {lists.map(list => (
+          <ListColumn
+            key={list.id}
+            list={list}
+            cards={visibleCardsByList[list.id] ?? []}
+            shouldSuppressOpen={cardId => {
+              if (suppressOpenCardId.current !== cardId) return false;
+              suppressOpenCardId.current = null;
+              return true;
+            }}
+          />
+        ))}
         {/* Add list */}
         {canManageBoard && <div className="w-72 shrink-0">
           {addingList ? (

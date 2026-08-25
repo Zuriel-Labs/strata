@@ -38,7 +38,8 @@ The final `npm run test:ci` is mandatory even when its component gates have alre
 - Reorder first→middle, middle→last, and last→first in one list.
 - Move a card between lists and back.
 - Confirm neighboring cards animate to expose a visible gap and the dragged card uses an overlay/lifted state.
-- Perform a same-list move with the keyboard and hear/see meaningful instructions/status.
+- Start a drag from the title, labels, badges, and blank card area; confirm there is no separate handle.
+- Short-click and short-tap without drag and confirm details open on release; hold/move/drop and confirm details do not open.
 - Cancel a drag and force a failed request; both restore the exact previous order.
 - Reload and verify the committed order persists with compact unique positions.
 - Verify filtered/hidden cards are not lost or misordered by a visible-card drag.
@@ -55,7 +56,8 @@ The final `npm run test:ci` is mandatory even when its component gates have alre
 
 - Duplicate from the card modal, including a source with formatted description, labels, members, checklist content, due date, and attachment metadata.
 - Confirm the copy appears immediately after the source with ` (copy)` in its title.
-- Confirm fresh nested IDs, independent edits, copied current due-date completion, and exclusions for comments/activity/watching/archive/prior history.
+- Confirm fresh nested IDs, independent edits, copied current due-date completion, and exclusions for comments/activity/archive/prior history.
+- Confirm watching persists only when the duplicating user is both assigned to and watching the source; every other case starts not watched.
 - Confirm exactly one `card_created` automation execution and one audit event.
 - Verify forbidden users cannot duplicate.
 
@@ -66,6 +68,7 @@ The final `npm run test:ci` is mandatory even when its component gates have alre
 - Assign a newly created label to the current card.
 - Delete an assigned label and verify card/automation references are cleaned.
 - Verify validation, duplicate IDs, invalid colors, RBAC denial, and persistence-failure handling.
+- Leave a new label unsaved beyond background refresh intervals in both managers; confirm it never disappears before Save/Cancel.
 
 ### Issue #19 — rich-text descriptions
 
@@ -74,11 +77,30 @@ The final `npm run test:ci` is mandatory even when its component gates have alre
 - Convert an existing plain multiline description and confirm its lines remain readable.
 - Paste formatted and malicious content; confirm unsupported nodes/attributes/protocols are rejected or normalized and no HTML executes.
 - Verify empty content, maximum size/depth/node limits, failed save rollback, read-only view links, focus behavior, and responsive layout.
+- Compare edit/view styling for lists, headings, quote, code block, inline code, link, and separator; confirm read-mode links are clickable without entering edit mode.
+- Confirm dedicated Undo/Redo toolbar buttons are absent and native platform undo/redo still works in the editor.
+
+### Issue #22 — restored card checklists
+
+- Open existing checklist data and verify progress, titles, items, and completion state.
+- Create a checklist, add items, toggle complete/incomplete, delete an item, refresh, and confirm persistence.
+- Complete the final item and confirm exactly one checklist-complete automation transition.
+- Force a failed mutation and confirm authoritative recovery with visible feedback.
+- Confirm read-only users can view but not mutate and a duplicate edits independently.
+
+### Issue #21 — archive integrity and archived-list deletion
+
+- Archive a populated list and independently archive a card from an active list.
+- Confirm the populated list appears once, its children do not appear separately, and the independent card appears once.
+- Confirm archived lists and independent cards both expose confirmation-gated Delete where authorized.
+- Permanently delete the list and verify only it and its child cards disappear after refresh.
+- Verify System Admin, Workspace Admin, and Board Admin access; deny lower roles and direct deletion of active lists.
+- Force delete/restore failures and confirm both Archive surfaces recover authoritatively with actionable feedback.
 
 ## Canary release procedure
 
 1. Commit the complete source tree and push the feature branch.
-2. Open one PR linked to all five Issues. Do not merge it.
+2. Update the existing PR so it links all seven Issues. Do not merge it.
 3. Build from the clean committed source SHA using an immutable canary tag and record the registry digest.
 4. Record the pre-change canary image and health baseline.
 5. In the canonical homelab repository, change only `apps/strata-canary/values.yaml`, commit that path, and push to Gitea.

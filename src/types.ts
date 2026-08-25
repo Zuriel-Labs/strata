@@ -301,6 +301,7 @@ export type Action =
   | { type: 'UPDATE_LIST'; payload: { id: string; title: string } }
   | { type: 'ARCHIVE_LIST'; payload: string }
   | { type: 'RESTORE_LIST'; payload: string }
+  | { type: 'DELETE_LIST'; payload: string }
   | { type: 'ADD_CARD'; payload: { listId: string; boardId: string; title: string } }
   | { type: 'UPDATE_CARD'; payload: Partial<Card> & { id: string } }
   | { type: 'MOVE_CARD'; payload: { cardId: string; toListId: string; toPosition: number } }

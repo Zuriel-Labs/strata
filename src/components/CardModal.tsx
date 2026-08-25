@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { AlignLeft, Clock3, Copy, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
+import { AlignLeft, CheckSquare, Clock3, Copy, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
 import { uid } from '../data';
 import { deleteCardApi, duplicateCardApi, updateBoardLabelsApi, updateCardApi, moveCardApi } from '../services/data';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
-import type { Attachment, RichTextDocument } from '../types';
+import type { Attachment, Checklist, RichTextDocument } from '../types';
 import { toast } from '../hooks/use-toast';
 import { RichTextEditor } from './RichTextEditor';
 import { RichTextRenderer } from './RichTextRenderer';
@@ -84,6 +84,12 @@ export function CardModal() {
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [duplicateError, setDuplicateError] = useState('');
   const [duplicateStatus, setDuplicateStatus] = useState('');
+  const [addingChecklist, setAddingChecklist] = useState(false);
+  const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [addingItemTo, setAddingItemTo] = useState<string | null>(null);
+  const [newItemText, setNewItemText] = useState('');
+  const [checklistPending, setChecklistPending] = useState(false);
+  const [checklistError, setChecklistError] = useState('');
   const [revealedSections, setRevealedSections] = useState<Record<OptionalSectionKey, boolean>>({
     members: false,
     labels: false,
@@ -109,6 +115,14 @@ export function CardModal() {
   const lists = state.lists
     .filter(candidate => candidate.boardId === card.boardId && !candidate.archived)
     .sort((a, b) => a.position - b.position);
+  const totalChecklistItems = card.checklists.reduce((total, checklist) => total + checklist.items.length, 0);
+  const completedChecklistItems = card.checklists.reduce(
+    (total, checklist) => total + checklist.items.filter(item => item.completed).length,
+    0,
+  );
+  const checklistProgress = totalChecklistItems > 0
+    ? Math.round((completedChecklistItems / totalChecklistItems) * 100)
+    : 0;
   const currentUser = state.users.find(user => user.id === state.currentUserId) ?? state.users[0] ?? null;
   const canEditCard = auth.canEditBoardCards(card.boardId);
   const canDeleteCard = auth.canManageBoard(card.boardId);
@@ -294,6 +308,60 @@ export function CardModal() {
     }
     setLabelManagerOpen(false);
     setLabelQuery('');
+  };
+
+  const persistChecklists = async (nextChecklists: Checklist[], onSuccess?: () => void) => {
+    if (!canEditCard || checklistPending) return;
+    setChecklistPending(true);
+    setChecklistError('');
+    try {
+      const updatedCard = await updateCardApi(card.id, { checklists: nextChecklists });
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: updatedCard });
+      onSuccess?.();
+    } catch (error) {
+      setChecklistError(error instanceof Error ? error.message : 'The checklist change could not be saved.');
+    } finally {
+      setChecklistPending(false);
+    }
+  };
+
+  const createChecklist = () => {
+    const title = newChecklistTitle.trim();
+    if (!title) return;
+    const nextChecklist: Checklist = { id: uid(), title, items: [] };
+    void persistChecklists([...card.checklists, nextChecklist], () => {
+      setNewChecklistTitle('');
+      setAddingChecklist(false);
+    });
+  };
+
+  const addChecklistItem = (checklistId: string) => {
+    const text = newItemText.trim();
+    if (!text) return;
+    const nextChecklists = card.checklists.map(checklist => checklist.id === checklistId
+      ? { ...checklist, items: [...checklist.items, { id: uid(), text, completed: false }] }
+      : checklist);
+    void persistChecklists(nextChecklists, () => {
+      setNewItemText('');
+      setAddingItemTo(null);
+    });
+  };
+
+  const toggleChecklistItem = (checklistId: string, itemId: string) => {
+    const nextChecklists = card.checklists.map(checklist => checklist.id === checklistId
+      ? {
+          ...checklist,
+          items: checklist.items.map(item => item.id === itemId ? { ...item, completed: !item.completed } : item),
+        }
+      : checklist);
+    void persistChecklists(nextChecklists);
+  };
+
+  const deleteChecklistItem = (checklistId: string, itemId: string) => {
+    const nextChecklists = card.checklists.map(checklist => checklist.id === checklistId
+      ? { ...checklist, items: checklist.items.filter(item => item.id !== itemId) }
+      : checklist);
+    void persistChecklists(nextChecklists);
   };
 
   const handleLinkAttachment = async () => {
@@ -703,20 +771,167 @@ export function CardModal() {
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                aria-label="Edit description"
-                disabled={!canEditCard}
-                onClick={beginDescriptionEdit}
-                className="min-h-[88px] w-full rounded-xl border px-4 py-3 text-left text-sm"
+              <div
+                className={`group/description relative min-h-[88px] w-full rounded-xl border px-4 py-3 text-left text-sm ${canEditCard ? 'cursor-text' : ''}`}
                 style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)', color: card.description ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+                onClick={event => {
+                  if (!canEditCard || (event.target as HTMLElement).closest('a')) return;
+                  beginDescriptionEdit();
+                }}
               >
                 {card.description
-                  ? <RichTextRenderer document={card.descriptionDocument} />
+                  ? <RichTextRenderer document={card.descriptionDocument} className={canEditCard ? 'pr-14' : undefined} />
                   : 'Add a more detailed description...'}
-              </button>
+                {canEditCard && (
+                  <button
+                    type="button"
+                    aria-label="Edit description"
+                    onClick={event => {
+                      event.stopPropagation();
+                      beginDescriptionEdit();
+                    }}
+                    className="absolute right-3 top-3 min-h-[40px] rounded-md px-3 text-xs font-semibold opacity-70 transition-opacity hover:opacity-100 focus:opacity-100"
+                    style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}
+                  >Edit</button>
+                )}
+              </div>
             )}
           </section>
+
+          {(card.checklists.length > 0 || canEditCard) && (
+            <section className="mb-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <SectionHeading icon={CheckSquare} title="Checklists" className="mb-0" />
+                {canEditCard && !addingChecklist && (
+                  <button
+                    type="button"
+                    disabled={checklistPending}
+                    onClick={() => {
+                      setChecklistError('');
+                      setAddingChecklist(true);
+                    }}
+                    className="min-h-[44px] rounded-md px-3 text-sm font-semibold disabled:opacity-50"
+                    style={{ background: 'var(--active-bg)', color: 'var(--accent)' }}
+                  >Add checklist</button>
+                )}
+              </div>
+
+              {totalChecklistItems > 0 && (
+                <div className="mb-4 flex items-center gap-3" aria-label={`${checklistProgress}% checklist complete`}>
+                  <span className="w-10 text-xs font-bold" style={{ color: checklistProgress === 100 ? '#22c55e' : 'var(--text-secondary)' }}>{checklistProgress}%</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}>
+                    <div
+                      className="h-full rounded-full transition-[width] duration-300"
+                      style={{ width: `${checklistProgress}%`, background: checklistProgress === 100 ? '#22c55e' : 'var(--accent)' }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {checklistError && <p role="alert" className="mb-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">{checklistError}</p>}
+
+              {addingChecklist && canEditCard && (
+                <div className="mb-4 flex flex-col gap-2 rounded-xl border p-3 sm:flex-row" style={{ borderColor: 'var(--border)' }}>
+                  <input
+                    autoFocus
+                    value={newChecklistTitle}
+                    disabled={checklistPending}
+                    onChange={event => setNewChecklistTitle(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        createChecklist();
+                      }
+                      if (event.key === 'Escape') {
+                        setAddingChecklist(false);
+                        setNewChecklistTitle('');
+                      }
+                    }}
+                    placeholder="Checklist title"
+                    className="min-h-[44px] flex-1 rounded-md border px-3 text-sm outline-none disabled:opacity-50"
+                    style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                  <button type="button" disabled={checklistPending || !newChecklistTitle.trim()} onClick={createChecklist} className="min-h-[44px] rounded-md px-4 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Save checklist</button>
+                  <button type="button" disabled={checklistPending} onClick={() => { setAddingChecklist(false); setNewChecklistTitle(''); }} className="min-h-[44px] px-3 text-sm" style={{ color: 'var(--text-secondary)' }}>Cancel</button>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {card.checklists.map(checklist => (
+                  <div key={checklist.id} className="rounded-xl border p-3" style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)' }}>
+                    <h4 className="mb-2 text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{checklist.title}</h4>
+                    {checklist.items.length === 0 && addingItemTo !== checklist.id && (
+                      <p className="mb-2 text-sm" style={{ color: 'var(--text-secondary)' }}>No items yet.</p>
+                    )}
+                    <div className="space-y-1">
+                      {checklist.items.map(item => (
+                        <div key={item.id} className="flex min-h-[44px] items-center gap-3 rounded-md px-2">
+                          <input
+                            type="checkbox"
+                            aria-label={`Mark ${item.text} ${item.completed ? 'incomplete' : 'complete'}`}
+                            checked={item.completed}
+                            disabled={!canEditCard || checklistPending}
+                            onChange={() => toggleChecklistItem(checklist.id, item.id)}
+                            className="h-5 w-5 shrink-0 rounded disabled:cursor-default"
+                          />
+                          <span className="min-w-0 flex-1 text-sm" style={{ color: 'var(--text-primary)', opacity: item.completed ? 0.55 : 1, textDecoration: item.completed ? 'line-through' : 'none' }}>{item.text}</span>
+                          {canEditCard && (
+                            <button
+                              type="button"
+                              aria-label={`Delete checklist item ${item.text}`}
+                              disabled={checklistPending}
+                              onClick={() => deleteChecklistItem(checklist.id, item.id)}
+                              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md disabled:opacity-50"
+                              style={{ color: '#ef4444' }}
+                            ><Trash2 size={16} /></button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {addingItemTo === checklist.id && canEditCard ? (
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <input
+                          autoFocus
+                          value={newItemText}
+                          disabled={checklistPending}
+                          onChange={event => setNewItemText(event.target.value)}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              addChecklistItem(checklist.id);
+                            }
+                            if (event.key === 'Escape') {
+                              setAddingItemTo(null);
+                              setNewItemText('');
+                            }
+                          }}
+                          placeholder="Checklist item"
+                          className="min-h-[44px] flex-1 rounded-md border px-3 text-sm outline-none disabled:opacity-50"
+                          style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                        />
+                        <button type="button" disabled={checklistPending || !newItemText.trim()} onClick={() => addChecklistItem(checklist.id)} className="min-h-[44px] rounded-md px-4 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Save checklist item</button>
+                        <button type="button" disabled={checklistPending} onClick={() => { setAddingItemTo(null); setNewItemText(''); }} className="min-h-[44px] px-3 text-sm" style={{ color: 'var(--text-secondary)' }}>Cancel</button>
+                      </div>
+                    ) : canEditCard ? (
+                      <button
+                        type="button"
+                        aria-label={`Add item to ${checklist.title}`}
+                        disabled={checklistPending}
+                        onClick={() => {
+                          setChecklistError('');
+                          setNewItemText('');
+                          setAddingItemTo(checklist.id);
+                        }}
+                        className="mt-2 min-h-[44px] rounded-md px-3 text-sm font-semibold disabled:opacity-50"
+                        style={{ color: 'var(--accent)' }}
+                      >Add item</button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {(card.attachments.length > 0 || revealedSections.attachments) && (
             <section className="mb-5">

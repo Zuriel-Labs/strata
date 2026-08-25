@@ -24,9 +24,11 @@ describe.sequential('kanban productivity OpenAPI contract', () => {
     const contract = readFileSync('specs/011-kanban-productivity-suite/contracts/kanban-productivity.openapi.yaml', 'utf8');
     expect(contract).toContain('/cards/{cardId}/move:');
     expect(contract).toContain('/lists/{listId}/sort:');
+    expect(contract).toContain('/lists/{listId}:');
     expect(contract).toContain('/cards/{cardId}/duplicate:');
     expect(contract).toContain('/boards/{boardId}/labels:');
     expect(contract).toContain('descriptionDocument:');
+    expect(contract).toContain("$ref: '#/components/schemas/Checklist'");
     expect(contract.match(/additionalProperties: false/g)?.length).toBeGreaterThanOrEqual(5);
   });
 
@@ -36,6 +38,7 @@ describe.sequential('kanban productivity OpenAPI contract', () => {
     const calls = [
       request(app).post('/api/cards/c5/move').send({ toListId: 'l1', toPosition: 0 }),
       request(app).post('/api/lists/l1/sort').send({ direction: 'asc' }),
+      request(app).delete('/api/lists/l1'),
       request(app).post('/api/cards/c5/duplicate').send({}),
       request(app).put('/api/boards/b1/labels').send({ labels: [] }),
       request(app).patch('/api/cards/c5').send({ descriptionDocument: { type: 'doc', content: [] } }),
@@ -57,6 +60,7 @@ describe.sequential('kanban productivity OpenAPI contract', () => {
     expect((await agent.post('/api/cards/c5/duplicate').send({ unknown: true })).body).toEqual({ message: 'Invalid payload.' });
     expect((await agent.post('/api/cards/c5/move').send({ toListId: 'l1', toPosition: 0, unknown: true })).status).toBe(400);
     expect((await agent.patch('/api/cards/c5').send({ title: 'Known', unknown: true })).status).toBe(400);
+    expect((await agent.patch('/api/cards/c5').send({ checklists: [{ id: 'bad', title: '', items: [] }] })).status).toBe(400);
     expect((await agent.patch('/api/cards/c5').send({ description: 'legacy', descriptionDocument: { type: 'doc', content: [] } })).status).toBe(400);
     const unsafe = await agent.patch('/api/cards/c5').send({
       descriptionDocument: {

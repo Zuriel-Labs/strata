@@ -69,7 +69,7 @@ A duplicate is a new active card immediately after the source card in the same l
 
 | Copied | Reset/excluded | Regenerated |
 |---|---|---|
-| Title with ` (copy)` suffix, rich/plain description, members, valid labels, checklist text/completion state, due date and its current completion boolean, attachment metadata/link target | Card ID, comments, activity, watching, archive state, prior due-date activity/history, created-at, automation history | Card ID, checklist IDs, checklist-item IDs, attachment IDs, created-at |
+| Title with ` (copy)` suffix, rich/plain description, members, valid labels, checklist text/completion state, due date and its current completion boolean, attachment metadata/link target; watching only when the actor is assigned and watching | Card ID, comments, prior activity, archive state, prior due-date activity/history, created-at, automation history; watching for every other actor/source state | Card ID, checklist IDs, checklist-item IDs, attachment IDs, created-at |
 
 The base insert and list reindex occur in one transaction. Exactly one `card_created` automation is invoked after commit. The route returns the final card state after automation.
 
@@ -84,6 +84,18 @@ The modal maintains two distinct pieces of state:
 
 Save promotes the draft after server confirmation. Cancel closes the draft without changing the card or board.
 
+Passive application-state refresh must not replace an open draft. A fresh draft is created only when the editor mounts/reopens or after the previous Save/Cancel lifecycle ends.
+
+## Checklist Aggregate
+
+`Card.checklists` is an ordered list of checklist identities, titles, and ordered item identities/text/completion booleans. The modal edits a complete candidate aggregate and persists it through the existing card update. Server automation compares the previous and next aggregate to detect only the incomplete-to-complete transition.
+
+## Archive Projection and Deletion
+
+An independently archived card is `card.archived = true` while its parent list remains active. Cards owned by an archived list are represented by the parent list row and excluded from the independent-card projection.
+
+Permanent archived-list deletion requires the list to exist and be archived. Deleting its database row cascades to cards through the existing foreign key. No other list or card is in the transaction scope.
+
 ## Audit Events
 
 | Action | Scope | Metadata |
@@ -93,6 +105,7 @@ Save promotes the draft after server confirmation. Cancel closes the draft witho
 | `card.duplicate` | board | source card ID, duplicate card ID |
 | `board.labels.update` | board | existing action retained; counts only, no sensitive description content |
 | `card.update` | board | existing/new update action records changed field names, never rich-text contents |
+| `list.delete` | board | deleted archived list ID and child-card count |
 
 ## Migration and Rollback
 

@@ -28,6 +28,10 @@ function buildState(cardId: string, overrides?: Partial<AppState['cards'][number
             memberIds: overrides?.memberIds ?? [...card.memberIds],
             labelIds: overrides?.labelIds ?? [...card.labelIds],
             attachments: overrides?.attachments ?? [...card.attachments],
+            checklists: overrides?.checklists ?? card.checklists.map(checklist => ({
+              ...checklist,
+              items: checklist.items.map(item => ({ ...item })),
+            })),
             comments: overrides?.comments ?? [...card.comments],
             activity: overrides?.activity ?? [...card.activity],
           }
@@ -79,7 +83,7 @@ describe('CardModal', () => {
     expect(screen.getByRole('heading', { name: 'Comments and activity' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Members' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Labels' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Checklist/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Checklists' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /members/i }));
     await user.click(screen.getByRole('button', { name: /labels/i }));
@@ -311,6 +315,35 @@ describe('CardModal', () => {
     expect(screen.getByRole('button', { name: 'Edit description' })).toBeInTheDocument();
   });
 
+  it('keeps read-mode hyperlinks clickable without entering edit mode and shares rich-text styling', async () => {
+    const user = userEvent.setup();
+    const descriptionDocument = {
+      type: 'doc' as const,
+      content: [{
+        type: 'paragraph' as const,
+        content: [{
+          type: 'text' as const,
+          text: 'Open the brief',
+          marks: [{ type: 'link' as const, attrs: { href: 'https://example.com/brief' } }],
+        }],
+      }],
+    };
+    render(
+      <AppProvider initialAppState={buildState('c5', { description: 'Open the brief', descriptionDocument })}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    const link = screen.getByRole('link', { name: 'Open the brief' });
+    expect(link).toHaveAttribute('href', 'https://example.com/brief');
+    expect(screen.getByTestId('rich-text-description')).toHaveClass('rich-text-content');
+    await user.click(link);
+    expect(screen.queryByRole('textbox', { name: 'Description editor' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Edit description' }));
+    expect(await screen.findByRole('textbox', { name: 'Description editor' })).toHaveClass('rich-text-content');
+  });
+
   it('saves Description edits as structured rich text and returns to formatted view', async () => {
     const user = userEvent.setup();
     const state = buildState('c5', { description: '', descriptionDocument: plainTextToRichTextDocument('') });
@@ -354,7 +387,90 @@ describe('CardModal', () => {
     await user.click(screen.getByRole('button', { name: 'Save description' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/temporary failure/i);
-    expect(screen.getByRole('textbox', { name: 'Description editor' })).toHaveTextContent('Original draft');
+    expect(screen.getByRole('textbox', { name: 'Description editor' })).toHaveTextContent('Original');
+    expect(screen.getByRole('textbox', { name: 'Description editor' })).toHaveTextContent('draft');
+  });
+
+  it('renders checklist progress and persists create, add, toggle, and delete mutations', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', {
+      checklists: [{
+        id: 'checklist-qa',
+        title: 'QA',
+        items: [
+          { id: 'item-lint', text: 'Lint', completed: true },
+          { id: 'item-smoke', text: 'Smoke test', completed: false },
+        ],
+      }],
+    });
+    let serverCard = state.cards.find(card => card.id === 'c5')!;
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const updates = JSON.parse(String(init?.body ?? '{}'));
+      serverCard = { ...serverCard, ...updates };
+      return Response.json(serverCard);
+    });
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+
+    expect(screen.getByRole('heading', { name: 'Checklists' })).toBeInTheDocument();
+    expect(screen.getByText('50%')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add checklist' }));
+    await user.type(screen.getByPlaceholderText('Checklist title'), 'Release');
+    await user.click(screen.getByRole('button', { name: 'Save checklist' }));
+    expect(await screen.findByText('Release')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add item to QA' }));
+    await user.type(screen.getByPlaceholderText('Checklist item'), 'Browser verification');
+    await user.click(screen.getByRole('button', { name: 'Save checklist item' }));
+    expect(await screen.findByText('Browser verification')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Mark Smoke test complete' }));
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Mark Smoke test incomplete' })).toBeChecked());
+
+    await user.click(screen.getByRole('button', { name: 'Delete checklist item Browser verification' }));
+    await waitFor(() => expect(screen.queryByText('Browser verification')).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps checklist content read-only when card editing is unavailable', () => {
+    authState.canEditBoardCards.mockReturnValue(false);
+    render(
+      <AppProvider initialAppState={buildState('c5', {
+        checklists: [{ id: 'checklist-ro', title: 'Read only', items: [{ id: 'item-ro', text: 'Visible item', completed: true }] }],
+      })}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    expect(screen.getByText('Visible item')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Mark Visible item incomplete' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Add checklist' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add item to Read only' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete checklist item Visible item' })).not.toBeInTheDocument();
+  });
+
+  it('retains an unsaved checklist item and authoritative card state when persistence fails', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ message: 'Checklist unavailable' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    render(
+      <AppProvider initialAppState={buildState('c5', {
+        checklists: [{ id: 'checklist-fail', title: 'Failure path', items: [] }],
+      })}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Add item to Failure path' }));
+    await user.type(screen.getByPlaceholderText('Checklist item'), 'Keep this draft');
+    await user.click(screen.getByRole('button', { name: 'Save checklist item' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Checklist unavailable');
+    expect(screen.getByPlaceholderText('Checklist item')).toHaveValue('Keep this draft');
+    expect(screen.queryByText('Keep this draft', { selector: 'span' })).not.toBeInTheDocument();
   });
 
   it('renders download and view actions for persisted browser-viewable file attachments', () => {

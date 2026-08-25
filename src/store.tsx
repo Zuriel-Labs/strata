@@ -268,6 +268,13 @@ export function reducer(state: AppState, action: Action): AppState {
         cards: state.cards.map(card => card.listId === action.payload ? { ...card, archived: false } : card),
       };
 
+    case 'DELETE_LIST':
+      return {
+        ...state,
+        lists: state.lists.filter(list => list.id !== action.payload),
+        cards: state.cards.filter(card => card.listId !== action.payload),
+      };
+
     case 'ADD_CARD': {
       const maxPos = Math.max(-1, ...state.cards.filter(card => card.listId === action.payload.listId && !card.archived).map(card => card.position));
       const newCard: Card = {

@@ -67,7 +67,7 @@ export function RichTextEditor({ value, onChange, disabled = false, autoFocus = 
         role: 'textbox',
         'aria-label': 'Description editor',
         'aria-multiline': 'true',
-        class: 'min-h-[160px] px-4 py-3 text-sm leading-6 outline-none',
+        class: 'rich-text-content min-h-[160px] px-4 py-3 text-sm leading-6 outline-none',
       },
     },
     onUpdate: ({ editor: currentEditor }) => {
@@ -124,8 +124,6 @@ export function RichTextEditor({ value, onChange, disabled = false, autoFocus = 
           }}
         >Link</ToolbarButton>
         <ToolbarButton label="Horizontal rule" disabled={disabled} onClick={() => run(() => editor.chain().focus().setHorizontalRule().run())}>—</ToolbarButton>
-        <ToolbarButton label="Undo" disabled={disabled || !editor.can().chain().focus().undo().run()} onClick={() => run(() => editor.chain().focus().undo().run())}>Undo</ToolbarButton>
-        <ToolbarButton label="Redo" disabled={disabled || !editor.can().chain().focus().redo().run()} onClick={() => run(() => editor.chain().focus().redo().run())}>Redo</ToolbarButton>
       </div>
       {linkEditing && (
         <div className="flex flex-wrap items-center gap-2 border-b p-2" style={{ borderColor: 'var(--border)' }}>

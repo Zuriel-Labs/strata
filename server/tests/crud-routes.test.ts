@@ -161,6 +161,64 @@ describe('board CRUD routes', () => {
     expect(res.body.labels[0]).toEqual({ id: 'lb1', name: '', color: '#ef4444' });
   });
 
+  it('trims label names and rejects invalid colors, duplicate IDs, and unknown fields', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const valid = await agent.put('/api/boards/b1/labels').send({
+      labels: [{ id: 'lb1', name: '  Critical  ', color: '#AABBCC' }],
+    });
+    expect(valid.status).toBe(200);
+    expect(valid.body.labels).toEqual([{ id: 'lb1', name: 'Critical', color: '#aabbcc' }]);
+
+    for (const labels of [
+      [{ id: 'lb1', name: 'Bad', color: 'red' }],
+      [{ id: 'lb1', name: 'One', color: '#112233' }, { id: 'lb1', name: 'Two', color: '#445566' }],
+      [{ id: 'lb1', name: 'Bad', color: '#112233', extra: true }],
+    ]) {
+      const response = await agent.put('/api/boards/b1/labels').send({ labels });
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ message: 'Invalid label payload.' });
+    }
+  });
+
+  it('rolls back board and dependent label changes when cleanup fails', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+    const before = db.prepare('SELECT labels_json as labelsJson FROM boards WHERE id = ?').get('b1') as { labelsJson: string };
+
+    db.exec(`
+      CREATE TRIGGER fail_label_cleanup BEFORE UPDATE OF label_ids_json ON cards
+      WHEN OLD.board_id = 'b1'
+      BEGIN SELECT RAISE(ABORT, 'injected cleanup failure'); END;
+    `);
+
+    const response = await agent.put('/api/boards/b1/labels').send({
+      labels: [{ id: 'lb1', name: 'Urgent', color: '#ef4444' }],
+    });
+
+    expect(response.status).toBe(500);
+    const after = db.prepare('SELECT labels_json as labelsJson FROM boards WHERE id = ?').get('b1') as { labelsJson: string };
+    expect(after.labelsJson).toBe(before.labelsJson);
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'board.labels.update'").all()).toEqual([]);
+  });
+
+  it('records one successful board-label audit event with actor and scope metadata', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const response = await agent.put('/api/boards/b1/labels').send({
+      labels: [{ id: 'lb1', name: 'Urgent', color: '#ef4444' }],
+    });
+    expect(response.status).toBe(200);
+
+    const events = db.prepare("SELECT actor_user_id as actorUserId, scope_id as scopeId, outcome FROM audit_events WHERE action = 'board.labels.update'").all();
+    expect(events).toEqual([{ actorUserId: 'u1', scopeId: 'b1', outcome: 'success' }]);
+  });
+
   it('deletes a board and cascades its content', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
@@ -265,6 +323,27 @@ describe('list CRUD routes', () => {
     expect(restoreRes.status).toBe(200);
   });
 
+  it('permanently deletes only an archived list and cascades its child cards', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await loginAdmin(app);
+
+    const created = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Disposable archive list' });
+    const listId = created.body.id;
+    const child = await agent.post('/api/cards').send({ boardId: 'b1', listId, title: 'Disposable child' });
+
+    expect((await agent.delete(`/api/lists/${listId}`).send()).status).toBe(400);
+    expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(listId)).toBeTruthy();
+
+    await agent.post(`/api/lists/${listId}/archive`).send();
+    const deleted = await agent.delete(`/api/lists/${listId}`).send();
+    expect(deleted.status).toBe(200);
+    expect(deleted.body).toEqual({ success: true, deletedCardCount: 1 });
+    expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(listId)).toBeUndefined();
+    expect(db.prepare('SELECT id FROM cards WHERE id = ?').get(child.body.id)).toBeUndefined();
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'list.delete' AND scope_id = 'b1'").all()).toHaveLength(1);
+  });
+
   it('moves a list position', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
@@ -357,6 +436,12 @@ describe('card CRUD routes', () => {
     const checklists = [{ id: 'cl1', title: 'Todo', items: [{ id: 'ci1', text: 'Item 1', completed: false }] }];
     const r8 = await agent.patch(`/api/cards/${cardId}`).send({ checklists });
     expect(r8.body.checklists).toEqual(checklists);
+
+    const invalidChecklist = await agent.patch(`/api/cards/${cardId}`).send({
+      checklists: [{ id: 'cl-bad', title: '', items: [{ id: 'ci-bad', text: 'Missing completion state' }] }],
+    });
+    expect(invalidChecklist.status).toBe(400);
+    expect(invalidChecklist.body).toEqual({ message: 'Invalid payload.' });
 
     // Update comments
     const comments = [{ id: 'cm1', userId: 'u1', text: 'Hello', createdAt: new Date().toISOString() }];

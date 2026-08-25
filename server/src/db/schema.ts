@@ -75,6 +75,7 @@ export function createSchema(db: Database.Database) {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
+      description_json TEXT,
       list_id TEXT NOT NULL,
       board_id TEXT NOT NULL,
       position INTEGER NOT NULL,
@@ -173,6 +174,14 @@ export function createSchema(db: Database.Database) {
 
   if (!userColumns.has('default_board_id')) {
     db.exec('ALTER TABLE users ADD COLUMN default_board_id TEXT');
+  }
+
+  const cardColumns = new Set(
+    (db.prepare('PRAGMA table_info(cards)').all() as Array<{ name: string }>).map(column => column.name),
+  );
+
+  if (!cardColumns.has('description_json')) {
+    db.exec('ALTER TABLE cards ADD COLUMN description_json TEXT');
   }
 
   const automationRuleColumns = new Set(

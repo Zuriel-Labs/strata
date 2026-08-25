@@ -1,8 +1,17 @@
-import { useState, type DragEvent } from 'react';
+import { useMemo, useRef, useState, type ComponentProps } from 'react';
+import { DragDropProvider, DragOverlay, useDroppable } from '@dnd-kit/react';
+import { useSortable } from '@dnd-kit/react/sortable';
+import { move as moveSortable } from '@dnd-kit/helpers';
+import { PointerSensor } from '@dnd-kit/dom';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import type { Card as CardType, List as ListType } from '../types';
-import { createCardApi, moveCardApi, createListApi, updateListApi, archiveListApi, moveListApi } from '../services/data';
+import { createCardApi, moveCardApi, createListApi, updateListApi, archiveListApi, moveListApi, sortListApi } from '../services/data';
+import { completeInsertionPosition } from '../lib/card-order';
+import { sortCardsByTitle, type CardSortDirection } from '../lib/card-sort';
+import { useToast } from '../hooks/use-toast';
+
+type BoardDragOverEvent = Parameters<NonNullable<ComponentProps<typeof DragDropProvider>['onDragOver']>>[0];
 
 /* ───── helpers ───── */
 function passesFilter(card: CardType, state: ReturnType<typeof useAppState>) {
@@ -35,26 +44,30 @@ function dueBadge(card: CardType) {
   return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: bg, color: fg }}>⏱ {label}</span>;
 }
 
+function previewHorizontalOrder(ids: string[], event: BoardDragOverEvent) {
+  const sourceId = String(event.operation.source?.id ?? '');
+  const target = event.operation.target;
+  const targetId = String(target?.id ?? '');
+  if (!sourceId || !target || sourceId === targetId || !ids.includes(sourceId) || !ids.includes(targetId)) return ids;
+
+  const withoutSource = ids.filter(id => id !== sourceId);
+  const targetIndex = withoutSource.indexOf(targetId);
+  const insertAfterTarget = ids.indexOf(sourceId) < ids.indexOf(targetId);
+  const insertionIndex = targetIndex + (insertAfterTarget ? 1 : 0);
+  withoutSource.splice(insertionIndex, 0, sourceId);
+  return withoutSource;
+}
+
 /* ───── Card Component ───── */
-function CardItem({ card }: { card: CardType }) {
+function CardContents({ card }: { card: CardType }) {
   const state = useAppState();
-  const dispatch = useDispatch();
   const board = state.boards.find(b => b.id === card.boardId);
   const labels = board?.labels.filter(l => card.labelIds.includes(l.id)) || [];
   const members = state.users.filter(u => card.memberIds.includes(u.id));
   const totalItems = card.checklists.reduce((a, c) => a + c.items.length, 0);
   const checkedItems = card.checklists.reduce((a, c) => a + c.items.filter(i => i.completed).length, 0);
 
-  return (
-    <div
-      draggable
-      onDragStart={e => { e.dataTransfer.setData('cardId', card.id); e.dataTransfer.effectAllowed = 'move'; }}
-      onClick={() => dispatch({ type: 'SET_ACTIVE_CARD', payload: card.id })}
-      className="group rounded-lg p-3 mb-2 cursor-pointer transition-all"
-      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
-      onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--card-border)')}
-    >
+  return <>
       {labels.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {labels.map(label => {
@@ -72,7 +85,7 @@ function CardItem({ card }: { card: CardType }) {
           })}
         </div>
       )}
-      <p className="text-sm font-medium leading-snug mb-1.5" style={{ color: 'var(--text-primary)' }}>{card.title}</p>
+      <p className="text-sm font-medium leading-snug mb-1.5 pr-7" style={{ color: 'var(--text-primary)' }}>{card.title}</p>
       <div className="flex items-center gap-2 flex-wrap">
         {dueBadge(card)}
         {card.description && <span className="text-[10px]" style={{ color: 'var(--text-muted)' }} title="Has description">📄</span>}
@@ -94,12 +107,102 @@ function CardItem({ card }: { card: CardType }) {
           {members.length > 3 && <div className="w-5 h-5 rounded-full text-[8px] font-bold flex items-center justify-center ring-1" style={{ background: 'var(--active-bg)', color: 'var(--text-muted)', borderColor: 'var(--card-bg)' }}>+{members.length - 3}</div>}
         </div>
       </div>
+    </>;
+}
+
+function StaticCardItem({ card }: { card: CardType }) {
+  const dispatch = useDispatch();
+  return (
+    <div
+      data-card-id={card.id}
+      onClick={() => dispatch({ type: 'SET_ACTIVE_CARD', payload: card.id })}
+      className="group relative rounded-lg p-3 mb-2 cursor-pointer transition-[border-color,box-shadow,opacity] duration-200"
+      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+    >
+      <CardContents card={card} />
+    </div>
+  );
+}
+
+function SortableCardItem({ card, index, group, shouldSuppressOpen }: { card: CardType; index: number; group: string; shouldSuppressOpen: (cardId: string) => boolean }) {
+  const dispatch = useDispatch();
+  const { ref, isDragSource, isDropTarget } = useSortable({
+    id: card.id,
+    index,
+    group,
+    type: 'card',
+    accept: 'card',
+    data: { cardId: card.id, listId: group },
+    sensors: [PointerSensor],
+    plugins: [],
+    transition: { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', idle: true },
+  });
+
+  return (
+    <div
+      ref={ref}
+      data-card-id={card.id}
+      data-drag-activator="card"
+      onClick={() => {
+        if (shouldSuppressOpen(card.id)) return;
+        dispatch({ type: 'SET_ACTIVE_CARD', payload: card.id });
+      }}
+      className="group relative rounded-lg p-3 mb-2 cursor-grab active:cursor-grabbing touch-manipulation select-none transition-[border-color,box-shadow,opacity] duration-200"
+      style={{
+        background: 'var(--card-bg)',
+        border: `1px solid ${isDropTarget ? 'var(--accent)' : 'var(--card-border)'}`,
+        boxShadow: isDropTarget ? '0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent)' : undefined,
+        opacity: isDragSource ? 0.28 : 1,
+      }}
+      onMouseEnter={event => { if (!isDropTarget) event.currentTarget.style.borderColor = 'var(--accent)'; }}
+      onMouseLeave={event => { if (!isDropTarget) event.currentTarget.style.borderColor = 'var(--card-border)'; }}
+    >
+      <CardContents card={card} />
+    </div>
+  );
+}
+
+function CardItem({ card, index, group, canReorder, shouldSuppressOpen }: { card: CardType; index: number; group: string; canReorder: boolean; shouldSuppressOpen: (cardId: string) => boolean }) {
+  return canReorder
+    ? <SortableCardItem card={card} index={index} group={group} shouldSuppressOpen={shouldSuppressOpen} />
+    : <StaticCardItem card={card} />;
+}
+
+function CardOverlay({ card }: { card: CardType }) {
+  return (
+    <div
+      className="rounded-lg p-3 w-72 rotate-1"
+      style={{ background: 'var(--card-bg)', border: '1px solid var(--accent)', boxShadow: '0 18px 42px rgb(0 0 0 / 35%)' }}
+      aria-hidden="true"
+    >
+      <CardContents card={card} />
+    </div>
+  );
+}
+
+function ListOverlay({ list, cardCount }: { list: ListType; cardCount: number }) {
+  return (
+    <div
+      data-list-drag-overlay="true"
+      className="w-72 rotate-1 overflow-hidden rounded-xl border"
+      style={{ background: 'var(--list-bg)', borderColor: 'var(--accent)', boxShadow: '0 22px 52px rgb(0 0 0 / 38%)' }}
+      aria-hidden="true"
+    >
+      <div className="flex min-h-[52px] items-center justify-between border-b px-3" style={{ background: 'var(--active-bg)', borderColor: 'var(--border)' }}>
+        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-primary)' }}>{list.title}</span>
+        <span className="rounded-md px-2 py-1 text-[10px]" style={{ background: 'var(--card-bg)', color: 'var(--text-muted)' }}>{cardCount}</span>
+      </div>
+      <div className="space-y-2 p-2 opacity-55">
+        {Array.from({ length: Math.min(Math.max(cardCount, 1), 3) }, (_, index) => (
+          <div key={index} className="h-12 rounded-lg border" style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)' }} />
+        ))}
+      </div>
     </div>
   );
 }
 
 /* ───── List Component ───── */
-function ListColumn({ list }: { list: ListType }) {
+function ListColumn({ list, cards, index, shouldSuppressOpen }: { list: ListType; cards: CardType[]; index: number; shouldSuppressOpen: (cardId: string) => boolean }) {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
@@ -108,26 +211,30 @@ function ListColumn({ list }: { list: ListType }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [listTitle, setListTitle] = useState(list.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sortPending, setSortPending] = useState<CardSortDirection | null>(null);
+  const [sortStatus, setSortStatus] = useState('');
   const canEditCards = auth.canEditBoardCards(list.boardId);
   const canArchiveContent = auth.canArchiveBoardContent(list.boardId);
-
-  const cards = state.cards
-    .filter(c => c.listId === list.id && passesFilter(c, state))
-    .sort((a, b) => a.position - b.position);
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.currentTarget.style.background = 'var(--list-bg)';
-    const cardId = e.dataTransfer.getData('cardId');
-    const listId = e.dataTransfer.getData('listId');
-    if (cardId) {
-      dispatch({ type: 'MOVE_CARD', payload: { cardId, toListId: list.id, toPosition: cards.length } });
-      moveCardApi(cardId, list.id, cards.length);
-    } else if (listId && listId !== list.id) {
-      const dragList = state.lists.find(l => l.id === listId);
-      if (dragList) { dispatch({ type: 'MOVE_LIST', payload: { listId, toPosition: list.position } }); moveListApi(listId, list.position); }
-    }
-  };
+  const canMoveList = auth.canManageBoard(list.boardId);
+  const { toast } = useToast();
+  const { ref: cardsDropRef, isDropTarget: isCardDropTarget } = useDroppable({ id: list.id, type: 'card-list', accept: 'card', disabled: !canEditCards });
+  const {
+    ref: listRef,
+    handleRef: listHandleRef,
+    isDragSource: isListDragSource,
+    isDropTarget: isListDropTarget,
+  } = useSortable({
+    id: `list:${list.id}`,
+    index,
+    group: `board:${list.boardId}`,
+    type: 'list',
+    accept: 'list',
+    data: { listId: list.id, boardId: list.boardId },
+    sensors: [PointerSensor],
+    plugins: [],
+    disabled: !canMoveList,
+    transition: { duration: 240, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', idle: true },
+  });
 
   const submitCard = () => {
     const title = newTitle.trim();
@@ -143,61 +250,97 @@ function ListColumn({ list }: { list: ListType }) {
     });
   };
 
+  const sortCards = (direction: CardSortDirection) => {
+    if (sortPending || !canEditCards) return;
+    const snapshot = state.cards;
+    const activeListCards = state.cards.filter(card => card.listId === list.id && !card.archived);
+    const optimisticCards = sortCardsByTitle(activeListCards, direction).map((card, position) => ({ ...card, position }));
+    const directionLabel = direction === 'asc' ? 'A to Z' : 'Z to A';
+
+    setMenuOpen(false);
+    setSortPending(direction);
+    setSortStatus(`Sorting ${list.title} ${directionLabel}.`);
+    dispatch({ type: 'APPLY_SORTED_LIST_CARDS', payload: { listId: list.id, cards: optimisticCards } });
+    void sortListApi(list.id, direction).then(result => {
+      dispatch({ type: 'APPLY_SORTED_LIST_CARDS', payload: { listId: result.listId, cards: result.cards } });
+      setSortStatus(`Sorted ${list.title} ${directionLabel}.`);
+      setMenuOpen(false);
+    }).catch(error => {
+      dispatch({ type: 'RESTORE_CARDS', payload: snapshot });
+      const message = error instanceof Error ? error.message : 'Unable to save the sorted card order.';
+      setSortStatus(`Could not sort ${list.title}. The previous order was restored.`);
+      toast({ title: 'List order not saved', description: message, variant: 'destructive' });
+    }).finally(() => setSortPending(null));
+  };
+
   return (
     <div
-      draggable
-      onDragStart={e => { e.dataTransfer.setData('listId', list.id); }}
-      onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = 'var(--list-hover-bg)'; }}
-      onDragLeave={e => { e.currentTarget.style.background = 'var(--list-bg)'; }}
-      onDrop={handleDrop}
-      className="w-72 shrink-0 rounded-xl flex flex-col max-h-full"
-      style={{ background: 'var(--list-bg)' }}
+      ref={listRef}
+      data-list-id={list.id}
+      data-list-sortable-id={`list:${list.id}`}
+      data-list-placeholder={isListDragSource ? 'true' : undefined}
+      className="w-72 shrink-0 rounded-xl flex flex-col max-h-full border transition-[border-color,box-shadow,opacity,transform] duration-200"
+      style={{
+        background: isCardDropTarget ? 'var(--list-hover-bg)' : 'var(--list-bg)',
+        borderColor: isListDropTarget ? 'var(--accent)' : 'transparent',
+        boxShadow: isListDropTarget ? '0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent)' : undefined,
+        opacity: isListDragSource ? 0.2 : 1,
+      }}
     >
       {/* List header */}
-      <div className="flex items-center justify-between px-3 pt-3 pb-1">
-        {editingTitle ? (
-          <input
-            autoFocus
-            value={listTitle}
-            onChange={e => setListTitle(e.target.value)}
-            onBlur={() => { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); }}
-            onKeyDown={e => { if (e.key === 'Enter') { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); } }}
-            className="text-xs font-bold uppercase tracking-widest bg-transparent outline-none flex-1"
-            style={{ color: 'var(--text-primary)' }}
-          />
-        ) : (
-          <h3
-            onClick={() => {
-              if (!canEditCards) return;
-              setEditingTitle(true);
-              setListTitle(list.title);
-            }}
-            className={`text-[11px] font-bold uppercase tracking-widest ${canEditCards ? 'cursor-pointer' : ''}`}
-            style={{ color: 'var(--text-muted)' }}
-          >
-            {list.title} <span className="font-normal">({cards.length})</span>
-          </h3>
-        )}
-        <div className="relative">
-          {canArchiveContent && <button onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
+      <div
+        className="flex min-h-[52px] items-center justify-between rounded-t-xl border-b"
+        style={{ background: isListDragSource || isListDropTarget ? 'var(--active-bg)' : 'transparent', borderColor: 'var(--border)' }}
+      >
+        <div
+          ref={editingTitle ? undefined : listHandleRef}
+          data-list-drag-handle={canMoveList && !editingTitle ? list.id : undefined}
+          className={`flex min-h-[52px] min-w-0 flex-1 items-center px-3 ${canMoveList && !editingTitle ? 'cursor-grab active:cursor-grabbing touch-manipulation select-none' : ''}`}
+        >
+          {editingTitle ? (
+            <input
+              autoFocus
+              onPointerDown={event => event.stopPropagation()}
+              value={listTitle}
+              onChange={e => setListTitle(e.target.value)}
+              onBlur={() => { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); }}
+              onKeyDown={e => { if (e.key === 'Enter') { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); } }}
+              className="min-w-0 flex-1 bg-transparent text-xs font-bold uppercase tracking-widest outline-none"
+              style={{ color: 'var(--text-primary)' }}
+            />
+          ) : (
+            <h3
+              onClick={() => {
+                if (!canEditCards) return;
+                setEditingTitle(true);
+                setListTitle(list.title);
+              }}
+              className={`truncate text-[11px] font-bold uppercase tracking-widest ${canEditCards ? 'cursor-pointer' : ''}`}
+              style={{ color: 'var(--text-muted)' }}
+            >
+              {list.title} <span className="font-normal">({cards.length})</span>
+            </h3>
+          )}
+        </div>
+        <div className="relative mr-2 shrink-0">
+          {(canEditCards || canArchiveContent) && <button type="button" disabled={Boolean(sortPending)} aria-label={`List actions for ${list.title}`} aria-expanded={menuOpen} onPointerDown={event => event.stopPropagation()} onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 w-36 rounded-lg shadow-xl border z-50 py-1" style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}>
-              <button onClick={() => { dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); archiveListApi(list.id); setMenuOpen(false); }} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70" style={{ color: 'var(--text-secondary)' }}>Archive list</button>
+            <div aria-busy={Boolean(sortPending)} className="absolute right-0 top-full mt-1 w-40 rounded-lg shadow-xl border z-50 py-1" style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}>
+              {canEditCards && <>
+                <button type="button" disabled={Boolean(sortPending)} onClick={() => sortCards('asc')} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Sort A to Z</button>
+                <button type="button" disabled={Boolean(sortPending)} onClick={() => sortCards('desc')} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Sort Z to A</button>
+              </>}
+              {canEditCards && canArchiveContent && <div role="separator" className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />}
+              {canArchiveContent && <button type="button" disabled={Boolean(sortPending)} onClick={() => { dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); void archiveListApi(list.id); setMenuOpen(false); }} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Archive list</button>}
             </div>
           )}
+          <div className="sr-only" aria-live="polite" aria-atomic="true">{sortStatus}</div>
         </div>
       </div>
 
       {/* Cards */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-[40px]"
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => {
-          e.stopPropagation();
-          const cardId = e.dataTransfer.getData('cardId');
-          if (cardId) { dispatch({ type: 'MOVE_CARD', payload: { cardId, toListId: list.id, toPosition: cards.length } }); moveCardApi(cardId, list.id, cards.length); }
-        }}
-      >
-        {cards.map(c => <CardItem key={c.id} card={c} />)}
+      <div ref={cardsDropRef} className="flex-1 overflow-y-auto px-2 pb-2 pt-2 min-h-[40px]">
+        {cards.map((card, index) => <CardItem key={card.id} card={card} index={index} group={list.id} canReorder={canEditCards} shouldSuppressOpen={shouldSuppressOpen} />)}
       </div>
 
       {/* Add card */}
@@ -242,13 +385,51 @@ export function BoardView() {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
+  const { toast } = useToast();
   const [addingList, setAddingList] = useState(false);
   const [newListTitle, setNewListTitle] = useState('');
+  const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [cardPreviewGroups, setCardPreviewGroups] = useState<Record<string, string[]> | null>(null);
+  const [listPreviewIds, setListPreviewIds] = useState<string[] | null>(null);
+  const [dragAnnouncement, setDragAnnouncement] = useState('');
+  const dragSnapshot = useRef<{ cards: CardType[]; notifications: typeof state.notifications } | null>(null);
+  const listDragSnapshot = useRef<ListType[] | null>(null);
+  const cardPreviewGroupsRef = useRef<Record<string, string[]> | null>(null);
+  const listPreviewIdsRef = useRef<string[] | null>(null);
+  const suppressOpenCardId = useRef<string | null>(null);
   const canManageBoard = auth.canManageBoard(state.currentBoardId);
 
   const lists = state.lists
     .filter(l => l.boardId === state.currentBoardId && !l.archived)
     .sort((a, b) => a.position - b.position);
+
+  const visibleCardsByList = useMemo(() => Object.fromEntries(lists.map(list => [
+    list.id,
+    state.cards
+      .filter(card => card.listId === list.id && passesFilter(card, state))
+      .sort((left, right) => left.position - right.position),
+  ])) as Record<string, CardType[]>, [lists, state]);
+  const visibleGroups = useMemo(() => Object.fromEntries(Object.entries(visibleCardsByList).map(([listId, cards]) => [
+    listId,
+    cards.map(card => card.id),
+  ])) as Record<string, string[]>, [visibleCardsByList]);
+  const listSortableIds = useMemo(() => lists.map(list => `list:${list.id}`), [lists]);
+  const renderedLists = useMemo(() => {
+    if (!listPreviewIds) return lists;
+    const bySortableId = new Map(lists.map(list => [`list:${list.id}`, list]));
+    return listPreviewIds.map(id => bySortableId.get(id)).filter((list): list is ListType => Boolean(list));
+  }, [listPreviewIds, lists]);
+  const renderedCardsByList = useMemo(() => {
+    if (!cardPreviewGroups) return visibleCardsByList;
+    const cardsById = new Map(Object.values(visibleCardsByList).flat().map(card => [card.id, card]));
+    return Object.fromEntries(lists.map(list => [
+      list.id,
+      (cardPreviewGroups[list.id] ?? []).map(id => cardsById.get(id)).filter((card): card is CardType => Boolean(card)),
+    ])) as Record<string, CardType[]>;
+  }, [cardPreviewGroups, lists, visibleCardsByList]);
+  const activeCard = activeCardId ? state.cards.find(card => card.id === activeCardId) ?? null : null;
+  const activeList = activeListId ? state.lists.find(list => list.id === activeListId) ?? null : null;
 
   const submitList = () => {
     const title = newListTitle.trim();
@@ -265,41 +446,218 @@ export function BoardView() {
     });
   };
 
+  const clearCardPreview = () => {
+    cardPreviewGroupsRef.current = null;
+    setCardPreviewGroups(null);
+  };
+
+  const clearListPreview = () => {
+    listPreviewIdsRef.current = null;
+    setListPreviewIds(null);
+  };
+
+  const handleCardDragEnd = (event: Parameters<NonNullable<ComponentProps<typeof DragDropProvider>['onDragEnd']>>[0]) => {
+    const cardId = String(event.operation.source?.id ?? '');
+    const movingCard = state.cards.find(card => card.id === cardId);
+    setActiveCardId(null);
+    window.setTimeout(() => {
+      if (suppressOpenCardId.current === cardId) suppressOpenCardId.current = null;
+    }, 0);
+    if (!movingCard || event.canceled) {
+      dragSnapshot.current = null;
+      clearCardPreview();
+      setDragAnnouncement(event.canceled && movingCard ? `Canceled moving ${movingCard.title}.` : '');
+      return;
+    }
+
+    const nextGroups = cardPreviewGroupsRef.current ?? moveSortable(visibleGroups, event) as Record<string, string[]>;
+    clearCardPreview();
+    const toListId = Object.keys(nextGroups).find(listId => nextGroups[listId].includes(cardId));
+    if (!toListId) {
+      dragSnapshot.current = null;
+      setDragAnnouncement(`Canceled moving ${movingCard.title}; no valid destination was found.`);
+      return;
+    }
+
+    let toPosition: number;
+    try {
+      toPosition = completeInsertionPosition({
+        cards: state.cards.filter(card => !card.archived),
+        cardId,
+        fromListId: movingCard.listId,
+        toListId,
+        originalVisibleIds: visibleGroups[toListId] ?? [],
+        nextVisibleIds: nextGroups[toListId] ?? [],
+      });
+    } catch {
+      dragSnapshot.current = null;
+      setDragAnnouncement(`Canceled moving ${movingCard.title}; the board changed during the drag.`);
+      return;
+    }
+
+    if (movingCard.listId === toListId && movingCard.position === toPosition) {
+      dragSnapshot.current = null;
+      setDragAnnouncement(`${movingCard.title} stayed in its original position.`);
+      return;
+    }
+
+    const snapshot = dragSnapshot.current ?? { cards: state.cards, notifications: state.notifications };
+    dispatch({ type: 'MOVE_CARD', payload: { cardId, toListId, toPosition } });
+    setDragAnnouncement(`Moving ${movingCard.title} to position ${toPosition + 1}.`);
+    void moveCardApi(cardId, toListId, toPosition).then(card => {
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: card });
+      dragSnapshot.current = null;
+      setDragAnnouncement(`${card.title} moved to position ${card.position + 1}.`);
+    }).catch(error => {
+      dispatch({ type: 'RESTORE_CARDS', payload: snapshot });
+      dragSnapshot.current = null;
+      const message = error instanceof Error ? error.message : 'Unable to save the new card order.';
+      setDragAnnouncement(`Could not move ${movingCard.title}. The previous order was restored.`);
+      toast({ title: 'Card order not saved', description: message, variant: 'destructive' });
+    });
+  };
+
+  const handleListDragEnd = (event: Parameters<NonNullable<ComponentProps<typeof DragDropProvider>['onDragEnd']>>[0]) => {
+    const source = event.operation.source;
+    const sortableId = String(source?.id ?? '');
+    const listId = String(source?.data?.listId ?? sortableId.replace(/^list:/, ''));
+    const movingList = state.lists.find(list => list.id === listId);
+    const nextIds = listPreviewIdsRef.current ?? moveSortable(listSortableIds, event) as string[];
+    clearListPreview();
+    setActiveListId(null);
+
+    if (!movingList || event.canceled) {
+      listDragSnapshot.current = null;
+      setDragAnnouncement(event.canceled && movingList ? `Canceled moving ${movingList.title}.` : '');
+      return;
+    }
+
+    const toPosition = nextIds.indexOf(sortableId);
+    if (toPosition < 0 || movingList.position === toPosition) {
+      listDragSnapshot.current = null;
+      setDragAnnouncement(toPosition < 0 ? `Canceled moving ${movingList.title}; no valid destination was found.` : `${movingList.title} stayed in its original position.`);
+      return;
+    }
+
+    const snapshot = listDragSnapshot.current ?? state.lists;
+    dispatch({ type: 'MOVE_LIST', payload: { listId, toPosition } });
+    setDragAnnouncement(`Moving ${movingList.title} to lane position ${toPosition + 1}.`);
+    void moveListApi(listId, toPosition).then(() => {
+      listDragSnapshot.current = null;
+      setDragAnnouncement(`${movingList.title} moved to lane position ${toPosition + 1}.`);
+    }).catch(error => {
+      dispatch({ type: 'RESTORE_LISTS', payload: snapshot });
+      listDragSnapshot.current = null;
+      const message = error instanceof Error ? error.message : 'Unable to save the new swimlane order.';
+      setDragAnnouncement(`Could not move ${movingList.title}. The previous lane order was restored.`);
+      toast({ title: 'Swimlane order not saved', description: message, variant: 'destructive' });
+    });
+  };
+
   return (
-    <div className="flex gap-4 p-4 overflow-x-auto flex-1 items-start" style={{ height: 'calc(100% - 0px)' }}>
-      {lists.map(l => <ListColumn key={l.id} list={l} />)}
-      {/* Add list */}
-      {canManageBoard && <div className="w-72 shrink-0">
-        {addingList ? (
-          <div className="rounded-xl p-3" style={{ background: 'var(--list-bg)' }}>
-            <input
-              autoFocus
-              value={newListTitle}
-              onChange={e => setNewListTitle(e.target.value)}
-              onBlur={submitList}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  submitList();
-                }
-                if (e.key === 'Escape') { setAddingList(false); setNewListTitle(''); }
-              }}
-              placeholder="List title…"
-              className="w-full px-2 py-1.5 rounded-lg text-sm outline-none border"
-              style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)', color: 'var(--text-primary)' }}
-            />
-          </div>
-        ) : (
-          <button
-            onClick={() => setAddingList(true)}
-            className="w-full text-left px-3 min-h-[44px] flex items-center rounded-xl text-xs font-medium transition-colors"
-            style={{ color: 'var(--text-muted)', background: 'var(--list-bg)' }}
-          >
-            + Add another list
-          </button>
-        )}
-      </div>}
-    </div>
+    <DragDropProvider
+      onDragStart={event => {
+        const source = event.operation.source;
+        if (source?.type === 'list') {
+          const listId = String(source.data?.listId ?? String(source.id).replace(/^list:/, ''));
+          const list = state.lists.find(candidate => candidate.id === listId);
+          if (!list) return;
+          listDragSnapshot.current = state.lists;
+          listPreviewIdsRef.current = listSortableIds;
+          setListPreviewIds(listSortableIds);
+          setActiveListId(listId);
+          setDragAnnouncement(`Picked up ${list.title}. Move horizontally to choose a lane position, then release to drop.`);
+          return;
+        }
+
+        const cardId = String(source?.id ?? '');
+        const card = state.cards.find(candidate => candidate.id === cardId);
+        if (!card) return;
+        dragSnapshot.current = { cards: state.cards, notifications: state.notifications };
+        cardPreviewGroupsRef.current = visibleGroups;
+        setCardPreviewGroups(visibleGroups);
+        suppressOpenCardId.current = cardId;
+        setActiveCardId(cardId);
+        setDragAnnouncement(`Picked up ${card.title}. Move the pointer to choose a position, then release to drop.`);
+      }}
+      onDragOver={event => {
+        const source = event.operation.source;
+        const target = event.operation.target;
+        if (!source || !target || target.id === source.id) return;
+        if (source?.type === 'list') {
+          // Always project from the committed drag-start order. Reapplying the
+          // same hover event to an already-previewed array can move the source
+          // past the intended boundary after React renders its new index.
+          const next = previewHorizontalOrder(listSortableIds, event);
+          listPreviewIdsRef.current = next;
+          setListPreviewIds(next);
+          return;
+        }
+        if (source?.type === 'card') {
+          const next = moveSortable(visibleGroups, event) as Record<string, string[]>;
+          cardPreviewGroupsRef.current = next;
+          setCardPreviewGroups(next);
+        }
+      }}
+      onDragEnd={event => {
+        if (event.operation.source?.type === 'list') {
+          handleListDragEnd(event);
+        } else {
+          handleCardDragEnd(event);
+        }
+      }}
+    >
+      <div className="sr-only" aria-live="polite" aria-atomic="true">{dragAnnouncement}</div>
+      <div className="flex gap-4 p-4 overflow-x-auto flex-1 items-start" style={{ height: 'calc(100% - 0px)' }}>
+        {renderedLists.map((list, index) => (
+          <ListColumn
+            key={list.id}
+            list={list}
+            cards={renderedCardsByList[list.id] ?? []}
+            index={index}
+            shouldSuppressOpen={cardId => {
+              if (suppressOpenCardId.current !== cardId) return false;
+              suppressOpenCardId.current = null;
+              return true;
+            }}
+          />
+        ))}
+        {/* Add list */}
+        {canManageBoard && <div className="w-72 shrink-0">
+          {addingList ? (
+            <div className="rounded-xl p-3" style={{ background: 'var(--list-bg)' }}>
+              <input
+                autoFocus
+                value={newListTitle}
+                onChange={e => setNewListTitle(e.target.value)}
+                onBlur={submitList}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submitList();
+                  }
+                  if (e.key === 'Escape') { setAddingList(false); setNewListTitle(''); }
+                }}
+                placeholder="List title…"
+                className="w-full px-2 py-1.5 rounded-lg text-sm outline-none border"
+                style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)', color: 'var(--text-primary)' }}
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingList(true)}
+              className="w-full text-left px-3 min-h-[44px] flex items-center rounded-xl text-xs font-medium transition-colors"
+              style={{ color: 'var(--text-muted)', background: 'var(--list-bg)' }}
+            >
+              + Add another list
+            </button>
+          )}
+        </div>}
+      </div>
+      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }}>
+        {activeCard ? <CardOverlay card={activeCard} /> : activeList ? <ListOverlay list={activeList} cardCount={visibleCardsByList[activeList.id]?.length ?? 0} /> : null}
+      </DragOverlay>
+    </DragDropProvider>
   );
 }
 

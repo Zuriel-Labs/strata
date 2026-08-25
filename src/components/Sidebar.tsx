@@ -3,7 +3,7 @@ import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import { createWorkspace } from '../services/admin';
 import { createBoardApi, toggleBoardStarApi } from '../services/data';
-import { updateCardApi, deleteCardApi, restoreListApi } from '../services/data';
+import { ArchiveItems } from './ArchiveItems';
 
 export function Sidebar() {
   const state = useAppState();
@@ -21,9 +21,6 @@ export function Sidebar() {
   const currentWs = state.workspaces.find(w => w.id === state.currentWorkspaceId);
   const boards = state.boards.filter(b => b.workspaceId === state.currentWorkspaceId);
   const starred = boards.filter(b => b.starred);
-
-  const archivedLists = state.lists.filter(l => l.archived && l.boardId === state.currentBoardId);
-  const archivedCards = state.cards.filter(c => c.archived && c.boardId === state.currentBoardId);
 
   const boardColors = ['#6366f1', '#0891b2', '#059669', '#ea580c', '#dc2626', '#7c3aed', '#be185d'];
 
@@ -210,26 +207,7 @@ export function Sidebar() {
             Archive {archiveOpen ? '▾' : '▸'}
           </button>
           {archiveOpen && (
-            <div className="mt-1 max-h-40 overflow-y-auto space-y-1">
-              {archivedLists.map(l => (
-                <div key={l.id} className="flex items-center justify-between px-2 min-h-[44px] text-xs rounded" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
-                  <span className="truncate">📋 {l.title}</span>
-                  <button onClick={() => { dispatch({ type: 'RESTORE_LIST', payload: l.id }); restoreListApi(l.id); }} className="text-xs underline shrink-0 ml-1 min-h-[44px] flex items-center" style={{ color: 'var(--accent)' }}>Restore</button>
-                </div>
-              ))}
-              {archivedCards.map(c => (
-                <div key={c.id} className="flex items-center justify-between px-2 min-h-[44px] text-xs rounded" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>
-                  <span className="truncate">🃏 {c.title}</span>
-                  <div className="flex gap-1 shrink-0 ml-1">
-                    <button onClick={() => { dispatch({ type: 'RESTORE_CARD', payload: c.id }); updateCardApi(c.id, { archived: false }); }} className="text-xs underline min-h-[44px] flex items-center" style={{ color: 'var(--accent)' }}>Restore</button>
-                    <button onClick={() => { dispatch({ type: 'DELETE_CARD', payload: c.id }); deleteCardApi(c.id); }} className="text-xs underline min-h-[44px] flex items-center" style={{ color: '#ef4444' }}>Delete</button>
-                  </div>
-                </div>
-              ))}
-              {archivedLists.length === 0 && archivedCards.length === 0 && (
-                <p className="text-[10px] px-2 py-1" style={{ color: 'var(--text-muted)' }}>Nothing archived</p>
-              )}
-            </div>
+            <div className="mt-1 max-h-40 overflow-y-auto space-y-1"><ArchiveItems compact /></div>
           )}
         </div>
       )}

@@ -10,7 +10,7 @@ describe('store reducer', () => {
     expect(state.filterLabelIds).toEqual([]);
   });
 
-  it('reorders cards and runs done-list automation', () => {
+  it('reorders optimistically and applies the authoritative automated card once', () => {
     const moved = reducer(initialState, { type: 'MOVE_CARD', payload: { cardId: 'c3', toListId: 'l5', toPosition: 1 } });
     const card = moved.cards.find(candidate => candidate.id === 'c3');
     const doneCards = moved.cards.filter(candidate => candidate.listId === 'l5' && !candidate.archived).sort((a, b) => a.position - b.position);
@@ -18,6 +18,48 @@ describe('store reducer', () => {
     expect(card?.listId).toBe('l5');
     expect(card?.dueDateComplete).toBe(true);
     expect(doneCards.map(candidate => candidate.id)).toEqual(['c8', 'c3']);
+
+    const confirmed = reducer(moved, { type: 'APPLY_CARD_FROM_API', payload: { ...card!, dueDateComplete: true } });
+    expect(confirmed.cards.find(candidate => candidate.id === 'c3')?.dueDateComplete).toBe(true);
+  });
+
+  it('inserts an authoritative duplicate after its source and opens it', () => {
+    const source = initialState.cards.find(card => card.id === 'c5')!;
+    const duplicate = { ...source, id: 'c-copy', title: `${source.title} (copy)`, position: source.position + 1, createdAt: '2026-08-25T00:00:00.000Z' };
+
+    const state = reducer(initialState, { type: 'ADD_DUPLICATED_CARD_FROM_API', payload: { sourceCardId: source.id, card: duplicate } });
+
+    expect(state.cards.filter(card => card.listId === source.listId && !card.archived).sort((a, b) => a.position - b.position).map(card => [card.id, card.position])).toEqual([
+      ['c5', 0],
+      ['c-copy', 1],
+      ['c6', 2],
+    ]);
+    expect(state.activeCardId).toBe('c-copy');
+  });
+
+  it('does not shift source-list positions when creation automation moves the duplicate elsewhere', () => {
+    const source = initialState.cards.find(card => card.id === 'c5')!;
+    const duplicate = { ...source, id: 'c-copy', title: `${source.title} (copy)`, listId: 'l5', position: 1, createdAt: '2026-08-25T00:00:00.000Z' };
+
+    const state = reducer(initialState, { type: 'ADD_DUPLICATED_CARD_FROM_API', payload: { sourceCardId: source.id, card: duplicate } });
+
+    expect(state.cards.find(card => card.id === 'c6')?.position).toBe(1);
+    expect(state.cards.find(card => card.id === 'c-copy')).toMatchObject({ listId: 'l5', position: 1 });
+  });
+
+  it('applies an authoritative sorted active-card order without changing archived cards', () => {
+    const source = initialState.cards.filter(card => card.listId === 'l1' && !card.archived);
+    const archived = { ...source[0], id: 'archived-in-list', archived: true, position: 77 };
+    const before = { ...initialState, cards: [...initialState.cards, archived] };
+    const ordered = [
+      { ...source[1], position: 0 },
+      { ...source[0], position: 1 },
+    ];
+
+    const state = reducer(before, { type: 'APPLY_SORTED_LIST_CARDS', payload: { listId: 'l1', cards: ordered } });
+
+    expect(state.cards.filter(card => card.listId === 'l1' && !card.archived).sort((a, b) => a.position - b.position).map(card => card.id)).toEqual(['c6', 'c5']);
+    expect(state.cards.find(card => card.id === archived.id)).toEqual(archived);
   });
 
   it('notifies mentioned teammates and makes comments watched', () => {

@@ -1,4 +1,5 @@
 import type { Board, List, Card, AutomationRule, Label } from '../types';
+import type { CardSortDirection } from '../lib/card-sort';
 import { apiRequest } from './api';
 
 // ── Board API ────────────────────────────────────────────────────────
@@ -39,8 +40,19 @@ export function restoreListApi(listId: string) {
   return apiRequest<{ success: boolean }>(`/api/lists/${listId}/restore`, { method: 'POST' });
 }
 
+export function deleteListApi(listId: string) {
+  return apiRequest<{ success: boolean; deletedCardCount: number }>(`/api/lists/${listId}`, { method: 'DELETE' });
+}
+
 export function moveListApi(listId: string, toPosition: number) {
   return apiRequest<{ success: boolean }>(`/api/lists/${listId}/move`, { method: 'POST', body: JSON.stringify({ toPosition }) });
+}
+
+export function sortListApi(listId: string, direction: CardSortDirection) {
+  return apiRequest<{ listId: string; direction: CardSortDirection; cards: Card[] }>(`/api/lists/${listId}/sort`, {
+    method: 'POST',
+    body: JSON.stringify({ direction }),
+  });
 }
 
 // ── Card API ─────────────────────────────────────────────────────────
@@ -54,6 +66,10 @@ export function updateCardApi(cardId: string, updates: Record<string, unknown>) 
 
 export function moveCardApi(cardId: string, toListId: string, toPosition: number) {
   return apiRequest<Card>(`/api/cards/${cardId}/move`, { method: 'POST', body: JSON.stringify({ toListId, toPosition }) });
+}
+
+export function duplicateCardApi(cardId: string) {
+  return apiRequest<Card>(`/api/cards/${cardId}/duplicate`, { method: 'POST', body: JSON.stringify({}) });
 }
 
 export function deleteCardApi(cardId: string) {

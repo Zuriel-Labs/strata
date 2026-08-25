@@ -79,10 +79,50 @@ export interface ActivityEntry {
   createdAt: string;
 }
 
+export type RichTextNodeType =
+  | 'doc'
+  | 'paragraph'
+  | 'text'
+  | 'heading'
+  | 'bulletList'
+  | 'orderedList'
+  | 'listItem'
+  | 'blockquote'
+  | 'codeBlock'
+  | 'hardBreak'
+  | 'horizontalRule';
+
+export type RichTextMarkType = 'bold' | 'italic' | 'strike' | 'code' | 'link';
+
+export interface RichTextMark {
+  type: RichTextMarkType;
+  attrs?: {
+    href?: string;
+    target?: string;
+    rel?: string;
+  };
+}
+
+export interface RichTextNode {
+  type: RichTextNodeType;
+  text?: string;
+  attrs?: {
+    level?: 2 | 3;
+    start?: number;
+  };
+  marks?: RichTextMark[];
+  content?: RichTextNode[];
+}
+
+export interface RichTextDocument extends RichTextNode {
+  type: 'doc';
+}
+
 export interface Card {
   id: string;
   title: string;
   description: string;
+  descriptionDocument: RichTextDocument;
   listId: string;
   boardId: string;
   position: number;
@@ -261,9 +301,14 @@ export type Action =
   | { type: 'UPDATE_LIST'; payload: { id: string; title: string } }
   | { type: 'ARCHIVE_LIST'; payload: string }
   | { type: 'RESTORE_LIST'; payload: string }
+  | { type: 'DELETE_LIST'; payload: string }
   | { type: 'ADD_CARD'; payload: { listId: string; boardId: string; title: string } }
   | { type: 'UPDATE_CARD'; payload: Partial<Card> & { id: string } }
   | { type: 'MOVE_CARD'; payload: { cardId: string; toListId: string; toPosition: number } }
+  | { type: 'RESTORE_CARDS'; payload: Card[] | { cards: Card[]; notifications: Notification[] } }
+  | { type: 'APPLY_SORTED_LIST_CARDS'; payload: { listId: string; cards: Card[] } }
+  | { type: 'APPLY_CARD_FROM_API'; payload: Card }
+  | { type: 'ADD_DUPLICATED_CARD_FROM_API'; payload: { sourceCardId: string; card: Card } }
   | { type: 'ARCHIVE_CARD'; payload: string }
   | { type: 'RESTORE_CARD'; payload: string }
   | { type: 'DELETE_CARD'; payload: string }
@@ -289,5 +334,6 @@ export type Action =
   | { type: 'MARK_ALL_NOTIFICATIONS_READ' }
   | { type: 'ADD_NOTIFICATION'; payload: Omit<Notification, 'id' | 'createdAt'> }
   | { type: 'MOVE_LIST'; payload: { listId: string; toPosition: number } }
+  | { type: 'RESTORE_LISTS'; payload: List[] }
   | { type: 'ADD_LIST_FROM_API'; payload: List }
   | { type: 'ADD_CARD_FROM_API'; payload: Card };

@@ -64,6 +64,11 @@ function listOrder(page: Page) {
 }
 
 async function dragCard(page: Page, sourceCardId: string, targetCardId: string) {
+  await beginCardDrag(page, sourceCardId, targetCardId);
+  await page.mouse.up();
+}
+
+async function beginCardDrag(page: Page, sourceCardId: string, targetCardId: string) {
   const source = page.locator(`[data-card-id="${sourceCardId}"]`);
   const target = page.locator(`[data-card-id="${targetCardId}"]`);
   const sourceBox = await source.boundingBox();
@@ -74,7 +79,6 @@ async function dragCard(page: Page, sourceCardId: string, targetCardId: string) 
   await page.mouse.down();
   await page.mouse.move(sourceBox!.x + sourceBox!.width / 2 + 12, sourceBox!.y + sourceBox!.height / 2 + 12, { steps: 3 });
   await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + 4, { steps: 12 });
-  await page.mouse.up();
 }
 
 async function dragCardToListEnd(page: Page, sourceCardId: string, targetListId: string) {
@@ -181,7 +185,12 @@ test('supports pointer cross-lane reordering with persisted destination order', 
   await expect(page.locator('button').filter({ hasText: `Pointer source ${suffix}` }).last()).toBeVisible();
   await page.getByRole('button', { name: 'Close card' }).click();
 
-  await dragCard(page, sourceList.cardIds[0], targetList.cardIds[0]);
+  await beginCardDrag(page, sourceList.cardIds[0], targetList.cardIds[0]);
+  await expect(page.locator('[data-card-placeholder="true"]')).toHaveCount(1);
+  await expect(page.locator(`[data-card-id="${sourceList.cardIds[0]}"]`)).toHaveAttribute('data-card-placeholder', 'true');
+  const placeholderOpacity = await page.locator('[data-card-placeholder="true"]').evaluate(element => Number.parseFloat(element.ownerDocument.defaultView!.getComputedStyle(element).opacity));
+  expect(placeholderOpacity).toBeLessThan(0.5);
+  await page.mouse.up();
   await expect(page.getByRole('button', { name: 'Close card' })).toHaveCount(0);
 
   await expect.poll(() => cardOrder(page, sourceList.id)).toEqual([]);
@@ -216,6 +225,31 @@ test('keeps the board rendered when a cross-lane drop becomes the destination th
     targetList.cardIds[0], targetList.cardIds[1], sourceList.cardIds[0],
   ]);
 });
+
+for (const timezoneId of ['America/Los_Angeles', 'UTC', 'Pacific/Auckland']) {
+  test(`shows the same date-only due date on the card and in the modal in ${timezoneId}`, async ({ browser }) => {
+    const context = await browser.newContext({ timezoneId });
+    const page = await context.newPage();
+    try {
+      await signIn(page);
+      const fixture = await createBoardFixture(page, `Date-only ${timezoneId} ${suffix}`, [
+        { title: 'Date lane', cards: [`Date card ${timezoneId} ${suffix}`] },
+      ]);
+      const cardId = fixture.lists[0].cardIds[0];
+      const response = await page.request.patch(`/api/cards/${cardId}`, { data: { dueDate: '2026-08-27' } });
+      expect(response.ok()).toBeTruthy();
+      await page.reload();
+      await selectBoard(page, fixture.boardId);
+
+      const card = page.locator(`[data-card-id="${cardId}"]`);
+      await expect(card).toContainText('Aug 27');
+      await card.click();
+      await expect(page.getByLabel('Card due date')).toHaveValue('2026-08-27');
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 test('reorders swimlanes with a horizontal gap, lane preview, and persisted exact position', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });

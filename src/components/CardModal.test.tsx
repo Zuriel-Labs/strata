@@ -331,6 +331,24 @@ describe('CardModal', () => {
     expect(screen.getByRole('button', { name: 'Color-only label' })).toHaveClass('h-11', 'w-11', 'rounded-md');
   });
 
+  it('saves an HTML date as a canonical date-only value', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', { dueDate: '2026-08-26' });
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const updates = JSON.parse(String(init?.body ?? '{}'));
+      return Response.json({ ...state.cards.find(card => card.id === 'c5'), ...updates });
+    });
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.clear(screen.getByDisplayValue('2026-08-26'));
+    await user.type(screen.getByLabelText('Card due date'), '2026-08-27');
+
+    await waitFor(() => {
+      const payload = JSON.parse(String((fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body));
+      expect(payload.dueDate).toBe('2026-08-27');
+    });
+  });
+
   it('renders a saved rich-text Description with preserved multiline formatting', () => {
     const descriptionDocument = {
       type: 'doc' as const,

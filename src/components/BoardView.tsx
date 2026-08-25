@@ -10,6 +10,8 @@ import { createCardApi, moveCardApi, createListApi, updateListApi, archiveListAp
 import { completeInsertionPosition } from '../lib/card-order';
 import { sortCardsByTitle, type CardSortDirection } from '../lib/card-sort';
 import { useToast } from '../hooks/use-toast';
+import { compareDateOnlyToToday, differenceInCalendarDays, formatDateOnly, sameDateOnly, todayDateOnly } from '../lib/date-only';
+import { locateCardInsertion, locateListInsertion } from '../lib/drag-preview';
 
 type BoardDragOverEvent = Parameters<NonNullable<ComponentProps<typeof DragDropProvider>['onDragOver']>>[0];
 
@@ -19,28 +21,26 @@ function passesFilter(card: CardType, state: ReturnType<typeof useAppState>) {
   if (state.filterLabelIds.length && !state.filterLabelIds.some(id => card.labelIds.includes(id))) return false;
   if (state.filterMemberIds.length && !state.filterMemberIds.some(id => card.memberIds.includes(id))) return false;
   if (state.filterDue !== 'all') {
-    const now = Date.now();
-    const week = 7 * 86400000;
-    const month = 30 * 86400000;
+    const today = todayDateOnly();
+    const calendarDays = differenceInCalendarDays(card.dueDate, today);
     if (state.filterDue === 'none' && card.dueDate) return false;
-    if (state.filterDue === 'overdue' && (!card.dueDate || new Date(card.dueDate).getTime() > now || card.dueDateComplete)) return false;
-    if (state.filterDue === 'week' && (!card.dueDate || new Date(card.dueDate).getTime() - now > week)) return false;
-    if (state.filterDue === 'month' && (!card.dueDate || new Date(card.dueDate).getTime() - now > month)) return false;
+    if (state.filterDue === 'overdue' && (!card.dueDate || compareDateOnlyToToday(card.dueDate, today) !== -1 || card.dueDateComplete)) return false;
+    if (state.filterDue === 'week' && (!card.dueDate || calendarDays === null || calendarDays > 7)) return false;
+    if (state.filterDue === 'month' && (!card.dueDate || calendarDays === null || calendarDays > 30)) return false;
   }
   return true;
 }
 
 function dueBadge(card: CardType) {
   if (!card.dueDate) return null;
-  const d = new Date(card.dueDate);
-  const now = Date.now();
-  const diff = d.getTime() - now;
+  const dayDifference = differenceInCalendarDays(card.dueDate);
   let bg = 'var(--active-bg)';
   let fg = 'var(--text-muted)';
   if (card.dueDateComplete) { bg = '#22c55e'; fg = '#fff'; }
-  else if (diff < 0) { bg = '#ef4444'; fg = '#fff'; }
-  else if (diff < 86400000) { bg = '#f59e0b'; fg = '#fff'; }
-  const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  else if (dayDifference !== null && dayDifference < 0) { bg = '#ef4444'; fg = '#fff'; }
+  else if (dayDifference === 0) { bg = '#f59e0b'; fg = '#fff'; }
+  const label = formatDateOnly(card.dueDate, { month: 'short', day: 'numeric' });
+  if (!label) return null;
   return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: bg, color: fg }}>⏱ {label}</span>;
 }
 
@@ -124,7 +124,7 @@ function StaticCardItem({ card }: { card: CardType }) {
   );
 }
 
-function SortableCardItem({ card, index, group, shouldSuppressOpen }: { card: CardType; index: number; group: string; shouldSuppressOpen: (cardId: string) => boolean }) {
+function SortableCardItem({ card, index, group, shouldSuppressOpen, isPreviewPlaceholder }: { card: CardType; index: number; group: string; shouldSuppressOpen: (cardId: string) => boolean; isPreviewPlaceholder: boolean }) {
   const dispatch = useDispatch();
   const { ref, isDragSource, isDropTarget } = useSortable({
     id: card.id,
@@ -143,6 +143,7 @@ function SortableCardItem({ card, index, group, shouldSuppressOpen }: { card: Ca
       ref={ref}
       data-card-id={card.id}
       data-drag-activator="card"
+      data-card-placeholder={isPreviewPlaceholder ? 'true' : undefined}
       onClick={() => {
         if (shouldSuppressOpen(card.id)) return;
         dispatch({ type: 'SET_ACTIVE_CARD', payload: card.id });
@@ -150,9 +151,9 @@ function SortableCardItem({ card, index, group, shouldSuppressOpen }: { card: Ca
       className="group relative rounded-lg p-3 mb-2 cursor-grab active:cursor-grabbing touch-manipulation select-none transition-[border-color,box-shadow,opacity] duration-200"
       style={{
         background: 'var(--card-bg)',
-        border: `1px solid ${isDropTarget ? 'var(--accent)' : 'var(--card-border)'}`,
-        boxShadow: isDropTarget ? '0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent)' : undefined,
-        opacity: isDragSource ? 0.28 : 1,
+        border: `${isPreviewPlaceholder ? 2 : 1}px ${isPreviewPlaceholder ? 'dashed' : 'solid'} ${isDropTarget || isPreviewPlaceholder ? 'var(--accent)' : 'var(--card-border)'}`,
+        boxShadow: isDropTarget || isPreviewPlaceholder ? '0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent)' : undefined,
+        opacity: isDragSource || isPreviewPlaceholder ? 0.28 : 1,
       }}
       onMouseEnter={event => { if (!isDropTarget) event.currentTarget.style.borderColor = 'var(--accent)'; }}
       onMouseLeave={event => { if (!isDropTarget) event.currentTarget.style.borderColor = 'var(--card-border)'; }}
@@ -162,9 +163,9 @@ function SortableCardItem({ card, index, group, shouldSuppressOpen }: { card: Ca
   );
 }
 
-function CardItem({ card, index, group, canReorder, shouldSuppressOpen }: { card: CardType; index: number; group: string; canReorder: boolean; shouldSuppressOpen: (cardId: string) => boolean }) {
+function CardItem({ card, index, group, canReorder, shouldSuppressOpen, isPreviewPlaceholder }: { card: CardType; index: number; group: string; canReorder: boolean; shouldSuppressOpen: (cardId: string) => boolean; isPreviewPlaceholder: boolean }) {
   return canReorder
-    ? <SortableCardItem card={card} index={index} group={group} shouldSuppressOpen={shouldSuppressOpen} />
+    ? <SortableCardItem card={card} index={index} group={group} shouldSuppressOpen={shouldSuppressOpen} isPreviewPlaceholder={isPreviewPlaceholder} />
     : <StaticCardItem card={card} />;
 }
 
@@ -202,7 +203,7 @@ function ListOverlay({ list, cardCount }: { list: ListType; cardCount: number })
 }
 
 /* ───── List Component ───── */
-function ListColumn({ list, cards, index, shouldSuppressOpen }: { list: ListType; cards: CardType[]; index: number; shouldSuppressOpen: (cardId: string) => boolean }) {
+function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPreviewPlaceholder }: { list: ListType; cards: CardType[]; index: number; shouldSuppressOpen: (cardId: string) => boolean; activeCardId: string | null; isPreviewPlaceholder: boolean }) {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
@@ -278,13 +279,13 @@ function ListColumn({ list, cards, index, shouldSuppressOpen }: { list: ListType
       ref={listRef}
       data-list-id={list.id}
       data-list-sortable-id={`list:${list.id}`}
-      data-list-placeholder={isListDragSource ? 'true' : undefined}
+      data-list-placeholder={isListDragSource || isPreviewPlaceholder ? 'true' : undefined}
       className="w-72 shrink-0 rounded-xl flex flex-col max-h-full border transition-[border-color,box-shadow,opacity,transform] duration-200"
       style={{
         background: isCardDropTarget ? 'var(--list-hover-bg)' : 'var(--list-bg)',
         borderColor: isListDropTarget ? 'var(--accent)' : 'transparent',
         boxShadow: isListDropTarget ? '0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent)' : undefined,
-        opacity: isListDragSource ? 0.2 : 1,
+        opacity: isListDragSource || isPreviewPlaceholder ? 0.2 : 1,
       }}
     >
       {/* List header */}
@@ -340,7 +341,7 @@ function ListColumn({ list, cards, index, shouldSuppressOpen }: { list: ListType
 
       {/* Cards */}
       <div ref={cardsDropRef} className="flex-1 overflow-y-auto px-2 pb-2 pt-2 min-h-[40px]">
-        {cards.map((card, index) => <CardItem key={card.id} card={card} index={index} group={list.id} canReorder={canEditCards} shouldSuppressOpen={shouldSuppressOpen} />)}
+        {cards.map((card, index) => <CardItem key={card.id} card={card} index={index} group={list.id} canReorder={canEditCards} shouldSuppressOpen={shouldSuppressOpen} isPreviewPlaceholder={activeCardId === card.id} />)}
       </div>
 
       {/* Add card */}
@@ -430,6 +431,8 @@ export function BoardView() {
   }, [cardPreviewGroups, lists, visibleCardsByList]);
   const activeCard = activeCardId ? state.cards.find(card => card.id === activeCardId) ?? null : null;
   const activeList = activeListId ? state.lists.find(list => list.id === activeListId) ?? null : null;
+  const cardInsertion = activeCardId && cardPreviewGroups ? locateCardInsertion(cardPreviewGroups, activeCardId) : null;
+  const listInsertion = activeListId && listPreviewIds ? locateListInsertion(listPreviewIds, `list:${activeListId}`) : null;
 
   const submitList = () => {
     const title = newListTitle.trim();
@@ -615,6 +618,8 @@ export function BoardView() {
             list={list}
             cards={renderedCardsByList[list.id] ?? []}
             index={index}
+            activeCardId={cardInsertion?.groupId === list.id ? activeCardId : null}
+            isPreviewPlaceholder={Boolean(listInsertion && listInsertion.index === index && activeListId === list.id)}
             shouldSuppressOpen={cardId => {
               if (suppressOpenCardId.current !== cardId) return false;
               suppressOpenCardId.current = null;
@@ -703,7 +708,7 @@ export function TableView() {
                   <div className="flex -space-x-1">{members.map(m => <div key={m.id} className="w-5 h-5 rounded-full text-[8px] font-bold text-white flex items-center justify-center" style={{ background: m.color }}>{m.initials}</div>)}</div>
                 </td>
                 <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{labels.map(l => <span key={l.id} className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white" style={{ background: l.color }}>{l.name}</span>)}</div></td>
-                <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>{c.dueDate ? new Date(c.dueDate).toLocaleDateString() : '—'}</td>
+                <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>{formatDateOnly(c.dueDate) ?? '—'}</td>
                 <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>{total > 0 ? `${done}/${total}` : '—'}</td>
               </tr>
             );
@@ -742,8 +747,8 @@ export function CalendarView() {
           <div key={d} className="text-[10px] font-bold uppercase text-center py-1.5" style={{ background: 'var(--list-bg)', color: 'var(--text-muted)' }}>{d}</div>
         ))}
         {cells.map((day, i) => {
-          const dateStr = day ? new Date(month.y, month.m, day).toDateString() : '';
-          const dayCards = cardsWithDue.filter(c => c.dueDate && new Date(c.dueDate).toDateString() === dateStr);
+          const dateValue = day ? `${String(month.y).padStart(4, '0')}-${String(month.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : '';
+          const dayCards = cardsWithDue.filter(c => c.dueDate && sameDateOnly(c.dueDate, dateValue));
           return (
             <div key={i} className="min-h-[80px] p-1 border-t" style={{ borderColor: 'var(--border)', background: day ? 'var(--card-bg)' : 'var(--list-bg)' }}>
               {day && <span className="text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>{day}</span>}

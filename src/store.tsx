@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useReducer, type Dispatch, type R
 import type { AppState, Action, Card, AutomationRule, Label, User } from './types';
 import { USERS, WORKSPACES, BOARDS, LISTS, CARDS, AUTOMATION_RULES, NOTIFICATIONS, uid } from './data';
 import { EMPTY_RICH_TEXT_DOCUMENT } from './lib/rich-text';
+import { reconcileNavigationSelection } from './lib/navigation-selection';
 
 export const STORAGE_KEY = 'strata-app-state';
 
@@ -173,19 +174,23 @@ function runAutomations(state: AppState, card: Card, trigger: AutomationRule['tr
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'HYDRATE_FROM_SESSION': {
-      const nextWorkspaceId = action.payload.workspaces.some(workspace => workspace.id === state.currentWorkspaceId)
-        ? state.currentWorkspaceId
-        : action.payload.currentWorkspaceId;
-      const nextBoardId = action.payload.boards.some(board => board.id === state.currentBoardId)
-        ? state.currentBoardId
-        : action.payload.currentBoardId;
-      const nextActiveCardId = action.payload.cards.some(card => card.id === state.activeCardId)
+      const localWorkspaceIsValid = action.payload.workspaces.some(workspace => workspace.id === state.currentWorkspaceId);
+      let selection = reconcileNavigationSelection({
+        workspaces: action.payload.workspaces,
+        boards: action.payload.boards,
+        workspaceId: localWorkspaceIsValid ? state.currentWorkspaceId : action.payload.currentWorkspaceId,
+        boardId: localWorkspaceIsValid ? state.currentBoardId : action.payload.currentBoardId,
+        preserveNullBoard: localWorkspaceIsValid && state.currentBoardId === null,
+      });
+      if (!selection.currentWorkspaceId && action.payload.workspaces.length > 0) {
+        selection = reconcileNavigationSelection({ workspaces: action.payload.workspaces, boards: action.payload.boards, workspaceId: action.payload.workspaces[0].id, boardId: action.payload.currentBoardId, selectFirstBoard: true });
+      }
+      const nextActiveCardId = action.payload.cards.some(card => card.id === state.activeCardId && card.boardId === selection.currentBoardId)
         ? state.activeCardId
         : null;
       return {
         ...action.payload,
-        currentWorkspaceId: nextWorkspaceId,
-        currentBoardId: nextBoardId,
+        ...selection,
         activeCardId: nextActiveCardId,
         searchQuery: state.searchQuery,
         searchOpen: state.searchOpen,
@@ -203,8 +208,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'SET_CURRENT_WORKSPACE':
       return {
         ...state,
-        currentWorkspaceId: action.payload,
-        currentBoardId: action.payload ? (state.boards.find(board => board.workspaceId === action.payload)?.id ?? null) : null,
+        ...reconcileNavigationSelection({ workspaces: state.workspaces, boards: state.boards, workspaceId: action.payload, boardId: null, selectFirstBoard: true }),
+        activeCardId: null,
         filterLabelIds: [],
         filterMemberIds: [],
         filterDue: 'all',

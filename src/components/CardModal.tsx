@@ -9,6 +9,7 @@ import { toast } from '../hooks/use-toast';
 import { RichTextEditor } from './RichTextEditor';
 import { RichTextRenderer } from './RichTextRenderer';
 import { LabelEditor } from './LabelEditor';
+import { normalizeDateOnly } from '../lib/date-only';
 
 type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
 
@@ -740,9 +741,10 @@ export function CardModal() {
               <div className="flex flex-wrap items-center gap-3">
                 <input
                   type="date"
-                  value={card.dueDate ? card.dueDate.split('T')[0] : ''}
+                  aria-label="Card due date"
+                  value={normalizeDateOnly(card.dueDate) ?? ''}
                   onChange={event => {
-                    const dueDate = event.target.value ? new Date(event.target.value).toISOString() : null;
+                    const dueDate = normalizeDateOnly(event.target.value);
                     revealSection('dueDate');
                     persistCard({ dueDate });
                   }}

@@ -25,7 +25,8 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
   const isSystemAdmin = Boolean(auth.session?.permissions.isSystemAdmin);
   const canManageCurrentWorkspace = auth.canManageWorkspace(state.currentWorkspaceId);
   const canManageCurrentBoard = auth.canManageBoard(state.currentBoardId);
-  const canOpenNavigation = isSystemAdmin || canManageCurrentWorkspace || canManageCurrentBoard;
+  const canManageAnyAutomation = state.boards.some(board => auth.canManageAutomation(board.id));
+  const canOpenNavigation = isSystemAdmin || canManageCurrentWorkspace || canManageCurrentBoard || canManageAnyAutomation;
   const [newBoardName, setNewBoardName] = useState('');
   const [addingBoard, setAddingBoard] = useState(false);
   const [addingWorkspace, setAddingWorkspace] = useState(false);
@@ -41,9 +42,9 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
   const tabs = useMemo<{ key: NavTab; label: string; icon: React.ReactNode }[]>(() => [
     ...(canOpenNavigation ? [{ key: 'workspaces' as const, label: 'Workspaces', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> }] : []),
     ...(canOpenNavigation ? [{ key: 'boards' as const, label: 'Boards', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> }] : []),
-    ...(isSystemAdmin || canManageCurrentWorkspace ? [{ key: 'automations' as const, label: 'Automations', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> }] : []),
+    ...(isSystemAdmin || canManageCurrentWorkspace || canManageAnyAutomation ? [{ key: 'automations' as const, label: 'Automations', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> }] : []),
     ...(isSystemAdmin || canManageCurrentWorkspace || canManageCurrentBoard ? [{ key: 'archive' as const, label: 'Archive', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg> }] : []),
-  ], [canManageCurrentBoard, canManageCurrentWorkspace, canOpenNavigation, isSystemAdmin]);
+  ], [canManageAnyAutomation, canManageCurrentBoard, canManageCurrentWorkspace, canOpenNavigation, isSystemAdmin]);
   const defaultTab = tabs[0]?.key ?? 'boards';
   const visibleActiveTab = tabs.some(tab => tab.key === activeTab) ? activeTab : defaultTab;
 
@@ -153,7 +154,8 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
 
           {visibleActiveTab === 'automations' && (
             <AutomationsContent
-              workspaceId={selectedWorkspace?.id ?? null}
+              selectedWorkspaceId={selectedWorkspace?.id ?? null}
+              setSelectedWorkspaceId={setSelectedWorkspaceId}
               selectedBoardId={selectedAutomationBoardId}
               setSelectedBoardId={setSelectedAutomationBoardId}
             />
@@ -704,10 +706,11 @@ function BoardRow({
 
 /* ── Automations Tab ── */
 
-function AutomationsContent({ workspaceId, selectedBoardId, setSelectedBoardId }: {
-  workspaceId: string | null;
+function AutomationsContent({ selectedWorkspaceId, setSelectedWorkspaceId, selectedBoardId, setSelectedBoardId }: {
+  selectedWorkspaceId: string | null;
+  setSelectedWorkspaceId: (workspaceId: string) => void;
   selectedBoardId: string | null;
-  setSelectedBoardId: (boardId: string) => void;
+  setSelectedBoardId: (boardId: string | null) => void;
 }) {
   const state = useAppState();
   const dispatch = useDispatch();
@@ -717,12 +720,60 @@ function AutomationsContent({ workspaceId, selectedBoardId, setSelectedBoardId }
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(createDefaultAutomationForm);
 
+  const workspaceOptions = state.workspaces.filter(workspace => auth.canManageWorkspace(workspace.id)
+    || state.boards.some(board => board.workspaceId === workspace.id && auth.canManageAutomation(board.id)));
+  const workspaceId = workspaceOptions.some(workspace => workspace.id === selectedWorkspaceId)
+    ? selectedWorkspaceId
+    : workspaceOptions[0]?.id ?? null;
   const manageableBoards = state.boards
-    .filter(board => (!workspaceId || board.workspaceId === workspaceId) && auth.canManageAutomation(board.id))
+    .filter(board => board.workspaceId === workspaceId && auth.canManageAutomation(board.id))
     .sort((a, b) => a.title.localeCompare(b.title));
   const boardId = manageableBoards.some(board => board.id === selectedBoardId) ? selectedBoardId : manageableBoards[0]?.id ?? null;
 
-  if (!boardId) return <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Select a workspace with boards you can manage to work with automations.</p>;
+  const scopeControls = (
+    <div className="mb-3 grid gap-3 sm:grid-cols-2">
+      <label className="space-y-1 text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+        <span>Workspace</span>
+        <select
+          aria-label="Automation workspace"
+          value={workspaceId ?? ''}
+          onChange={event => {
+            const nextWorkspaceId = event.target.value;
+            setSelectedWorkspaceId(nextWorkspaceId);
+            const nextBoard = state.boards
+              .filter(board => board.workspaceId === nextWorkspaceId && auth.canManageAutomation(board.id))
+              .sort((left, right) => left.title.localeCompare(right.title))[0];
+            setSelectedBoardId(nextBoard?.id ?? null);
+            setAdding(false);
+            setError(null);
+            setForm(createDefaultAutomationForm());
+          }}
+          className="block min-h-[44px] w-full rounded-md border px-3 text-sm font-semibold outline-none"
+          style={{ background: '#2a2d36', borderColor: 'transparent', color: 'var(--text-primary)' }}
+          disabled={workspaceOptions.length === 0}
+        >
+          {workspaceOptions.length === 0 && <option value="">No manageable workspaces</option>}
+          {workspaceOptions.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+        </select>
+      </label>
+      <label className="space-y-1 text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+        <span>Board</span>
+        <select
+          aria-label="Automation board"
+          value={boardId ?? ''}
+          onChange={event => setSelectedBoardId(event.target.value || null)}
+          className="block min-h-[44px] w-full rounded-md border px-3 text-sm font-semibold outline-none"
+          style={{ background: '#2a2d36', borderColor: 'transparent', color: 'var(--text-primary)' }}
+          disabled={manageableBoards.length === 0}
+        >
+          {manageableBoards.length === 0 && <option value="">No manageable boards</option>}
+          {manageableBoards.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
+        </select>
+      </label>
+    </div>
+  );
+
+  if (!boardId) return <div>{scopeControls}<p className="text-xs" style={{ color: 'var(--text-muted)' }}>This workspace has no boards you can manage for automations.</p></div>;
 
   const rules = state.automationRules.filter(r => r.boardId === boardId);
   const lists = state.lists.filter(l => l.boardId === boardId && !l.archived).sort((a, b) => a.position - b.position);
@@ -769,25 +820,7 @@ function AutomationsContent({ workspaceId, selectedBoardId, setSelectedBoardId }
 
   return (
     <div className="space-y-3">
-      <div className="mb-3">
-        <p className="text-sm font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>Board:{' '}
-          {manageableBoards.length > 1 ? (
-            <select
-              aria-label="Automation board"
-              value={boardId}
-              onChange={event => setSelectedBoardId(event.target.value)}
-              className="min-h-[40px] rounded-md border px-3 text-sm font-semibold outline-none"
-              style={{ background: '#2a2d36', borderColor: 'transparent', color: 'var(--text-primary)' }}
-            >
-              {manageableBoards.map(candidate => (
-                <option key={candidate.id} value={candidate.id}>{candidate.title}</option>
-              ))}
-            </select>
-          ) : (
-            <span style={{ color: '#f4f6fb' }}>{board?.title}</span>
-          )}
-        </p>
-      </div>
+      {scopeControls}
       {rules.map(rule => {
         const triggerList = state.lists.find(l => l.id === rule.triggerConfig.toListId);
         const actionUser = state.users.find(u => u.id === rule.actionConfig.memberId);

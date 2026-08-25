@@ -25,6 +25,32 @@ test('mvp flow works end to end', async ({ page }) => {
   await page.getByLabel('Confirm new password').fill('ChangeThisNow123!');
   await page.getByRole('button', { name: 'Update password' }).click();
 
+  // --- Empty workspace selection remains isolated through auto-refresh ---
+  const emptyWorkspaceName = `Empty workspace ${Date.now()}`;
+  const emptyWorkspaceResponse = await page.request.post('/api/workspaces', {
+    data: { name: emptyWorkspaceName, description: 'Session refresh isolation', visibility: 'private' },
+  });
+  expect(emptyWorkspaceResponse.ok()).toBeTruthy();
+  const emptyWorkspace = await emptyWorkspaceResponse.json() as { id: string };
+  await page.reload();
+  const workspaceSelect = page.locator('header select').first();
+  await workspaceSelect.selectOption(emptyWorkspace.id);
+  await expect(page.getByRole('heading', { name: 'Select a board' })).toBeVisible();
+  await page.waitForTimeout(6_000);
+  await expect(workspaceSelect).toHaveValue(emptyWorkspace.id);
+  await expect(page.getByRole('heading', { name: 'Select a board' })).toBeVisible();
+  await expect(page.locator('header').getByText('Platform Sprint 24')).toHaveCount(0);
+  await workspaceSelect.selectOption('w1');
+
+  // --- Automation management selects Workspace and Board in one panel ---
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.getByRole('button', { name: 'Automations' }).click();
+  await expect(page.getByLabel('Automation workspace')).toBeVisible();
+  await expect(page.getByLabel('Automation board')).toBeVisible();
+  await page.getByLabel('Automation workspace').selectOption('w2');
+  await expect(page.getByLabel('Automation board')).toHaveValue('b3');
+  await page.getByText('Management').locator('..').getByRole('button').click();
+
   // --- Board selection via header dropdown ---
   // After login, a board should be selected in the header combobox
   const boardSelect = page.getByRole('combobox').nth(1);

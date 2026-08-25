@@ -3,11 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { CardModal } from './CardModal';
 import { AppProvider, initialState } from '../store';
 import type { AppState, Attachment } from '../types';
+import { plainTextToRichTextDocument } from '../lib/rich-text';
 
 const fetchMock = vi.fn();
 const authState = {
   canEditBoardCards: vi.fn(() => true),
   canManageBoard: vi.fn(() => true),
+  canManageBoardLabels: vi.fn(() => true),
 };
 
 vi.mock('../lib/auth-context', () => ({
@@ -49,6 +51,8 @@ describe('CardModal', () => {
     authState.canEditBoardCards.mockReturnValue(true);
     authState.canManageBoard.mockReset();
     authState.canManageBoard.mockReturnValue(true);
+    authState.canManageBoardLabels.mockReset();
+    authState.canManageBoardLabels.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -126,6 +130,52 @@ describe('CardModal', () => {
     expect(screen.queryByLabelText('Delete card')).not.toBeInTheDocument();
   });
 
+  it('duplicates a card once, applies authoritative ordering, and opens the copy', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5');
+    const source = state.cards.find(card => card.id === 'c5')!;
+    fetchMock.mockResolvedValue(Response.json({
+      ...source,
+      id: 'c-copy',
+      title: `${source.title} (copy)`,
+      position: source.position + 1,
+      watching: false,
+      comments: [],
+      activity: [{ id: 'copy-activity', userId: 'u1', action: 'duplicated this card', createdAt: '2026-08-25T00:00:00.000Z' }],
+      createdAt: '2026-08-25T00:00:00.000Z',
+    }));
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Duplicate card' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/cards/c5/duplicate', expect.objectContaining({ method: 'POST' })));
+    expect(await screen.findByRole('button', { name: 'Evaluate state management options (copy)' })).toBeInTheDocument();
+    expect(screen.getByText(/card duplicated/i)).toBeInTheDocument();
+  });
+
+  it('locks duplicate submission while pending and preserves the source after failure', async () => {
+    const user = userEvent.setup();
+    let resolveRequest: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(() => new Promise<Response>(resolve => { resolveRequest = resolve; }));
+    render(<AppProvider initialAppState={buildState('c5')}><CardModal /></AppProvider>);
+
+    const duplicateButton = screen.getByRole('button', { name: 'Duplicate card' });
+    await user.click(duplicateButton);
+    expect(duplicateButton).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveRequest?.(new Response(JSON.stringify({ message: 'Duplicate unavailable' }), { status: 500, headers: { 'Content-Type': 'application/json' } }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Duplicate unavailable');
+    expect(screen.getByRole('button', { name: 'Evaluate state management options' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Duplicate card' })).toBeEnabled();
+  });
+
+  it('does not expose card duplication to read-only roles', () => {
+    authState.canEditBoardCards.mockReturnValue(false);
+    render(<AppProvider initialAppState={buildState('c5')}><CardModal /></AppProvider>);
+    expect(screen.queryByRole('button', { name: 'Duplicate card' })).not.toBeInTheDocument();
+  });
+
   it('shows a searchable Labels picker and applies labels through it', async () => {
     const user = userEvent.setup();
     render(
@@ -163,6 +213,69 @@ describe('CardModal', () => {
     expect(screen.queryByPlaceholderText('Search labels')).not.toBeInTheDocument();
   });
 
+  it('creates a shared label inside the card and assigns it after the aggregate saves', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', { labelIds: [] });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const payload = JSON.parse(String(init?.body ?? '{}'));
+      if (path === '/api/boards/b1/labels') return Response.json({ boardId: 'b1', labels: payload.labels });
+      if (path === '/api/cards/c5') {
+        return Response.json({ ...state.cards.find(card => card.id === 'c5'), ...payload });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    await user.click(screen.getByRole('button', { name: 'Manage labels in card' }));
+    await user.click(screen.getByRole('button', { name: 'Add new label' }));
+    const inputs = screen.getAllByPlaceholderText('Label name');
+    await user.type(inputs.at(-1)!, 'Canary');
+    await user.click(screen.getByRole('button', { name: 'Save labels' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const labelPayload = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    const newLabel = labelPayload.labels.find((label: { name: string }) => label.name === 'Canary');
+    const cardPayload = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(cardPayload.labelIds).toContain(newLabel.id);
+    expect(await screen.findByRole('button', { name: 'Canary' })).toBeInTheDocument();
+  });
+
+  it('renames and deletes shared labels in context with board-wide cleanup', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', { labelIds: ['lb3'] });
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const payload = JSON.parse(String(init?.body ?? '{}'));
+      return Response.json({ boardId: 'b1', labels: payload.labels });
+    });
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    await user.click(screen.getByRole('button', { name: 'Manage labels in card' }));
+    await user.clear(screen.getByDisplayValue('Bug'));
+    await user.type(screen.getAllByPlaceholderText('Label name')[2], 'Defect');
+    await user.click(screen.getByRole('button', { name: 'Save labels' }));
+    expect(await screen.findByRole('button', { name: 'Defect' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Manage labels in card' }));
+    await user.click(screen.getByRole('button', { name: 'Delete Defect' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(/1 card/i);
+    await user.click(screen.getByRole('button', { name: 'Confirm delete label' }));
+    await user.click(screen.getByRole('button', { name: 'Save labels' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Defect' })).not.toBeInTheDocument());
+  });
+
+  it('keeps label assignment available without exposing definition management permission', async () => {
+    authState.canManageBoardLabels.mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<AppProvider initialAppState={buildState('c5', { labelIds: [] })}><CardModal /></AppProvider>);
+
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    expect(screen.getByPlaceholderText('Search labels')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage labels in card' })).not.toBeInTheDocument();
+  });
+
   it('renders color-only applied labels as square chips', () => {
     const state = buildState('c5', { labelIds: ['lb1'] });
     state.boards = state.boards.map(board => board.id === 'b1'
@@ -176,6 +289,72 @@ describe('CardModal', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Color-only label' })).toHaveClass('h-11', 'w-11', 'rounded-md');
+  });
+
+  it('renders a saved rich-text Description with preserved multiline formatting', () => {
+    const descriptionDocument = {
+      type: 'doc' as const,
+      content: [
+        { type: 'heading' as const, attrs: { level: 2 as const }, content: [{ type: 'text' as const, text: 'Launch plan' }] },
+        { type: 'paragraph' as const, content: [{ type: 'text' as const, text: 'First line' }, { type: 'hardBreak' as const }, { type: 'text' as const, text: 'Second line', marks: [{ type: 'bold' as const }] }] },
+      ],
+    };
+
+    render(
+      <AppProvider initialAppState={buildState('c5', { description: 'Launch plan\nFirst line\nSecond line', descriptionDocument })}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Launch plan' })).toBeInTheDocument();
+    expect(screen.getByTestId('rich-text-description')).toHaveTextContent('First lineSecond line');
+    expect(screen.getByRole('button', { name: 'Edit description' })).toBeInTheDocument();
+  });
+
+  it('saves Description edits as structured rich text and returns to formatted view', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', { description: '', descriptionDocument: plainTextToRichTextDocument('') });
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const updates = JSON.parse(String(init?.body ?? '{}'));
+      return Response.json({ ...state.cards.find(card => card.id === 'c5'), ...updates, description: 'Launch notes' });
+    });
+
+    render(
+      <AppProvider initialAppState={state}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Edit description' }));
+    await user.type(await screen.findByRole('textbox', { name: 'Description editor' }), 'Launch notes');
+    await user.click(screen.getByRole('button', { name: 'Save description' }));
+
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Description editor' })).not.toBeInTheDocument());
+    const request = fetchMock.mock.calls.at(-1)?.[1] as RequestInit;
+    const payload = JSON.parse(String(request.body));
+    expect(payload).not.toHaveProperty('description');
+    expect(payload.descriptionDocument).toEqual(expect.objectContaining({ type: 'doc' }));
+    expect(screen.getByTestId('rich-text-description')).toHaveTextContent('Launch notes');
+  });
+
+  it('keeps the rich-text draft open when Description saving fails', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ message: 'Temporary failure' }), { status: 500, headers: { 'Content-Type': 'application/json' } }));
+
+    render(
+      <AppProvider initialAppState={buildState('c5', { description: 'Original', descriptionDocument: plainTextToRichTextDocument('Original') })}>
+        <CardModal />
+      </AppProvider>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Edit description' }));
+    const editor = await screen.findByRole('textbox', { name: 'Description editor' });
+    await user.click(editor);
+    await user.type(editor, ' draft');
+    await user.click(screen.getByRole('button', { name: 'Save description' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/temporary failure/i);
+    expect(screen.getByRole('textbox', { name: 'Description editor' })).toHaveTextContent('Original draft');
   });
 
   it('renders download and view actions for persisted browser-viewable file attachments', () => {

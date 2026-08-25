@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { AppState, AutomationRule, Board, Card, List, Notification, User, Workspace } from '../../../src/types';
 import type { AuditEventInput, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, ThemePreference, UserRecord, WorkspaceMembershipRecord } from '../types';
+import { normalizeDescriptionInput, storedRichTextDocument } from '../../../src/lib/rich-text';
+import { sortCardsByTitle, type CardSortDirection } from '../../../src/lib/card-sort';
 
 type JsonRow<T> = T & { [key: string]: unknown };
 const DEFAULT_AUTOMATION_CONDITIONS: AutomationRule['conditions'] = { listId: null, labelId: null };
@@ -299,6 +301,7 @@ function selectCards(db: Database.Database, boardIds: string[]) {
     id: String(row.id),
     title: String(row.title),
     description: String(row.description),
+    descriptionDocument: storedRichTextDocument(row.description_json, String(row.description)),
     listId: String(row.list_id),
     boardId: String(row.board_id),
     position: Number(row.position),
@@ -563,7 +566,173 @@ export function getListById(db: Database.Database, listId: string) {
   return { id: String(row.id), title: String(row.title), boardId: String(row.board_id), position: Number(row.position), archived: asBool(Number(row.archived)) };
 }
 
+export function sortListCards(
+  db: Database.Database,
+  list: List,
+  direction: CardSortDirection,
+  actorUserId: string,
+) {
+  return db.transaction(() => {
+    const activeIds = db.prepare(
+      'SELECT id FROM cards WHERE list_id = ? AND archived = 0 ORDER BY position ASC, id ASC',
+    ).all(list.id) as Array<{ id: string }>;
+    const activeCards = activeIds
+      .map(({ id }) => getCardById(db, id))
+      .filter((card): card is Card => card !== null);
+
+    if (activeCards.length <= 1) return activeCards;
+
+    const ordered = sortCardsByTitle(activeCards, direction);
+    const updatePosition = db.prepare('UPDATE cards SET position = ? WHERE id = ?');
+    ordered.forEach((card, position) => updatePosition.run(position, card.id));
+
+    createAuditEvent(db, {
+      actorUserId,
+      scopeType: 'board',
+      scopeId: list.boardId,
+      action: 'list.sort',
+      outcome: 'success',
+      metadata: { listId: list.id, direction, cardCount: ordered.length },
+    });
+
+    return ordered.map((card, position) => ({ ...card, position }));
+  })();
+}
+
 // ── Card mutations ───────────────────────────────────────────────────
+export class CardMoveValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CardMoveValidationError';
+  }
+}
+
+export class CardDuplicateValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CardDuplicateValidationError';
+  }
+}
+
+function duplicateChecklists(checklists: Card['checklists']): Card['checklists'] {
+  return checklists.map(checklist => ({
+    ...checklist,
+    id: randomUUID(),
+    items: checklist.items.map(item => ({ ...item, id: randomUUID() })),
+  }));
+}
+
+function duplicateAttachments(attachments: Card['attachments']): Card['attachments'] {
+  return attachments.map(attachment => ({ ...attachment, id: randomUUID() }));
+}
+
+export function duplicateCard(
+  db: Database.Database,
+  source: Card,
+  actorUserId: string,
+  applyCreatedAutomation: (card: Card) => Card,
+) {
+  if (source.archived) throw new CardDuplicateValidationError('Archived cards cannot be duplicated.');
+
+  return db.transaction(() => {
+    const duplicateId = randomUUID();
+    const timestamp = new Date().toISOString();
+    const position = source.position + 1;
+    const activity = [{
+      id: randomUUID(),
+      userId: actorUserId,
+      action: 'duplicated this card',
+      createdAt: timestamp,
+    }];
+
+    db.prepare('UPDATE cards SET position = position + 1 WHERE list_id = ? AND archived = 0 AND position > ?').run(source.listId, source.position);
+    db.prepare(`
+      INSERT INTO cards (
+        id, title, description, description_json, list_id, board_id, position,
+        member_ids_json, label_ids_json, checklists_json, due_date, due_date_complete,
+        comments_json, activity_json, attachments_json, watching, archived, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 0, 0, ?)
+    `).run(
+      duplicateId,
+      `${source.title} (copy)`,
+      source.description,
+      JSON.stringify(source.descriptionDocument),
+      source.listId,
+      source.boardId,
+      position,
+      JSON.stringify(source.memberIds),
+      JSON.stringify(source.labelIds),
+      JSON.stringify(duplicateChecklists(source.checklists)),
+      source.dueDate,
+      source.dueDateComplete ? 1 : 0,
+      JSON.stringify(activity),
+      JSON.stringify(duplicateAttachments(source.attachments)),
+      timestamp,
+    );
+
+    createAuditEvent(db, {
+      actorUserId,
+      scopeType: 'board',
+      scopeId: source.boardId,
+      action: 'card.duplicate',
+      outcome: 'success',
+      metadata: { sourceCardId: source.id, duplicateCardId: duplicateId },
+    });
+
+    const created = getCardById(db, duplicateId);
+    if (!created) throw new Error('Duplicated card could not be loaded.');
+    const finalCard = applyCreatedAutomation(created);
+    if (finalCard.listId !== source.listId) {
+      const remainingSourceCards = db.prepare('SELECT id FROM cards WHERE list_id = ? AND archived = 0 ORDER BY position ASC, id ASC').all(source.listId) as Array<{ id: string }>;
+      const updatePosition = db.prepare('UPDATE cards SET position = ? WHERE id = ?');
+      remainingSourceCards.forEach((card, index) => updatePosition.run(index, card.id));
+    }
+    return finalCard;
+  })();
+}
+
+export function moveCard(
+  db: Database.Database,
+  card: Card,
+  toListId: string,
+  toPosition: number,
+  actorUserId: string,
+) {
+  const transaction = db.transaction(() => {
+    const destination = db.prepare('SELECT board_id as boardId, archived FROM lists WHERE id = ?').get(toListId) as { boardId: string; archived: number } | undefined;
+    if (!destination) throw new CardMoveValidationError('Destination list not found.');
+    if (destination.archived) throw new CardMoveValidationError('Destination list is archived.');
+    if (destination.boardId !== card.boardId) throw new CardMoveValidationError('Destination list does not belong to this board.');
+
+    const sourceCards = db.prepare('SELECT id FROM cards WHERE list_id = ? AND archived = 0 AND id != ? ORDER BY position ASC, id ASC').all(card.listId, card.id) as Array<{ id: string }>;
+    const destinationCards = card.listId === toListId
+      ? sourceCards
+      : db.prepare('SELECT id FROM cards WHERE list_id = ? AND archived = 0 ORDER BY position ASC, id ASC').all(toListId) as Array<{ id: string }>;
+    const insertAt = Math.max(0, Math.min(toPosition, destinationCards.length));
+    const reordered = [...destinationCards];
+    reordered.splice(insertAt, 0, { id: card.id });
+
+    const updatePosition = db.prepare('UPDATE cards SET position = ? WHERE id = ?');
+    if (card.listId !== toListId) {
+      sourceCards.forEach((sourceCard, index) => updatePosition.run(index, sourceCard.id));
+    }
+    db.prepare('UPDATE cards SET list_id = ? WHERE id = ?').run(toListId, card.id);
+    reordered.forEach((destinationCard, index) => updatePosition.run(index, destinationCard.id));
+
+    createAuditEvent(db, {
+      actorUserId,
+      scopeType: 'board',
+      scopeId: card.boardId,
+      action: 'card.move',
+      outcome: 'success',
+      metadata: { cardId: card.id, fromListId: card.listId, toListId, toPosition: insertAt },
+    });
+  });
+
+  transaction();
+  return getCardById(db, card.id);
+}
+
 export function createCard(db: Database.Database, id: string, title: string, listId: string, boardId: string, position: number, createdByUserId: string) {
   const timestamp = new Date().toISOString();
   const activity = JSON.stringify([{ id: randomUUID(), userId: createdByUserId, action: 'created this card', createdAt: timestamp }]);
@@ -573,13 +742,18 @@ export function createCard(db: Database.Database, id: string, title: string, lis
 
 export function updateCard(db: Database.Database, cardId: string, updates: Record<string, unknown>) {
   const allowedColumns: Record<string, string> = {
-    title: 'title', description: 'description', listId: 'list_id', position: 'position',
+    title: 'title', listId: 'list_id', position: 'position',
     dueDate: 'due_date', dueDateComplete: 'due_date_complete', watching: 'watching', archived: 'archived',
     memberIds: 'member_ids_json', labelIds: 'label_ids_json', checklists: 'checklists_json',
     comments: 'comments_json', activity: 'activity_json', attachments: 'attachments_json',
   };
   const setClauses: string[] = [];
   const values: unknown[] = [];
+  const descriptionUpdate = normalizeDescriptionInput(updates);
+  if (descriptionUpdate) {
+    setClauses.push('description = ?', 'description_json = ?');
+    values.push(descriptionUpdate.description, JSON.stringify(descriptionUpdate.descriptionDocument));
+  }
   for (const [key, column] of Object.entries(allowedColumns)) {
     if (key in updates) {
       setClauses.push(`${column} = ?`);
@@ -607,6 +781,7 @@ export function getCardById(db: Database.Database, cardId: string): Card | null 
   if (!row) return null;
   return {
     id: String(row.id), title: String(row.title), description: String(row.description),
+    descriptionDocument: storedRichTextDocument(row.description_json, String(row.description)),
     listId: String(row.list_id), boardId: String(row.board_id), position: Number(row.position),
     memberIds: parseJson<Card['memberIds']>(String(row.member_ids_json)),
     labelIds: parseJson<Card['labelIds']>(String(row.label_ids_json)),
@@ -732,6 +907,7 @@ export function listActiveCardsForAutomation(db: Database.Database, boardId: str
     id: String(row.id),
     title: String(row.title),
     description: String(row.description),
+    descriptionDocument: storedRichTextDocument(row.description_json, String(row.description)),
     listId: String(row.list_id),
     boardId: String(row.board_id),
     position: Number(row.position),

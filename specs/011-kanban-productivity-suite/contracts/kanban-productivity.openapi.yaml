@@ -1,0 +1,369 @@
+openapi: 3.1.0
+info:
+  title: Strata Kanban Productivity API
+  version: 1.0.0
+  description: Contract additions and changed card semantics for Issues 15 through 19.
+servers:
+  - url: /api
+security:
+  - sessionCookie: []
+paths:
+  /cards/{cardId}/move:
+    post:
+      operationId: moveCard
+      summary: Move or reorder an active card
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [toListId, toPosition]
+              properties:
+                toListId:
+                  type: string
+                  minLength: 1
+                toPosition:
+                  type: integer
+                  minimum: 0
+      responses:
+        '200':
+          description: Final card state after the committed move and automation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /lists/{listId}/sort:
+    post:
+      operationId: sortListCards
+      summary: Persist an alphabetical active-card order for one list
+      parameters:
+        - $ref: '#/components/parameters/ListId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [direction]
+              properties:
+                direction:
+                  type: string
+                  enum: [asc, desc]
+      responses:
+        '200':
+          description: The authoritative ordered active cards.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [listId, direction, cards]
+                properties:
+                  listId:
+                    type: string
+                  direction:
+                    type: string
+                    enum: [asc, desc]
+                  cards:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Card'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /cards/{cardId}/duplicate:
+    post:
+      operationId: duplicateCard
+      summary: Create an independent copy immediately after a source card
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '201':
+          description: Final duplicated card state after the committed copy and automation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /cards/{cardId}:
+    patch:
+      operationId: updateCard
+      summary: Update a card, including its structured description
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              not:
+                required: [description, descriptionDocument]
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                  deprecated: true
+                  description: Legacy plain-text input; converted to a document by the server.
+                descriptionDocument:
+                  $ref: '#/components/schemas/RichTextDocument'
+                labelIds:
+                  type: array
+                  uniqueItems: true
+                  items:
+                    type: string
+                listId:
+                  type: string
+                position:
+                  type: number
+                memberIds:
+                  type: array
+                  items:
+                    type: string
+                checklists:
+                  type: array
+                  items: {}
+                dueDate:
+                  type: [string, 'null']
+                dueDateComplete:
+                  type: boolean
+                comments:
+                  type: array
+                  items: {}
+                activity:
+                  type: array
+                  items: {}
+                attachments:
+                  type: array
+                  items: {}
+                watching:
+                  type: boolean
+                archived:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated card.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /boards/{boardId}/labels:
+    put:
+      operationId: replaceBoardLabels
+      summary: Replace board label definitions and clean dependent references
+      parameters:
+        - name: boardId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [labels]
+              properties:
+                labels:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Label'
+      responses:
+        '200':
+          description: Persisted definitions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [boardId, labels]
+                properties:
+                  boardId:
+                    type: string
+                  labels:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Label'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: strata_session
+  parameters:
+    CardId:
+      name: cardId
+      in: path
+      required: true
+      schema:
+        type: string
+    ListId:
+      name: listId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Payload or relational validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: The authenticated user lacks the required board permission.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+    Label:
+      type: object
+      additionalProperties: false
+      required: [id, name, color]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          maxLength: 80
+        color:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+    RichTextMark:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [bold, italic, strike, code, link]
+        attrs:
+          type: object
+          additionalProperties: false
+          properties:
+            href:
+              type: string
+              maxLength: 2048
+            target:
+              type: string
+            rel:
+              type: string
+    RichTextNode:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [doc, paragraph, text, heading, bulletList, orderedList, listItem, blockquote, codeBlock, hardBreak, horizontalRule]
+        text:
+          type: string
+        attrs:
+          type: object
+          additionalProperties: false
+          properties:
+            level:
+              type: integer
+              minimum: 2
+              maximum: 3
+            start:
+              type: integer
+              minimum: 1
+        marks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RichTextMark'
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/RichTextNode'
+    RichTextDocument:
+      allOf:
+        - $ref: '#/components/schemas/RichTextNode'
+        - type: object
+          properties:
+            type:
+              const: doc
+    Card:
+      type: object
+      required: [id, title, description, descriptionDocument, listId, boardId, position, memberIds, labelIds, checklists, dueDate, dueDateComplete, comments, activity, attachments, watching, archived, createdAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        descriptionDocument: { $ref: '#/components/schemas/RichTextDocument' }
+        listId: { type: string }
+        boardId: { type: string }
+        position: { type: number }
+        memberIds:
+          type: array
+          items: { type: string }
+        labelIds:
+          type: array
+          items: { type: string }
+        checklists:
+          type: array
+          items: {}
+        dueDate:
+          type: [string, 'null']
+        dueDateComplete: { type: boolean }
+        comments:
+          type: array
+          items: {}
+        activity:
+          type: array
+          items: {}
+        attachments:
+          type: array
+          items: {}
+        watching: { type: boolean }
+        archived: { type: boolean }
+        createdAt: { type: string }

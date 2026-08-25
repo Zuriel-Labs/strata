@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { AlignLeft, Clock3, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
+import { AlignLeft, Clock3, Copy, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
 import { uid } from '../data';
-import { deleteCardApi, updateCardApi, moveCardApi } from '../services/data';
+import { deleteCardApi, duplicateCardApi, updateBoardLabelsApi, updateCardApi, moveCardApi } from '../services/data';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
-import type { Attachment } from '../types';
+import type { Attachment, RichTextDocument } from '../types';
 import { toast } from '../hooks/use-toast';
+import { RichTextEditor } from './RichTextEditor';
+import { RichTextRenderer } from './RichTextRenderer';
+import { LabelEditor } from './LabelEditor';
 
 type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
 
@@ -64,16 +67,23 @@ export function CardModal() {
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   const [descEditing, setDescEditing] = useState(false);
-  const [desc, setDesc] = useState('');
+  const [descDocument, setDescDocument] = useState<RichTextDocument | null>(null);
+  const [descPending, setDescPending] = useState(false);
+  const [descError, setDescError] = useState('');
   const [comment, setComment] = useState('');
   const [attachmentLink, setAttachmentLink] = useState('');
   const [titleEditing, setTitleEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const [labelManagerOpen, setLabelManagerOpen] = useState(false);
+  const [labelManagerBaselineIds, setLabelManagerBaselineIds] = useState<string[]>([]);
   const [labelQuery, setLabelQuery] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
+  const [duplicatePending, setDuplicatePending] = useState(false);
+  const [duplicateError, setDuplicateError] = useState('');
+  const [duplicateStatus, setDuplicateStatus] = useState('');
   const [revealedSections, setRevealedSections] = useState<Record<OptionalSectionKey, boolean>>({
     members: false,
     labels: false,
@@ -102,6 +112,7 @@ export function CardModal() {
   const currentUser = state.users.find(user => user.id === state.currentUserId) ?? state.users[0] ?? null;
   const canEditCard = auth.canEditBoardCards(card.boardId);
   const canDeleteCard = auth.canManageBoard(card.boardId);
+  const canManageLabels = auth.canManageBoardLabels(card.boardId);
   const hiddenSectionButtons = [
     { key: 'members' as const, label: 'Members', icon: Users, visible: card.memberIds.length > 0 || revealedSections.members },
     { key: 'dueDate' as const, label: 'Dates', icon: Clock3, visible: Boolean(card.dueDate) || revealedSections.dueDate },
@@ -111,6 +122,7 @@ export function CardModal() {
   const close = () => dispatch({ type: 'SET_ACTIVE_CARD', payload: null });
   const closeLabelPicker = () => {
     setLabelPickerOpen(false);
+    setLabelManagerOpen(false);
     setLabelQuery('');
   };
 
@@ -165,6 +177,26 @@ export function CardModal() {
     }
   };
 
+  const handleDuplicateCard = async () => {
+    if (!canEditCard || duplicatePending) return;
+    const sourceCardId = card.id;
+    setDuplicatePending(true);
+    setDuplicateError('');
+    setDuplicateStatus('');
+    try {
+      const duplicate = await duplicateCardApi(sourceCardId);
+      dispatch({ type: 'ADD_DUPLICATED_CARD_FROM_API', payload: { sourceCardId, card: duplicate } });
+      setDuplicateStatus('Card duplicated successfully.');
+      toast({ title: 'Card duplicated', description: `Opened “${duplicate.title}”.` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The card could not be duplicated.';
+      setDuplicateError(message);
+      toast({ title: 'Card not duplicated', description: message, variant: 'destructive' });
+    } finally {
+      setDuplicatePending(false);
+    }
+  };
+
   const handleMoveList = (nextListId: string) => {
     if (!nextListId || nextListId === card.listId) return;
     dispatch({ type: 'MOVE_CARD', payload: { cardId: card.id, toListId: nextListId, toPosition: 0 } });
@@ -212,6 +244,56 @@ export function CardModal() {
   const handleMemberChange = (nextMemberIds: string[]) => {
     revealSection('members');
     persistCard({ memberIds: nextMemberIds, watching: getWatchingForMemberChange(nextMemberIds) });
+  };
+
+  const beginDescriptionEdit = () => {
+    if (!canEditCard) return;
+    setDescDocument(card.descriptionDocument);
+    setDescError('');
+    setDescEditing(true);
+  };
+
+  const cancelDescriptionEdit = () => {
+    if (descPending) return;
+    setDescDocument(card.descriptionDocument);
+    setDescError('');
+    setDescEditing(false);
+  };
+
+  const saveDescription = async () => {
+    if (!descDocument || descPending) return;
+    setDescPending(true);
+    setDescError('');
+    try {
+      const updatedCard = await updateCardApi(card.id, { descriptionDocument: descDocument });
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: updatedCard });
+      setDescDocument(updatedCard.descriptionDocument);
+      setDescEditing(false);
+    } catch (error) {
+      setDescError(error instanceof Error ? error.message : 'The Description could not be saved.');
+    } finally {
+      setDescPending(false);
+    }
+  };
+
+  const saveLabelsInCard = async (nextLabels: typeof labels) => {
+    if (!board) throw new Error('Board not found.');
+    const result = await updateBoardLabelsApi(board.id, nextLabels);
+    dispatch({ type: 'UPDATE_BOARD_LABELS', payload: result });
+
+    const validIds = new Set(result.labels.map(label => label.id));
+    const baselineIds = new Set(labelManagerBaselineIds);
+    const createdIds = result.labels.filter(label => !baselineIds.has(label.id)).map(label => label.id);
+    const nextCardLabelIds = [...new Set([
+      ...card.labelIds.filter(labelId => validIds.has(labelId)),
+      ...createdIds,
+    ])];
+    if (createdIds.length > 0) {
+      const updatedCard = await updateCardApi(card.id, { labelIds: nextCardLabelIds });
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: updatedCard });
+    }
+    setLabelManagerOpen(false);
+    setLabelQuery('');
   };
 
   const handleLinkAttachment = async () => {
@@ -303,6 +385,19 @@ export function CardModal() {
           </select>
 
           <div className="flex items-center gap-2">
+            {canEditCard && (
+              <button
+                type="button"
+                aria-label="Duplicate card"
+                title="Duplicate card"
+                disabled={duplicatePending}
+                onClick={() => void handleDuplicateCard()}
+                className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-50"
+                style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}
+              >
+                <Copy size={18} />
+              </button>
+            )}
             {canDeleteCard && (
               <button
                 aria-label="Delete card"
@@ -336,10 +431,13 @@ export function CardModal() {
         </div>
 
         <div className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6">
+          {duplicateError && <p role="alert" className="mb-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">{duplicateError}</p>}
+          {duplicateStatus && <p role="status" className="mb-3 rounded-md px-3 py-2 text-sm" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>{duplicateStatus}</p>}
           <div className="mb-5 min-w-0">
             {titleEditing ? (
               <input
                 ref={titleInputRef}
+                aria-label="Card title"
                 value={draftTitle}
                 onChange={event => setDraftTitle(event.target.value)}
                 onBlur={commitTitle}
@@ -398,18 +496,25 @@ export function CardModal() {
 
           {labelPickerOpen && (
             <div
-              className="absolute right-4 top-32 z-20 w-[min(22rem,calc(100%-2rem))] rounded-2xl border p-3 shadow-2xl"
+              className={`absolute right-4 top-32 z-20 rounded-2xl border p-3 shadow-2xl ${labelManagerOpen ? 'w-[min(36rem,calc(100%-2rem))]' : 'w-[min(22rem,calc(100%-2rem))]'}`}
               style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}
               onClick={event => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between gap-3">
-                <input
-                  value={labelQuery}
-                  onChange={event => setLabelQuery(event.target.value)}
-                  placeholder="Search labels"
-                  className="min-h-[44px] w-full rounded-md border px-3 text-sm outline-none"
-                  style={{ background: 'transparent', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
+                {labelManagerOpen ? (
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>Manage labels</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Changes update every card on this board.</p>
+                  </div>
+                ) : (
+                  <input
+                    value={labelQuery}
+                    onChange={event => setLabelQuery(event.target.value)}
+                    placeholder="Search labels"
+                    className="min-h-[44px] w-full rounded-md border px-3 text-sm outline-none"
+                    style={{ background: 'transparent', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                )}
                 <button
                   type="button"
                   aria-label="Close labels panel"
@@ -420,6 +525,15 @@ export function CardModal() {
                   <X size={16} />
                 </button>
               </div>
+              {labelManagerOpen ? (
+                <LabelEditor
+                  autoFocus
+                  labels={labels}
+                  usageCount={labelId => state.cards.filter(candidate => candidate.boardId === card.boardId && candidate.labelIds.includes(labelId)).length}
+                  onCancel={() => setLabelManagerOpen(false)}
+                  onSave={saveLabelsInCard}
+                />
+              ) : <>
               <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
                 {visiblePickerLabels.map(label => {
                   const active = card.labelIds.includes(label.id);
@@ -442,6 +556,19 @@ export function CardModal() {
                 })}
                 {visiblePickerLabels.length === 0 && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No labels match your search.</p>}
               </div>
+              {canManageLabels && (
+                <button
+                  type="button"
+                  aria-label="Manage labels in card"
+                  onClick={() => {
+                    setLabelManagerBaselineIds(labels.map(label => label.id));
+                    setLabelManagerOpen(true);
+                  }}
+                  className="mt-3 min-h-[44px] w-full rounded-md border text-sm font-semibold"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+                >Create, edit, or delete labels</button>
+              )}
+              </>}
             </div>
           )}
 
@@ -545,32 +672,29 @@ export function CardModal() {
             <SectionHeading icon={AlignLeft} title="Description" />
             {descEditing ? (
               <div>
-                <textarea
+                <RichTextEditor
                   autoFocus
-                  value={desc}
-                  onChange={event => setDesc(event.target.value)}
-                  rows={4}
-                  className="w-full resize-none rounded-xl border px-4 py-3 text-sm outline-none"
-                  style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  disabled={descPending}
+                  value={descDocument ?? card.descriptionDocument}
+                  onChange={setDescDocument}
                 />
+                {descError && <p role="alert" className="mt-2 text-sm text-red-400">{descError}</p>}
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      persistCard({ description: desc });
-                      setDescEditing(false);
-                    }}
-                    className="min-h-[44px] rounded-md px-4 text-sm font-medium text-white"
+                    aria-label="Save description"
+                    disabled={descPending}
+                    onClick={() => void saveDescription()}
+                    className="min-h-[44px] rounded-md px-4 text-sm font-medium text-white disabled:cursor-wait disabled:opacity-60"
                     style={{ background: 'var(--accent)' }}
                   >
-                    Save
+                    {descPending ? 'Saving…' : 'Save'}
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setDesc(card.description);
-                      setDescEditing(false);
-                    }}
+                    aria-label="Cancel description editing"
+                    disabled={descPending}
+                    onClick={cancelDescriptionEdit}
                     className="min-h-[44px] px-2 text-sm"
                     style={{ color: 'var(--text-secondary)' }}
                   >
@@ -581,14 +705,15 @@ export function CardModal() {
             ) : (
               <button
                 type="button"
-                onClick={() => {
-                  setDesc(card.description);
-                  setDescEditing(true);
-                }}
+                aria-label="Edit description"
+                disabled={!canEditCard}
+                onClick={beginDescriptionEdit}
                 className="min-h-[88px] w-full rounded-xl border px-4 py-3 text-left text-sm"
                 style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)', color: card.description ? 'var(--text-primary)' : 'var(--text-secondary)' }}
               >
-                {card.description || 'Add a more detailed description...'}
+                {card.description
+                  ? <RichTextRenderer document={card.descriptionDocument} />
+                  : 'Add a more detailed description...'}
               </button>
             )}
           </section>

@@ -2,10 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { createCard, updateCard, deleteCard, getCardById, getMaxCardPosition, createAuditEvent, getBoardById } from '../db/repositories';
+import { CardDuplicateValidationError, CardMoveValidationError, createCard, updateCard, deleteCard, duplicateCard, getCardById, getMaxCardPosition, createAuditEvent, getBoardById, moveCard } from '../db/repositories';
 import { applyRealtimeAutomations, becameChecklistComplete } from '../automation/realtime';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canArchiveBoardContent, canEditBoardCards, canManageBoard } from '../rbac/permissions';
+import { normalizeDescriptionInput, RichTextValidationError } from '../../../src/lib/rich-text';
 
 const createCardSchema = z.object({
   boardId: z.string().min(1),
@@ -16,6 +17,7 @@ const createCardSchema = z.object({
 const updateCardSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
+  descriptionDocument: z.unknown().optional(),
   listId: z.string().optional(),
   position: z.number().optional(),
   memberIds: z.array(z.string()).optional(),
@@ -28,12 +30,14 @@ const updateCardSchema = z.object({
   attachments: z.array(z.unknown()).optional(),
   watching: z.boolean().optional(),
   archived: z.boolean().optional(),
-});
+}).strict().refine(value => !(value.description !== undefined && value.descriptionDocument !== undefined));
 
 const moveCardSchema = z.object({
   toListId: z.string().min(1),
   toPosition: z.number().int().min(0),
-});
+}).strict();
+
+const duplicateCardSchema = z.object({}).strict();
 
 export function createCardRoutes(db: Database.Database) {
   const router = Router();
@@ -89,8 +93,24 @@ export function createCardRoutes(db: Database.Database) {
       response.status(validationMessage === 'Board not found.' ? 404 : 400).json({ message: validationMessage });
       return;
     }
+    let updates: Record<string, unknown> = parsed.data;
+    try {
+      const normalizedDescription = normalizeDescriptionInput(parsed.data);
+      if (normalizedDescription) {
+        updates = { ...parsed.data };
+        delete updates.description;
+        delete updates.descriptionDocument;
+        updates.descriptionDocument = normalizedDescription.descriptionDocument;
+      }
+    } catch (error) {
+      if (error instanceof RichTextValidationError) {
+        response.status(400).json({ message: error.message });
+        return;
+      }
+      throw error;
+    }
     const shouldRunChecklistAutomations = parsed.data.checklists !== undefined && becameChecklistComplete(card.checklists, parsed.data.checklists as typeof card.checklists);
-    updateCard(db, cardId, parsed.data);
+    updateCard(db, cardId, updates);
     if (requiresArchivePermission) {
       createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: card.boardId, action: parsed.data.archived ? 'card.archive' : 'card.restore', outcome: 'success' });
     }
@@ -110,28 +130,44 @@ export function createCardRoutes(db: Database.Database) {
     const parsed = moveCardSchema.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ message: 'Invalid payload.' }); return; }
 
-    // Re-index cards in source and destination lists
-    const sourceCards = (db.prepare('SELECT id FROM cards WHERE list_id = ? AND archived = 0 AND id != ? ORDER BY position ASC').all(card.listId, card.id) as Array<{ id: string }>);
-    for (let i = 0; i < sourceCards.length; i++) {
-      db.prepare('UPDATE cards SET position = ? WHERE id = ?').run(i, sourceCards[i].id);
+    let movedCard;
+    try {
+      movedCard = moveCard(db, card, parsed.data.toListId, parsed.data.toPosition, request.auth!.user.id);
+    } catch (error) {
+      if (error instanceof CardMoveValidationError) {
+        response.status(400).json({ message: error.message });
+        return;
+      }
+      response.status(500).json({ message: 'Unable to move card.' });
+      return;
     }
-
-    const destCards = card.listId === parsed.data.toListId
-      ? sourceCards
-      : (db.prepare('SELECT id FROM cards WHERE list_id = ? AND archived = 0 ORDER BY position ASC').all(parsed.data.toListId) as Array<{ id: string }>);
-
-    const insertAt = Math.max(0, Math.min(parsed.data.toPosition, destCards.length));
-    const reordered = [...destCards];
-    reordered.splice(insertAt, 0, { id: card.id });
-    for (let i = 0; i < reordered.length; i++) {
-      db.prepare('UPDATE cards SET position = ? WHERE id = ?').run(i, reordered[i].id);
-    }
-
-    db.prepare('UPDATE cards SET list_id = ? WHERE id = ?').run(parsed.data.toListId, card.id);
-
-    const movedCard = getCardById(db, cardId);
     const updated = movedCard ? applyRealtimeAutomations(db, movedCard, 'card_moved', request.auth!.user.id, { toListId: parsed.data.toListId }) : null;
     response.json(updated);
+  });
+
+  // Duplicate an active card and its reusable content as one atomic operation.
+  router.post('/:cardId/duplicate', requireAuth, (request: AuthenticatedRequest, response) => {
+    const cardId = String(request.params.cardId);
+    const source = getCardById(db, cardId);
+    if (!source) { response.status(404).json({ message: 'Card not found.' }); return; }
+    if (!canEditBoardCards(db, request.auth!, source.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
+    if (!duplicateCardSchema.safeParse(request.body ?? {}).success) { response.status(400).json({ message: 'Invalid payload.' }); return; }
+
+    try {
+      const duplicate = duplicateCard(
+        db,
+        source,
+        request.auth!.user.id,
+        created => applyRealtimeAutomations(db, created, 'card_created', request.auth!.user.id),
+      );
+      response.status(201).json(duplicate);
+    } catch (error) {
+      if (error instanceof CardDuplicateValidationError) {
+        response.status(400).json({ message: error.message });
+        return;
+      }
+      response.status(500).json({ message: 'Unable to duplicate card.' });
+    }
   });
 
   // Delete card

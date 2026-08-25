@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useReducer, type Dispatch, type ReactNode } from 'react';
 import type { AppState, Action, Card, AutomationRule, Label, User } from './types';
 import { USERS, WORKSPACES, BOARDS, LISTS, CARDS, AUTOMATION_RULES, NOTIFICATIONS, uid } from './data';
+import { EMPTY_RICH_TEXT_DOCUMENT } from './lib/rich-text';
 
 export const STORAGE_KEY = 'strata-app-state';
 
@@ -273,6 +274,7 @@ export function reducer(state: AppState, action: Action): AppState {
         id: uid(),
         title: action.payload.title,
         description: '',
+        descriptionDocument: EMPTY_RICH_TEXT_DOCUMENT,
         listId: action.payload.listId,
         boardId: action.payload.boardId,
         position: maxPos + 1,
@@ -323,6 +325,45 @@ export function reducer(state: AppState, action: Action): AppState {
       const destinationList = state.lists.find(list => list.id === action.payload.toListId);
       const activityCard = appendActivity(movedCard, state.currentUserId, `moved this card${fromListId !== action.payload.toListId && destinationList ? ` to ${destinationList.title}` : ''}`);
       return runAutomations({ ...state, cards: cards.map(card => card.id === activityCard.id ? activityCard : card) }, activityCard, 'card_moved', { toListId: action.payload.toListId });
+    }
+
+    case 'RESTORE_CARDS':
+      return Array.isArray(action.payload)
+        ? { ...state, cards: action.payload }
+        : { ...state, cards: action.payload.cards, notifications: action.payload.notifications };
+
+    case 'APPLY_SORTED_LIST_CARDS': {
+      const orderedById = new Map(action.payload.cards.map(card => [card.id, card]));
+      return {
+        ...state,
+        cards: state.cards.map(card => (
+          card.listId === action.payload.listId && !card.archived
+            ? orderedById.get(card.id) ?? card
+            : card
+        )),
+      };
+    }
+
+    case 'APPLY_CARD_FROM_API':
+      return { ...state, cards: state.cards.map(card => card.id === action.payload.id ? action.payload : card) };
+
+    case 'ADD_DUPLICATED_CARD_FROM_API': {
+      const { sourceCardId, card: duplicate } = action.payload;
+      if (state.cards.some(card => card.id === duplicate.id)) {
+        return { ...state, activeCardId: duplicate.id };
+      }
+      const source = state.cards.find(card => card.id === sourceCardId);
+      const shouldShiftSourceList = Boolean(source && duplicate.listId === source.listId && !duplicate.archived);
+      const cards = state.cards.map(card => (
+        shouldShiftSourceList
+        && source
+        && card.listId === source.listId
+        && !card.archived
+        && card.position > source.position
+          ? { ...card, position: card.position + 1 }
+          : card
+      ));
+      return { ...state, cards: [...cards, duplicate], activeCardId: duplicate.id };
     }
 
     case 'ARCHIVE_CARD':

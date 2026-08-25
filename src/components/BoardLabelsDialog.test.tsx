@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { BoardLabelsDialog } from './BoardLabelsDialog';
 
 describe('BoardLabelsDialog', () => {
-  it('persists label edits immediately', async () => {
+  it('stages label edits and persists them on Save', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
 
@@ -19,12 +19,14 @@ describe('BoardLabelsDialog', () => {
     await user.clear(screen.getByDisplayValue('Urgent'));
     await user.type(screen.getByPlaceholderText('Label name'), 'Critical');
 
+    expect(onSave).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Save labels' }));
     expect(onSave).toHaveBeenLastCalledWith([
       { id: 'lb1', name: 'Critical', color: '#ef4444' },
     ]);
   });
 
-  it('adds a new empty label immediately from the inline row control', async () => {
+  it('adds a new empty label to the staged aggregate', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
 
@@ -37,9 +39,10 @@ describe('BoardLabelsDialog', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Add New Label' }));
+    await user.click(screen.getByRole('button', { name: 'Add new label' }));
 
-    expect(onSave).toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Save labels' }));
     expect(onSave.mock.lastCall?.[0]).toEqual([
       { id: 'lb1', name: 'Urgent', color: '#ef4444' },
       expect.objectContaining({ name: '' }),
@@ -47,7 +50,7 @@ describe('BoardLabelsDialog', () => {
     expect(onSave.mock.lastCall?.[0][1].color).not.toBe('#ef4444');
   });
 
-  it('saves on close and applies colors immediately from the palette', async () => {
+  it('discards a staged color change when closed', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     const onClose = vi.fn();
@@ -64,15 +67,13 @@ describe('BoardLabelsDialog', () => {
     await user.click(screen.getByLabelText('Choose color for Urgent'));
     await user.click(screen.getByLabelText('Select #3b82f6'));
 
-    expect(onSave).toHaveBeenLastCalledWith([{ id: 'lb1', name: 'Urgent', color: '#3b82f6' }]);
-
     await user.click(screen.getByLabelText('Close label manager'));
 
-    expect(onSave).toHaveBeenLastCalledWith([{ id: 'lb1', name: 'Urgent', color: '#3b82f6' }]);
+    expect(onSave).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('removes labels immediately with the trash button', async () => {
+  it('confirms label removal and persists it on Save', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
 
@@ -88,7 +89,10 @@ describe('BoardLabelsDialog', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Remove Feature' }));
+    await user.click(screen.getByRole('button', { name: 'Delete Feature' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm delete label' }));
+    expect(onSave).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Save labels' }));
 
     expect(onSave).toHaveBeenLastCalledWith([{ id: 'lb1', name: 'Urgent', color: '#ef4444' }]);
   });

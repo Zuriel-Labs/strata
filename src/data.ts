@@ -1,4 +1,5 @@
 import type { User, Workspace, Board, List, Card, Label, AutomationRule, Notification, Attachment } from './types';
+import { plainTextToRichTextDocument } from './lib/rich-text';
 
 let _id = 100;
 const uid = () => `id_${++_id}`;
@@ -68,7 +69,7 @@ const daysFromNow = (d: number) => {
   return dt.toISOString();
 };
 
-export const CARDS: Card[] = [
+const BASE_CARDS: Array<Omit<Card, 'descriptionDocument'>> = [
   {
     id: 'c1', title: 'Set up CI/CD pipeline for monorepo', description: 'Configure GitHub Actions for the new monorepo structure. Need separate workflows for each package.', listId: 'l3', boardId: 'b1', position: 0,
     memberIds: ['u1', 'u2'], labelIds: ['lb2'], dueDate: daysFromNow(3), dueDateComplete: false, watching: true, archived: false, createdAt: now, attachments: [],
@@ -135,6 +136,11 @@ export const CARDS: Card[] = [
     checklists: [], comments: [], activity: [],
   },
 ];
+
+export const CARDS: Card[] = BASE_CARDS.map(card => ({
+  ...card,
+  descriptionDocument: plainTextToRichTextDocument(card.description),
+}));
 
 export const AUTOMATION_RULES: AutomationRule[] = [
   {

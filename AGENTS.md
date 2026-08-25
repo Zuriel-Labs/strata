@@ -85,3 +85,10 @@ This repo is managed by the **broville-pipeline** skill. When an issue is assign
 ## Reports
 
 All briefs, reports, and status updates are published to **pages.eaglepass.io** using the Liquid Glass design system (dark mode, self-contained HTML, no `.glass::before` overlay).
+
+## Active Technologies
+- TypeScript 5.9, React 19.2, Node.js 24-compatible ESM + Express 5.2, better-sqlite3 12.10, Zod 4.3, `@dnd-kit/react` 0.5, `@dnd-kit/helpers`, Tiptap 3.30 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`), Tailwind CSS, shadcn/Radix UI (011-kanban-productivity-suite)
+- SQLite; additive `cards.description_json` migration with no table rebuild or destructive rewrite (011-kanban-productivity-suite)
+
+## Recent Changes
+- 011-kanban-productivity-suite: Added TypeScript 5.9, React 19.2, Node.js 24-compatible ESM + Express 5.2, better-sqlite3 12.10, Zod 4.3, `@dnd-kit/react` 0.5, `@dnd-kit/helpers`, Tiptap 3.30 (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`), Tailwind CSS, shadcn/Radix UI

@@ -7,25 +7,35 @@ import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware'
 import { canManageWorkspace, canAccessBoard, canManageBoard, canManageBoardLabels } from '../rbac/permissions';
 
 const labelSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().transform(value => value.trim()),
-  color: z.string().min(1),
+  id: z.string().trim().min(1).max(100),
+  name: z.string().max(50).transform(value => value.trim()),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).transform(value => value.toLowerCase()),
+}).strict();
+
+const labelsSchema = z.array(labelSchema).max(100).superRefine((labels, context) => {
+  const seen = new Set<string>();
+  labels.forEach((label, index) => {
+    if (seen.has(label.id)) {
+      context.addIssue({ code: 'custom', message: 'Label IDs must be unique.', path: [index, 'id'] });
+    }
+    seen.add(label.id);
+  });
 });
 
 const createBoardSchema = z.object({
   workspaceId: z.string().min(1),
   title: z.string().min(1),
   color: z.string().min(1),
-  labels: z.array(labelSchema).optional(),
-});
+  labels: labelsSchema.optional(),
+}).strict();
 
 const updateBoardSchema = z.object({
   title: z.string().transform(value => value.trim()).refine(value => value.length > 0),
 });
 
 const updateBoardLabelsSchema = z.object({
-  labels: z.array(labelSchema),
-});
+  labels: labelsSchema,
+}).strict();
 
 export function createBoardRoutes(db: Database.Database) {
   const router = Router();
@@ -87,8 +97,10 @@ export function createBoardRoutes(db: Database.Database) {
       return;
     }
 
-    updateBoardLabels(db, boardId, parsed.data.labels);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.labels.update', outcome: 'success' });
+    db.transaction(() => {
+      updateBoardLabels(db, boardId, parsed.data.labels);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.labels.update', outcome: 'success' });
+    })();
     response.json({ boardId, labels: parsed.data.labels });
   });
 

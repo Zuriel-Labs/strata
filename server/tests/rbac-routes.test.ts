@@ -132,6 +132,29 @@ describe('board rename RBAC', () => {
   });
 });
 
+describe('board label management RBAC', () => {
+  afterEach(() => { closeDatabase(); });
+  const payload = { labels: [{ id: 'lb1', name: 'Managed', color: '#123456' }] };
+
+  it('allows a board admin to manage shared labels', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await login(app, 'marcus', 'BoardAdmin123!');
+    expect((await agent.put('/api/boards/b1/labels').send(payload)).status).toBe(200);
+  });
+
+  it('denies a board member and preserves the definitions', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const before = db.prepare('SELECT labels_json as labelsJson FROM boards WHERE id = ?').get('b1') as { labelsJson: string };
+    const agent = await login(app, 'priya', 'Member12345!');
+
+    expect((await agent.put('/api/boards/b1/labels').send(payload)).status).toBe(403);
+    const after = db.prepare('SELECT labels_json as labelsJson FROM boards WHERE id = ?').get('b1') as { labelsJson: string };
+    expect(after.labelsJson).toBe(before.labelsJson);
+  });
+});
+
 describe('workspace rename RBAC', () => {
   afterEach(() => { closeDatabase(); });
 

@@ -78,6 +78,8 @@ export function CardModal() {
   const [labelManagerOpen, setLabelManagerOpen] = useState(false);
   const [labelManagerBaselineIds, setLabelManagerBaselineIds] = useState<string[]>([]);
   const [labelQuery, setLabelQuery] = useState('');
+  const [labelAssignmentPendingId, setLabelAssignmentPendingId] = useState<string | null>(null);
+  const [labelAssignmentError, setLabelAssignmentError] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
@@ -138,11 +140,35 @@ export function CardModal() {
     setLabelPickerOpen(false);
     setLabelManagerOpen(false);
     setLabelQuery('');
+    setLabelAssignmentError('');
   };
 
   const persistCard = (updates: Record<string, unknown>) => {
     dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, ...updates } });
     updateCardApi(card.id, updates);
+  };
+
+  const toggleCardLabel = async (labelId: string) => {
+    if (!canEditCard || labelAssignmentPendingId) return;
+    const previousLabelIds = card.labelIds;
+    const nextLabelIds = previousLabelIds.includes(labelId)
+      ? previousLabelIds.filter(currentId => currentId !== labelId)
+      : [...previousLabelIds, labelId];
+
+    setLabelAssignmentPendingId(labelId);
+    setLabelAssignmentError('');
+    dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, labelIds: nextLabelIds } });
+    try {
+      const updated = await updateCardApi(card.id, { labelIds: nextLabelIds });
+      dispatch({ type: 'APPLY_CARD_FROM_API', payload: updated });
+    } catch (error) {
+      dispatch({ type: 'UPDATE_CARD', payload: { id: card.id, labelIds: previousLabelIds } });
+      const message = error instanceof Error ? error.message : 'The card label could not be updated.';
+      setLabelAssignmentError(message);
+      toast({ title: 'Label assignment not saved', description: message, variant: 'destructive' });
+    } finally {
+      setLabelAssignmentPendingId(null);
+    }
   };
 
   const getWatchingForMemberChange = (nextMemberIds: string[]) => {
@@ -602,6 +628,7 @@ export function CardModal() {
                   onSave={saveLabelsInCard}
                 />
               ) : <>
+              {labelAssignmentError && <p role="alert" className="mb-2 rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-400">{labelAssignmentError}</p>}
               <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
                 {visiblePickerLabels.map(label => {
                   const active = card.labelIds.includes(label.id);
@@ -609,12 +636,13 @@ export function CardModal() {
                     <button
                       key={label.id}
                       type="button"
-                      disabled={!canEditCard || active}
+                      aria-pressed={active}
+                      disabled={!canEditCard || Boolean(labelAssignmentPendingId)}
                       onClick={() => {
                         revealSection('labels');
-                        persistCard({ labelIds: [...card.labelIds, label.id] });
+                        void toggleCardLabel(label.id);
                       }}
-                      className="flex min-h-[44px] items-center justify-between rounded-md px-3 text-sm font-medium text-white disabled:cursor-default disabled:opacity-60"
+                      className="flex min-h-[44px] items-center justify-between rounded-md px-3 text-sm font-medium text-white disabled:cursor-wait disabled:opacity-60"
                       style={{ background: label.color }}
                     >
                       <span>{label.name}</span>

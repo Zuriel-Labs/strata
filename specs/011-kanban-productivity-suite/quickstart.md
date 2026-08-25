@@ -43,6 +43,10 @@ The final `npm run test:ci` is mandatory even when its component gates have alre
 - Cancel a drag and force a failed request; both restore the exact previous order.
 - Reload and verify the committed order persists with compact unique positions.
 - Verify filtered/hidden cards are not lost or misordered by a visible-card drag.
+- Move a card into every position of a destination already containing two or more cards; confirm no blank screen, uncaught error, missing card, or incorrect persisted position.
+- Reorder lanes first→middle, middle→end, and end→first from the title area with pointer and held touch.
+- While moving a lane, confirm horizontal displacement exposes the destination gap, the source becomes a faded dropped-state placeholder, and a title-styled lane overlay follows the pointer/finger.
+- Cancel and force a failed lane move; verify exact rollback. Complete a move, reload, and verify exact lane persistence. Confirm users without board-management authority have no lane activator.
 
 ### Issue #16 — A–Z and Z–A sort
 
@@ -69,6 +73,7 @@ The final `npm run test:ci` is mandatory even when its component gates have alre
 - Delete an assigned label and verify card/automation references are cleaned.
 - Verify validation, duplicate IDs, invalid colors, RBAC denial, and persistence-failure handling.
 - Leave a new label unsaved beyond background refresh intervals in both managers; confirm it never disappears before Save/Cancel.
+- In the card label picker, click an `Added` row and confirm it immediately becomes `Add` and removes the assignment; click it again and confirm the assignment returns. Force a failed update and confirm rollback plus feedback.
 
 ### Issue #19 — rich-text descriptions
 
@@ -96,6 +101,7 @@ The final `npm run test:ci` is mandatory even when its component gates have alre
 - Permanently delete the list and verify only it and its child cards disappear after refresh.
 - Verify System Admin, Workspace Admin, and Board Admin access; deny lower roles and direct deletion of active lists.
 - Force delete/restore failures and confirm both Archive surfaces recover authoritatively with actionable feedback.
+- At 390×844, 768×600, and 1280×720, open an archived-list delete prompt and confirm the warning, Cancel, and Delete actions are fully visible or reachable inside the Management dialog without clipping outside the viewport.
 
 ## Canary release procedure
 

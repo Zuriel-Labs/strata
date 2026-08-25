@@ -75,7 +75,10 @@ export function ArchiveItems({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="relative space-y-2">
+    <div
+      data-testid="archive-items"
+      className={`relative space-y-2 ${deleteCandidate && !compact ? 'min-h-[20rem]' : ''}`}
+    >
       {error && <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p>}
       {archivedLists.map(list => {
         const pending = pendingKey === `list:${list.id}`;

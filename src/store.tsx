@@ -538,6 +538,9 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
 
+    case 'RESTORE_LISTS':
+      return { ...state, lists: action.payload };
+
     case 'ADD_LIST_FROM_API':
       return { ...state, lists: [...state.lists, action.payload] };
 

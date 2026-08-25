@@ -202,6 +202,42 @@ describe('CardModal', () => {
     expect(screen.queryByPlaceholderText('Search labels')).not.toBeInTheDocument();
   });
 
+  it('uses Add and Added label rows as a reversible assignment toggle', async () => {
+    const user = userEvent.setup();
+    const state = buildState('c5', { labelIds: ['lb3'] });
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const updates = JSON.parse(String(init?.body ?? '{}'));
+      return Response.json({ ...state.cards.find(card => card.id === 'c5'), ...updates });
+    });
+
+    render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    const assignedRow = screen.getByRole('button', { name: /bug\s*added/i });
+    expect(assignedRow).toBeEnabled();
+
+    await user.click(assignedRow);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/cards/c5', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ labelIds: [] }),
+    })));
+    expect(await screen.findByRole('button', { name: /bug\s*add/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Bug' })).not.toBeInTheDocument();
+  });
+
+  it('restores an assigned label and reports the failure when toggle persistence fails', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockRejectedValueOnce(new Error('Label service unavailable'));
+
+    render(<AppProvider initialAppState={buildState('c5', { labelIds: ['lb3'] })}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Labels' }));
+    await user.click(screen.getByRole('button', { name: /bug\s*added/i }));
+
+    expect(await screen.findByRole('button', { name: /bug\s*added/i })).toBeEnabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Label service unavailable');
+    expect(screen.getByRole('button', { name: 'Bug' })).toBeInTheDocument();
+  });
+
   it('closes the labels panel from its close button', async () => {
     const user = userEvent.setup();
     render(

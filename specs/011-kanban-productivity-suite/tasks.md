@@ -135,6 +135,21 @@ description: "Dependency-ordered Red/Green/Refactor execution ledger for Strata 
 - [ ] T080 Commit/push the replacement exact head, wait for exact-head GitHub CI, update PR #20 and all seven Issues with evidence, build/push the immutable image, and deploy only `strata-canary` through Gitea/ArgoCD.
 - [ ] T081 Verify exact running digest, health, logs/events, first-account/auth state, all changed live journeys, and production non-change; then replace working labels with canary/feedback labels and hand off the updated checklist.
 
+## Phase 11: Second Canary Acceptance Remediation
+
+- [x] T082 Reclaim Issues #15, #18, and #21 with a fresh timestamp, invalidate the first-remediation candidate, inspect both supplied screenshots as visual evidence only, and add the second-round acceptance criteria to `specs/011-kanban-productivity-suite/spec.md`.
+- [x] T083 [US1] **RED** Add a Chromium regression that drops a source card into every position of a destination already containing two or more cards, asserts the board never blanks or emits an uncaught error, and verifies exact persistence in `tests/e2e/kanban-productivity.spec.ts`.
+- [x] T084 [US1] **GREEN** Identify and fix the cross-group multi-card rendering failure without weakening exact insertion, filtered-card, animation-gap, click/touch, rollback, or persistence behavior in `src/components/BoardView.tsx` and ordering helpers as required.
+- [x] T085 [US3] **RED/GREEN** Add card-modal tests for reversible Add/Added label rows, then make assigned rows clickable to remove with permission, pending, authoritative response, and failure semantics in `src/components/CardModal.test.tsx` and `src/components/CardModal.tsx`.
+- [x] T086 [US8] **RED** Add component/E2E acceptance for horizontal first/middle/end lane movement, source/overlay/gap visual states, cancellation, failure rollback, persistence, permissions, touch, and reduced motion in `src/components/BoardView.test.tsx` and `tests/e2e/kanban-productivity.spec.ts`.
+- [x] T087 [US8] **GREEN** Replace native swimlane dragging with the established sortable interaction model, using the title area as activator plus a lane-styled overlay, animated horizontal displacement, faded destination placeholder, exact persistence, and feedback in `src/components/BoardView.tsx`.
+- [x] T088 [US8] **REFACTOR** Separate card and lane drag state/snapshots cleanly, preserve title editing and menu actions, and keep every card/lane drag regression green in `src/components/BoardView.tsx` and focused tests.
+- [x] T089 [US7] **RED/GREEN** Add responsive management/archive dialog tests and increase the Management shell's useful height while retaining viewport bounds, content scrolling, focusable actions, and mobile fit in `src/components/NavigationOverlay.test.tsx`, `src/components/NavigationOverlay.tsx`, and E2E.
+- [x] T090 Update plan, research, quickstart, requirements/UX checklists, consistency analysis, and validation report for all eight stories, 83 functional requirements, 60 acceptance scenarios, and the second-remediation candidate.
+- [x] T091 Run focused client/order/E2E regressions, audits, database integrity, `npm run test:ci`, and interactive desktop/tablet/mobile pointer/touch visual QA; remediate every in-scope failure.
+- [ ] T092 Commit and push the exact replacement head, wait for exact-head GitHub CI, update PR #20 and Issues #15/#18/#21 with evidence, build/push an immutable image, and deploy only `strata-canary` through Gitea/ArgoCD.
+- [ ] T093 Verify the running digest, health, logs/events, live changed journeys, and production non-change; then replace working labels with canary/feedback labels and hand off the revised checklist.
+
 ## Dependencies
 
 ```text
@@ -145,7 +160,7 @@ Setup T001–T004
 Board-label aggregate (existing) ──> US3 T028–T035
 Card row mapping + ordering foundation ──> US4 T036–T042
 
-All five original stories ──> T050–T055 ──> T056–T063 ──> remediation T064–T081
+All five original stories ──> T050–T055 ──> T056–T063 ──> remediation T064–T081 ──> second remediation T082–T093
 ```
 
 - US3 can begin after Setup because it reuses the existing board-label aggregate.

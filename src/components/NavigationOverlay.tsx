@@ -87,8 +87,8 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center pt-16" style={{ background: 'rgba(6, 9, 14, 0.6)' }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl max-h-[80vh] rounded-2xl border shadow-2xl flex flex-col overflow-hidden" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)' }}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center px-4 pt-4 sm:pt-16" style={{ background: 'rgba(6, 9, 14, 0.6)' }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div data-testid="management-dialog" className="h-[min(42rem,80vh)] max-h-[calc(100vh-2rem)] w-full max-w-2xl rounded-2xl border shadow-2xl flex flex-col overflow-hidden" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)' }}>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
           <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Management</h2>

@@ -110,3 +110,21 @@ For API compatibility, callers may submit either legacy `description` or structu
 **Decision**: Derive independent archived cards by excluding any card whose parent list is archived. Add an archived-only `DELETE /api/lists/{listId}` route using existing board archive permission; delete the list in one transaction and rely on the existing `ON DELETE CASCADE` relationship for its cards.
 
 **Rationale**: Archiving a list intentionally marks its child cards archived, so rendering both levels duplicates one logical archive action. A dedicated archived-only delete precondition prevents accidental removal of active board content while satisfying board-admin cleanup needs.
+
+## Decision 10: React-owned drag previews with sortable DOM mutation disabled
+
+**Decision**: Disable the sortable runtime's default optimistic-sorting plugin for both cards and swimlanes (`plugins: []`). On drag-over, calculate preview card groups or lane IDs from stable application data and render that preview through React. Use the runtime only for sensors, collision events, source/drop-target state, and the lifted overlay.
+
+**Rationale**: The destination-third-card regression reproduced as `NotFoundError: Failed to execute 'removeChild' on 'Node'`. Inspection of the installed sortable runtime showed its optimistic plugin calling `insertAdjacentElement` to physically move a card into another list during hover. React still owned the original parent relationship, so the drop state update made React delete a node from a parent that no longer contained it and the render tree blanked. A single React owner for preview and committed ordering removes the competing DOM ownership while retaining smooth gap and overlay feedback.
+
+**Alternatives considered**:
+
+- Catch the browser exception or force a page refresh: rejected because it masks corrupted UI ownership and loses interaction state.
+- Delay the application state update after drop: rejected because the timing race remains browser-dependent.
+- Allow the plugin for same-list movement only: rejected because switching strategies at list boundaries complicates preview state and leaves two ordering models.
+
+## Decision 11: One sortable model for horizontal swimlanes
+
+**Decision**: Represent each active swimlane as a board-scoped sortable item with a prefixed ID (`list:<id>`), use its title area as the pointer/touch activator, and render a lane-styled overlay plus a faded source placeholder while React reorders the horizontal preview. Persist one exact-position mutation after drop and restore the complete list snapshot if it fails.
+
+**Rationale**: Stable prefixed IDs avoid collisions with card-list droppable IDs. Reusing the same event/preview architecture gives cards and lanes consistent motion, touch behavior, reduced-motion handling, failure semantics, and source/destination affordances while respecting their vertical versus horizontal axes.

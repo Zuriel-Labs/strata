@@ -334,5 +334,6 @@ export type Action =
   | { type: 'MARK_ALL_NOTIFICATIONS_READ' }
   | { type: 'ADD_NOTIFICATION'; payload: Omit<Notification, 'id' | 'createdAt'> }
   | { type: 'MOVE_LIST'; payload: { listId: string; toPosition: number } }
+  | { type: 'RESTORE_LISTS'; payload: List[] }
   | { type: 'ADD_LIST_FROM_API'; payload: List }
   | { type: 'ADD_CARD_FROM_API'; payload: Card };

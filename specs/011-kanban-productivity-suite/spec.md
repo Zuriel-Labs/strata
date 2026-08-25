@@ -3,8 +3,8 @@
 **Feature Branch**: `feat/kanban-productivity-suite`
 **Feature ID**: `011-kanban-productivity-suite`
 **Created**: 2026-08-24
-**Status**: Acceptance remediation in progress after first canary feedback
-**Input**: Complete every open Strata Issue (#15–#19, #21, and #22), remediate the first canary feedback round with explicit acceptance criteria, and deliver one replacement candidate to Strata Canary without changing production.
+**Status**: Implemented; awaiting replacement canary validation after second feedback
+**Input**: Complete every open Strata Issue (#15–#19, #21, and #22), remediate both canary feedback rounds with explicit acceptance criteria, and deliver one replacement candidate to Strata Canary without changing production.
 
 ## Scope Traceability
 
@@ -17,6 +17,7 @@
 | US5 | #16 | Persisted A-to-Z and Z-to-A swimlane sorting |
 | US6 | #22 | Restore the card checklist experience removed by the modal redesign |
 | US7 | #21 | Remove phantom archive rows and allow authorized archived-list deletion |
+| US8 | #15 acceptance extension | Reorder swimlanes with an animated horizontal destination preview |
 
 ## User Scenarios & Testing
 
@@ -38,6 +39,7 @@ As an authorized board administrator, I can drag a card to an exact position wit
 6. **Given** a reorder cannot be persisted, **When** the request fails, **Then** the board restores authoritative order and displays actionable failure feedback.
 7. **Given** a read-only user, **When** they interact with a card, **Then** they can open and read it but cannot begin or persist a reorder.
 8. **Given** an editable card, **When** a pointer or finger is pressed and released without activating drag, **Then** the card opens immediately on release; drag completion never also opens the card.
+9. **Given** a destination swimlane already contains two or more cards, **When** another card is dropped at any destination position, **Then** the board remains rendered, the move succeeds exactly once, and the resulting order persists after refresh.
 
 ---
 
@@ -81,6 +83,7 @@ As an authorized board-label manager, I can create, rename, recolor, and delete 
 6. **Given** any pending or failed label mutation, **When** the user interacts again, **Then** duplicate/stale submission is prevented and the interface returns to authoritative board state with clear feedback.
 7. **Given** the existing board-level label manager, **When** labels are managed from either surface, **Then** both surfaces remain consistent and fully usable.
 8. **Given** an unsaved new or edited label, **When** background state refreshes or unrelated application state changes, **Then** the draft remains intact until Save or Cancel.
+9. **Given** a label is already assigned and marked Added in the card label picker, **When** the user selects that row again, **Then** the label is removed from the card using the same reversible toggle behavior as the label shown on the card.
 
 ---
 
@@ -159,6 +162,26 @@ As a System Admin, Workspace Admin, or Board Admin, I see each archived object e
 4. **Given** an active list, missing list, or unauthorized user, **When** archived-list deletion is requested directly, **Then** the server rejects it without mutation.
 5. **Given** archived-list deletion fails, **When** the request returns, **Then** the Archive remains authoritative and displays actionable failure feedback.
 6. **Given** either Archive surface, **When** the same board state is shown, **Then** its rows, permissions, Restore actions, and Delete actions are consistent.
+7. **Given** an archive deletion confirmation is opened in Management, **When** the warning and actions render, **Then** the management window expands within the viewport and the complete prompt and both actions remain visible without clipping.
+
+---
+
+### User Story 8 - Reorder swimlanes with a clear horizontal preview (Priority: P1)
+
+As an authorized board administrator, I can drag a swimlane horizontally and see exactly where it will land, so reorganizing a board is as understandable and polished as rearranging its cards.
+
+**Why this priority**: Swimlane movement currently uses a weak native drag interaction with no persistent gap or representative preview, making the result difficult to predict.
+
+**Independent Test**: Populate a board with at least four differently sized swimlanes, move the first, middle, and last swimlanes in both directions, observe every drag state, refresh, and verify exact persisted order and permissions.
+
+**Acceptance Scenarios**:
+
+1. **Given** an authorized user presses and moves from a swimlane title area, **When** drag activates, **Then** the original swimlane becomes visibly subdued and a representative preview styled like its title area follows the pointer.
+2. **Given** a swimlane crosses another swimlane's horizontal insertion boundary, **When** the destination changes, **Then** neighboring swimlanes animate aside and leave a lane-width gap with a faded dropped-state placeholder.
+3. **Given** a swimlane is dropped at the beginning, middle, end, or its original location, **When** persistence completes, **Then** the exact contiguous order is visible immediately and remains exact after refresh.
+4. **Given** lane movement is cancelled or persistence fails, **When** the operation ends, **Then** the exact prior order is restored and actionable feedback is shown.
+5. **Given** a read-only user, **When** the board renders, **Then** they cannot begin or persist swimlane movement.
+6. **Given** reduced-motion preference, **When** a lane is moved, **Then** the same gap and preview information remains understandable without nonessential movement.
 
 ## Edge Cases
 
@@ -181,6 +204,10 @@ As a System Admin, Workspace Admin, or Board Admin, I see each archived object e
 - A short tap/click has tiny pointer movement below the drag threshold; a long press is released without moving; a completed drag ends over the source card.
 - A checklist has no items, all items complete, duplicate text, or an automation that moves the card after final completion.
 - A list and one child card are archived together while another card is archived independently from an active list.
+- A cross-swimlane card destination already contains exactly two cards, many cards, filtered cards, or a pending optimistic move.
+- A label picker row is selected repeatedly while assignment persistence is pending or fails.
+- A dragged swimlane contains zero cards, many cards, a long title, or a vertically scrolled card stack.
+- The archive confirmation is opened on short desktop, tablet, and phone-height viewports.
 
 ## Requirements
 
@@ -200,6 +227,7 @@ As a System Admin, Workspace Admin, or Board Admin, I see each archived object e
 - **FR-010**: A failed reorder MUST restore authoritative state and display actionable feedback.
 - **FR-011**: Users without card-edit authority MUST NOT begin or persist a reorder.
 - **FR-012**: Ordering mutations MUST leave active cards with unique contiguous positions and no partial state.
+- **FR-076**: Cross-swimlane movement into destinations containing two or more cards MUST NOT unmount, blank, or crash the board and MUST persist exactly one complete destination order.
 
 #### Rich descriptions (Issue #19)
 
@@ -234,6 +262,7 @@ As a System Admin, Workspace Admin, or Board Admin, I see each archived object e
 - **FR-036**: Pending and failed label mutations MUST prevent duplicate/stale submissions and recover to authoritative state.
 - **FR-037**: Card-level and board-level label management MUST remain behaviorally consistent and accessible.
 - **FR-065**: Unsaved label drafts MUST NOT be replaced by equivalent or unrelated incoming application-state refreshes; only explicit Save, Cancel, close/reopen, or a confirmed authoritative replacement may reset them.
+- **FR-077**: Every existing-label row in the card picker MUST act as a reversible assignment toggle; selecting Add assigns it and selecting Added removes it, subject to the same permission, pending, rollback, and feedback behavior.
 
 #### Card duplication (Issue #17)
 
@@ -276,6 +305,15 @@ As a System Admin, Workspace Admin, or Board Admin, I see each archived object e
 - **FR-073**: Authorized System Admins, Workspace Admins, and Board Admins MUST be able to permanently delete an archived list only after explicit confirmation.
 - **FR-074**: Archived-list deletion MUST be server-authorized, audited, atomic, reject active or missing lists, and cascade only to cards owned by the selected list.
 - **FR-075**: Both Archive surfaces MUST show consistent rows and actions, and a failed Restore/Delete MUST recover to authoritative state with actionable feedback.
+- **FR-082**: Management MUST provide enough responsive vertical space for archive confirmation content and actions, expanding within the viewport and scrolling the content region when necessary rather than clipping the prompt.
+- **FR-083**: An archive confirmation MUST keep its title, complete warning, Cancel action, and permanent Delete action simultaneously visible and operable at every supported Management viewport.
+
+#### Swimlane ordering (Issue #15 acceptance extension)
+
+- **FR-078**: Authorized users MUST be able to reorder active swimlanes horizontally from the swimlane title area without relying on native browser drag imagery.
+- **FR-079**: Active lane movement MUST show a subdued source, a representative title-styled overlay, animated neighboring displacement, and a lane-width faded destination placeholder.
+- **FR-080**: Lane movement MUST persist exact contiguous beginning, middle, and end positions after refresh and MUST restore the prior order with feedback on cancel or failure.
+- **FR-081**: Lane movement MUST preserve usable title editing and lane action controls, deny read-only mutation, support pointer/touch input, and honor reduced-motion preference.
 
 #### Cross-cutting delivery
 
@@ -311,3 +349,7 @@ As a System Admin, Workspace Admin, or Board Admin, I see each archived object e
 - **SC-010**: Whole-card mouse and touch tests produce zero accidental modal opens after drag and zero missed modal opens after short click/tap across beginning, middle, end, and cross-list moves.
 - **SC-011**: Checklist create/add/toggle/delete and duplicate-independence flows survive refresh with exactly one completion automation at the final-item transition.
 - **SC-012**: A populated archived list produces exactly one archive row, authorized permanent deletion removes exactly the list and its children, and all denied/failure paths produce zero state change.
+- **SC-013**: Twenty consecutive moves into destinations containing at least two cards complete with zero blank screens, uncaught errors, lost cards, or duplicate cards, and every resulting order survives refresh.
+- **SC-014**: Assigned and unassigned label rows toggle correctly through ten repeated add/remove cycles with zero stale Added state after persistence or refresh.
+- **SC-015**: Beginning, middle, end, cancelled, failed, pointer, touch, and reduced-motion swimlane moves show the specified horizontal gap/preview states and retain exact order after refresh.
+- **SC-016**: Archive confirmations remain completely visible and operable at 390×844, 768×600, and 1280×720 viewports without escaping or being clipped by Management.

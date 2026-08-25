@@ -4,12 +4,14 @@ import { BoardView } from './BoardView';
 import { AppProvider, initialState } from '../store';
 import type { List } from '../types';
 
-const { createListApiMock, moveCardApiMock, sortListApiMock, canEditCardsMock, canArchiveMock } = vi.hoisted(() => ({
+const { createListApiMock, moveCardApiMock, moveListApiMock, sortListApiMock, canEditCardsMock, canArchiveMock, canManageBoardMock } = vi.hoisted(() => ({
   createListApiMock: vi.fn(),
   moveCardApiMock: vi.fn(),
+  moveListApiMock: vi.fn(),
   sortListApiMock: vi.fn(),
   canEditCardsMock: vi.fn(() => true),
   canArchiveMock: vi.fn(() => true),
+  canManageBoardMock: vi.fn(() => true),
 }));
 
 vi.mock('../services/data', async () => {
@@ -18,13 +20,14 @@ vi.mock('../services/data', async () => {
     ...actual,
     createListApi: createListApiMock,
     moveCardApi: moveCardApiMock,
+    moveListApi: moveListApiMock,
     sortListApi: sortListApiMock,
   };
 });
 
 vi.mock('../lib/auth-context', () => ({
   useAuth: () => ({
-    canManageBoard: () => true,
+    canManageBoard: canManageBoardMock,
     canManageBoardLabels: () => true,
     canEditBoardCards: canEditCardsMock,
     canArchiveBoardContent: canArchiveMock,
@@ -35,9 +38,11 @@ describe('BoardView', () => {
   beforeEach(() => {
     createListApiMock.mockReset();
     moveCardApiMock.mockReset();
+    moveListApiMock.mockReset();
     sortListApiMock.mockReset();
     canEditCardsMock.mockReturnValue(true);
     canArchiveMock.mockReturnValue(true);
+    canManageBoardMock.mockReturnValue(true);
   });
 
   it('shows the simplified add-card input', async () => {
@@ -106,6 +111,31 @@ describe('BoardView', () => {
     expect(card).toHaveAttribute('data-drag-activator', 'card');
     expect(card).toHaveClass('cursor-grab');
     expect(screen.queryByRole('button', { name: 'Drag Migrate to Node 20 LTS' })).not.toBeInTheDocument();
+  });
+
+  it('uses the lane title area as a modern sortable handle without native draggable markup', () => {
+    render(
+      <AppProvider initialAppState={initialState}>
+        <BoardView />
+      </AppProvider>,
+    );
+
+    const lane = document.querySelector('[data-list-id="l1"]');
+    const handle = document.querySelector('[data-list-drag-handle="l1"]');
+    expect(lane).toHaveAttribute('data-list-sortable-id', 'list:l1');
+    expect(lane).not.toHaveAttribute('draggable');
+    expect(handle).toHaveClass('cursor-grab');
+  });
+
+  it('does not expose a lane drag handle to users without board-management authority', () => {
+    canManageBoardMock.mockReturnValue(false);
+    render(
+      <AppProvider initialAppState={initialState}>
+        <BoardView />
+      </AppProvider>,
+    );
+
+    expect(document.querySelector('[data-list-drag-handle]')).not.toBeInTheDocument();
   });
 
   it('keeps cards readable but removes reorder controls for read-only users', () => {

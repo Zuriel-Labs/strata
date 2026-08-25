@@ -59,6 +59,10 @@ function cardOrder(page: Page, listId: string) {
   return page.locator(`[data-list-id="${listId}"] [data-card-id]`).evaluateAll(elements => elements.map(element => element.getAttribute('data-card-id')));
 }
 
+function listOrder(page: Page) {
+  return page.locator('[data-list-sortable-id]').evaluateAll(elements => elements.map(element => element.getAttribute('data-list-id')));
+}
+
 async function dragCard(page: Page, sourceCardId: string, targetCardId: string) {
   const source = page.locator(`[data-card-id="${sourceCardId}"]`);
   const target = page.locator(`[data-card-id="${targetCardId}"]`);
@@ -71,6 +75,33 @@ async function dragCard(page: Page, sourceCardId: string, targetCardId: string) 
   await page.mouse.move(sourceBox!.x + sourceBox!.width / 2 + 12, sourceBox!.y + sourceBox!.height / 2 + 12, { steps: 3 });
   await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + 4, { steps: 12 });
   await page.mouse.up();
+}
+
+async function dragCardToListEnd(page: Page, sourceCardId: string, targetListId: string) {
+  const source = page.locator(`[data-card-id="${sourceCardId}"]`);
+  const target = page.locator(`[data-list-id="${targetListId}"]`);
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  expect(sourceBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2 + 12, sourceBox!.y + sourceBox!.height / 2 + 12, { steps: 3 });
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height - 12, { steps: 12 });
+  await page.mouse.up();
+}
+
+async function beginListDrag(page: Page, sourceListId: string, targetListId: string) {
+  const source = page.locator(`[data-list-drag-handle="${sourceListId}"]`);
+  const target = page.locator(`[data-list-id="${targetListId}"]`);
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  expect(sourceBox).not.toBeNull();
+  expect(targetBox).not.toBeNull();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sourceBox!.x + sourceBox!.width / 2 + 12, sourceBox!.y + sourceBox!.height / 2 + 4, { steps: 3 });
+  await page.mouse.move(targetBox!.x + targetBox!.width - 12, targetBox!.y + 24, { steps: 16 });
 }
 
 test('sorts the complete list persistently and keeps whole-card pointer drag available afterward', async ({ page }) => {
@@ -159,6 +190,84 @@ test('supports pointer cross-lane reordering with persisted destination order', 
   await expect.poll(() => cardOrder(page, targetList.id)).toEqual([sourceList.cardIds[0], targetList.cardIds[0]]);
 });
 
+test('keeps the board rendered when a cross-lane drop becomes the destination third card', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.stack ?? error.message));
+  await signIn(page);
+  const fixture = await createBoardFixture(page, `Third-card regression ${suffix}`, [
+    { title: 'Third-card source', cards: [`Incoming third ${suffix}`] },
+    { title: 'Third-card target', cards: [`Existing first ${suffix}`, `Existing second ${suffix}`] },
+  ]);
+  const [sourceList, targetList] = fixture.lists;
+
+  await dragCardToListEnd(page, sourceList.cardIds[0], targetList.id);
+
+  await page.waitForTimeout(100);
+  expect(pageErrors).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Open profile menu' })).toBeVisible();
+  await expect(page.locator(`[data-list-id="${targetList.id}"]`)).toBeVisible();
+  await expect.poll(() => cardOrder(page, sourceList.id)).toEqual([]);
+  await expect.poll(() => cardOrder(page, targetList.id)).toEqual([
+    targetList.cardIds[0], targetList.cardIds[1], sourceList.cardIds[0],
+  ]);
+  await page.reload();
+  await selectBoard(page, fixture.boardId);
+  await expect.poll(() => cardOrder(page, targetList.id)).toEqual([
+    targetList.cardIds[0], targetList.cardIds[1], sourceList.cardIds[0],
+  ]);
+});
+
+test('reorders swimlanes with a horizontal gap, lane preview, and persisted exact position', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await signIn(page);
+  const fixture = await createBoardFixture(page, `Lane ordering ${suffix}`, [
+    { title: 'Lane alpha', cards: ['Alpha one'] },
+    { title: 'Lane beta', cards: ['Beta one', 'Beta two'] },
+    { title: 'Lane gamma', cards: [] },
+    { title: 'Lane delta', cards: ['Delta one', 'Delta two', 'Delta three'] },
+  ]);
+  const [alpha, beta, gamma, delta] = fixture.lists;
+
+  const reducedTransitionSeconds = await page.locator(`[data-list-id="${alpha.id}"]`).evaluate(element => {
+    const view = element.ownerDocument.defaultView!;
+    return Number.parseFloat(view.getComputedStyle(element).transitionDuration);
+  });
+  expect(reducedTransitionSeconds).toBeLessThanOrEqual(0.000001);
+  await expect.poll(() => listOrder(page)).toEqual([alpha.id, beta.id, gamma.id, delta.id]);
+
+  await beginListDrag(page, alpha.id, gamma.id);
+  await expect(page.locator('[data-list-drag-overlay="true"]')).toBeVisible();
+  await expect(page.locator(`[data-list-id="${alpha.id}"]`)).toHaveAttribute('data-list-placeholder', 'true');
+  const placeholderOpacity = await page.locator(`[data-list-id="${alpha.id}"]`).evaluate(element => Number.parseFloat(element.ownerDocument.defaultView!.getComputedStyle(element).opacity));
+  expect(placeholderOpacity).toBeLessThan(0.5);
+  await expect.poll(() => listOrder(page)).toEqual([beta.id, gamma.id, alpha.id, delta.id]);
+  await page.mouse.up();
+
+  await expect.poll(() => listOrder(page)).toEqual([beta.id, gamma.id, alpha.id, delta.id]);
+  await expect(page.locator(`[data-list-id="${alpha.id}"] input`)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'List actions for Lane alpha', exact: true })).toBeVisible();
+  await page.reload();
+  await selectBoard(page, fixture.boardId);
+  await expect.poll(() => listOrder(page)).toEqual([beta.id, gamma.id, alpha.id, delta.id]);
+});
+
+test('restores the previous swimlane order when persistence fails', async ({ page }) => {
+  await signIn(page);
+  const fixture = await createBoardFixture(page, `Lane rollback ${suffix}`, [
+    { title: 'Rollback alpha', cards: [] },
+    { title: 'Rollback beta', cards: [] },
+    { title: 'Rollback gamma', cards: [] },
+  ]);
+  const [alpha, beta, gamma] = fixture.lists;
+  await page.route(`**/api/lists/${alpha.id}/move`, route => route.abort('failed'));
+
+  await beginListDrag(page, alpha.id, gamma.id);
+  await page.mouse.up();
+
+  await expect(page.getByText('Swimlane order not saved', { exact: true })).toBeVisible();
+  await expect.poll(() => listOrder(page)).toEqual([alpha.id, beta.id, gamma.id]);
+});
+
 test('round-trips rich descriptions, manages labels in-card, and duplicates an independent card', async ({ page }) => {
   await signIn(page);
   const fixture = await createBoardFixture(page, `Card acceptance ${suffix}`, [
@@ -191,6 +300,15 @@ test('round-trips rich descriptions, manages labels in-card, and duplicates an i
   await expect(page.getByPlaceholder('Label name').last()).toHaveValue(labelName);
   await page.getByRole('button', { name: 'Save labels' }).click();
   await expect(page.getByRole('button', { name: 'Manage labels in card' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close labels panel' }).click();
+  await expect(page.getByRole('button', { name: labelName, exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Labels', exact: true }).click();
+  await page.getByRole('button', { name: `${labelName} Added`, exact: true }).click();
+  await expect(page.getByRole('button', { name: `${labelName} Add`, exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: labelName, exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: `${labelName} Add`, exact: true }).click();
+  await expect(page.getByRole('button', { name: `${labelName} Added`, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Close labels panel' }).click();
   await expect(page.getByRole('button', { name: labelName, exact: true })).toBeVisible();
 
@@ -297,6 +415,7 @@ test('hides mutation controls from a read-only board member', async ({ page }) =
 
 test('projects archived lists once and permits board administrators to delete them with their cards', async ({ page }) => {
   await signIn(page);
+  await page.setViewportSize({ width: 768, height: 600 });
   const fixture = await createBoardFixture(page, `Archive acceptance ${suffix}`, [
     { title: `Archived parent ${suffix}`, cards: [`Child card ${suffix}`] },
     { title: `Active parent ${suffix}`, cards: [`Independent archive ${suffix}`] },
@@ -317,13 +436,50 @@ test('projects archived lists once and permits board administrators to delete th
   await expect(page.getByText(new RegExp(`Independent archive ${suffix}`))).toHaveCount(1);
 
   await page.getByRole('button', { name: `Delete archived list Archived parent ${suffix}` }).click();
+  await expect(page.getByText('This permanently deletes the archived list and every card it contains. This cannot be undone.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cancel' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Confirm delete archived list' })).toBeInViewport();
+  const managementBounds = await page.getByTestId('management-dialog').boundingBox();
+  expect(managementBounds).not.toBeNull();
+  expect(managementBounds!.y + managementBounds!.height).toBeLessThanOrEqual(600);
   await page.getByRole('button', { name: 'Confirm delete archived list' }).click();
   await expect(page.getByText(new RegExp(`Archived parent ${suffix}`))).toHaveCount(0);
   expect((await page.request.get(`/api/cards/${archivedList.cardIds[0]}`)).status()).toBe(404);
 });
 
-test.describe('touch card interaction', () => {
+test.describe('touch board interaction', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 430, height: 932 } });
+
+  test('moves a lane from a held title-area touch with the same preview treatment', async ({ page, context }) => {
+    await signIn(page);
+    const fixture = await createBoardFixture(page, `Touch lane ordering ${suffix}`, [
+      { title: 'Touch lane alpha', cards: ['Touch alpha card'] },
+      { title: 'Touch lane beta', cards: ['Touch beta card'] },
+    ]);
+    const [alpha, beta] = fixture.lists;
+    const source = page.locator(`[data-list-drag-handle="${alpha.id}"]`);
+    const target = page.locator(`[data-list-id="${beta.id}"]`);
+    const sourceBox = await source.boundingBox();
+    const targetBox = await target.boundingBox();
+    expect(sourceBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+
+    const cdp = await context.newCDPSession(page);
+    const start = { x: sourceBox!.x + sourceBox!.width / 2, y: sourceBox!.y + sourceBox!.height / 2 };
+    const finish = { x: Math.min(420, targetBox!.x + 100), y: targetBox!.y + 24 };
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [start] });
+    await page.waitForTimeout(350);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: (start.x + finish.x) / 2, y: start.y }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [finish] });
+    await expect(page.locator('[data-list-drag-overlay="true"]')).toBeVisible();
+    await expect(page.locator(`[data-list-id="${alpha.id}"]`)).toHaveAttribute('data-list-placeholder', 'true');
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+    await expect.poll(() => listOrder(page)).toEqual([beta.id, alpha.id]);
+    await page.reload();
+    await selectBoard(page, fixture.boardId);
+    await expect.poll(() => listOrder(page)).toEqual([beta.id, alpha.id]);
+  });
 
   test('opens on a tap release and drags from a held whole-card touch', async ({ page, context }) => {
     await signIn(page);

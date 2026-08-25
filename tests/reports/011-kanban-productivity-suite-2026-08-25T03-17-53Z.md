@@ -150,3 +150,31 @@ All 62 first-candidate functional requirements and 35 Given/When/Then scenarios 
 ### Replacement local conclusion
 
 All seven Issue stories (#15–#19, #21, #22) have local spec, unit, integration, contract, browser, touch, security, persistence, RBAC, and visual evidence. The replacement source remains based on current `origin/main`; canary deployment is authorized, while production remains unauthorized and must remain unchanged.
+
+## Second Canary Acceptance Remediation — replacement candidate
+
+### Scope and root-cause evidence
+
+- Expanded the suite to eight independently testable stories, 83 functional requirements, 60 Given/When/Then scenarios, and 93 contiguous tasks while retaining all seven open Issues.
+- Destination-third-card crash: a RED Chromium test reproduced `NotFoundError: Failed to execute 'removeChild' on 'Node'`. The installed sortable optimistic plugin physically reparented a card during hover while React still owned its original parent. Both cards and lanes now disable that plugin and render preview ordering exclusively from React state.
+- Card label picker: `Add` and `Added` are now one reversible optimistic control backed by the authoritative card response, pending lockout, visible failure, and exact assignment rollback.
+- Swimlane ordering: native browser dragging was replaced with board-scoped sortable lanes, prefixed stable IDs, a title-area pointer/touch activator, lane-shaped overlay, faded source placeholder, horizontal gap/displacement, exact-position persistence, cancellation/failure rollback, permission gating, and reduced-motion coverage.
+- Management: the shell now reserves responsive viewport-bounded height and the Archive confirmation reserves internal content height so the complete warning and both actions remain visible and operable.
+- Accessibility follow-up: visual QA exposed a sortable `role=button` containing the lane menu button. The title activator and menu are now siblings, so lane movement retains its title surface without nested interactive controls.
+
+### Exact local validation
+
+- `npm audit --audit-level=high`: PASS, 0 vulnerabilities.
+- `npm audit --omit=dev --audit-level=high`: PASS, 0 vulnerabilities.
+- `sqlite3 server/data/e2e.sqlite 'PRAGMA integrity_check;'`: `ok`.
+- `npx vitest run server/tests/foundation.test.ts`: 4/4 PASS for additive/idempotent migration and malformed legacy fallback.
+- Focused board/card/archive component validation: 56/56 PASS before the additional failure regression; final full client count includes 26 CardModal tests.
+- Focused serial productivity Playwright: 10/10 PASS, including pointer, real Chromium held-touch, cross-lane destination-third-card, exact same-list insertion, lane overlay/gap, lane rollback, reversible labels, responsive Archive, persistence, and read-only paths.
+- `npm run test:ci`: PASS on the complete second-remediation tree: lint; 30 Vitest files / 238 tests; typecheck; client/server build; 14/14 Chromium E2E tests.
+- Build output: client JS `949.86 kB` (`282.00 kB` gzip), CSS `77.01 kB` (`14.69 kB` gzip), server `136.5 kB`; the existing non-blocking large-chunk warning remains.
+- In-app browser visual QA: 390×844, 768×600, and 1280×720 Archive prompts kept the full warning, Cancel, and Delete within the viewport; desktop lane styling and a real horizontal drag passed with zero browser warnings/errors.
+- `npm run typecheck`, `npm run lint`, and `git diff --check`: PASS.
+
+### Second-remediation local conclusion
+
+All eight stories now have local spec, unit, integration, contract, browser, pointer/touch, persistence, rollback, RBAC, responsive, and visual evidence. The exact source commit, immutable image digest, canary GitOps commit, live health, and production non-change remain to be recorded after commit and canary delivery; production remains unauthorized.

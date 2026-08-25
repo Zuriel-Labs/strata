@@ -14,6 +14,7 @@ const { createAutomationRuleApiMock, createBoardApiMock, updateBoardApiMock, del
     session: { permissions: { isSystemAdmin: false } },
     canManageWorkspace: vi.fn<(workspaceId: string | null) => boolean>(() => true),
     canManageBoard: vi.fn<(boardId: string | null) => boolean>(() => true),
+    canArchiveBoardContent: vi.fn<(boardId: string | null) => boolean>(() => true),
     canManageAutomation: vi.fn<(boardId: string | null) => boolean>(() => true),
     refresh: vi.fn(async () => {}),
   },
@@ -75,6 +76,8 @@ describe('NavigationOverlay automations', () => {
     authState.canManageWorkspace.mockReturnValue(true);
     authState.canManageBoard.mockReset();
     authState.canManageBoard.mockReturnValue(true);
+    authState.canArchiveBoardContent.mockReset();
+    authState.canArchiveBoardContent.mockReturnValue(true);
     authState.canManageAutomation.mockReset();
     authState.canManageAutomation.mockReturnValue(true);
     authState.refresh.mockReset();
@@ -93,6 +96,26 @@ describe('NavigationOverlay automations', () => {
     expect(screen.getByRole('button', { name: 'Boards' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Automations' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument();
+  });
+
+  it('reserves responsive management height so an archive confirmation is not clipped', async () => {
+    const user = userEvent.setup();
+    const archivedState = {
+      ...initialState,
+      lists: initialState.lists.map(list => list.id === 'l1' ? { ...list, archived: true } : { ...list }),
+      cards: initialState.cards.map(card => card.listId === 'l1' ? { ...card, archived: true } : { ...card }),
+    };
+
+    renderOverlay(archivedState);
+    await user.click(screen.getByRole('button', { name: 'Archive' }));
+    await user.click(screen.getByRole('button', { name: 'Delete archived list Backlog' }));
+
+    expect(screen.getByTestId('management-dialog')).toHaveClass('h-[min(42rem,80vh)]');
+    expect(screen.getByTestId('archive-items')).toHaveClass('min-h-[20rem]');
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('This permanently deletes the archived list and every card it contains. This cannot be undone.');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm delete archived list' })).toBeInTheDocument();
   });
 
   it('renames a workspace inline on Enter without switching tabs', async () => {

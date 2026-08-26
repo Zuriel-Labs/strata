@@ -7,6 +7,9 @@ import { sortCardsByTitle, type CardSortDirection } from '../../../src/lib/card-
 
 type JsonRow<T> = T & { [key: string]: unknown };
 const DEFAULT_AUTOMATION_CONDITIONS: AutomationRule['conditions'] = { listId: null, labelId: null };
+export const DEFAULT_MAX_LABELS_PER_BOARD = 12;
+export const MIN_MAX_LABELS_PER_BOARD = 1;
+export const MAX_MAX_LABELS_PER_BOARD = 100;
 
 function asBool(value: number) {
   return Boolean(value);
@@ -345,6 +348,7 @@ function selectBoards(db: Database.Database, boardIds: string[]) {
     color: String(row.color),
     starred: asBool(Number(row.starred)),
     labels: parseJson<Board['labels']>(String(row.labels_json)),
+    labelsRevision: Number(row.labels_revision),
   }));
 }
 
@@ -483,6 +487,7 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     currentBoardId = boards.find(board => board.workspaceId === currentWorkspaceId)?.id ?? boards[0]?.id ?? null;
   }
   const appState: AppState = {
+    maxLabelsPerBoard: getMaxLabelsPerBoard(db),
     workspaces: workspaces.map(workspace => ({ ...workspace, memberIds: workspaceMemberMap.get(workspace.id) ?? [] })),
     boards,
     lists,
@@ -547,8 +552,9 @@ export function updateBoardStarred(db: Database.Database, boardId: string, starr
   db.prepare('UPDATE boards SET starred = ? WHERE id = ?').run(starred ? 1 : 0, boardId);
 }
 
-export function updateBoardLabels(db: Database.Database, boardId: string, labels: Board['labels']) {
-  db.prepare('UPDATE boards SET labels_json = ? WHERE id = ?').run(JSON.stringify(labels), boardId);
+export function updateBoardLabels(db: Database.Database, boardId: string, labels: Board['labels'], expectedRevision: number) {
+  const updated = db.prepare('UPDATE boards SET labels_json = ?, labels_revision = labels_revision + 1 WHERE id = ? AND labels_revision = ?').run(JSON.stringify(labels), boardId, expectedRevision);
+  if (updated.changes !== 1) return null;
 
   const validLabelIds = new Set(labels.map(label => label.id));
   const cards = db.prepare('SELECT id, label_ids_json as labelIdsJson FROM cards WHERE board_id = ?').all(boardId) as Array<{ id: string; labelIdsJson: string }>;
@@ -588,6 +594,8 @@ export function updateBoardLabels(db: Database.Database, boardId: string, labels
       rule.id,
     );
   }
+
+  return getBoardById(db, boardId);
 }
 
 export function getBoardById(db: Database.Database, boardId: string): Board | null {
@@ -601,7 +609,36 @@ export function getBoardById(db: Database.Database, boardId: string): Board | nu
     color: String(row.color),
     starred: asBool(Number(row.starred)),
     labels: parseJson<Board['labels']>(String(row.labels_json)),
+    labelsRevision: Number(row.labels_revision),
   };
+}
+
+export function getMaxLabelsPerBoard(db: Database.Database) {
+  const row = db.prepare('SELECT max_labels_per_board AS maxLabelsPerBoard FROM platform_settings WHERE id = 1').get() as { maxLabelsPerBoard: number } | undefined;
+  return row?.maxLabelsPerBoard ?? DEFAULT_MAX_LABELS_PER_BOARD;
+}
+
+export function updateMaxLabelsPerBoard(db: Database.Database, maxLabelsPerBoard: number) {
+  db.prepare('UPDATE platform_settings SET max_labels_per_board = ?, updated_at = ? WHERE id = 1').run(maxLabelsPerBoard, new Date().toISOString());
+}
+
+export function countBoardsAboveLabelLimit(db: Database.Database, maxLabelsPerBoard: number) {
+  const row = db.prepare('SELECT COUNT(*) AS count FROM boards WHERE json_array_length(labels_json) > ?').get(maxLabelsPerBoard) as { count: number };
+  return row.count;
+}
+
+export function listBoardsWithDuplicateLabelIds(db: Database.Database) {
+  const boards = db.prepare('SELECT id, labels_json AS labelsJson FROM boards ORDER BY id').all() as Array<{ id: string; labelsJson: string }>;
+  return boards.flatMap(board => {
+    const labels = parseJson<Board['labels']>(board.labelsJson);
+    const seen = new Set<string>();
+    const duplicateIds = [...new Set(labels.map(label => label.id).filter(id => {
+      if (seen.has(id)) return true;
+      seen.add(id);
+      return false;
+    }))];
+    return duplicateIds.length > 0 ? [{ boardId: board.id, duplicateIds }] : [];
+  });
 }
 
 // ── List mutations ───────────────────────────────────────────────────

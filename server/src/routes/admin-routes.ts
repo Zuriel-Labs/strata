@@ -3,7 +3,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { createManagedUser, deleteBoardMembership, deleteManagedUser, getAdminUserDetail, listAdminResources, listAdminUsersPage, listBoardMembers, listEligibleUsers, updateManagedUser, upsertBoardMembership } from '../db/admin-repositories';
-import { deleteSessionsForUser, getBoardById, getUserById, listAuditEvents, upsertRecoveryKey } from '../db/repositories';
+import { countBoardsAboveLabelLimit, deleteSessionsForUser, getBoardById, getMaxLabelsPerBoard, getUserById, listAuditEvents, updateMaxLabelsPerBoard, upsertRecoveryKey } from '../db/repositories';
 import { DISABLED_PASSWORD_HASH } from '../auth/passwords';
 import { hashRecoveryKey } from '../auth/recovery-keys';
 import { createUserSession } from '../auth/session';
@@ -37,6 +37,7 @@ const resourceSchema = pageSchema.extend({
   selectedIds: z.string().max(4000).optional().transform(value => value ? value.split(',').filter(Boolean) : []).refine(ids => ids.length <= 100),
 });
 const membershipSchema = z.object({ role: z.enum(['member', 'observer']) });
+const labelPolicySchema = z.object({ maxLabelsPerBoard: z.number().int().min(1).max(100) }).strict();
 
 function errorResponse(response: Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'Unable to complete request.';
@@ -58,7 +59,20 @@ export function createAdminRoutes(db: Database.Database) {
     const parsed = pageSchema.safeParse(request.query); if (!parsed.success) { response.status(400).json({ message: 'Invalid directory query.' }); return; }
     const result = listAdminUsersPage(db, request.auth, parsed.data);
     const systemAdmin = canManageUserPlatform(request.auth);
-    response.json({ ...result, actorCapabilities: { canCreateUsers: systemAdmin, canManageAccess: systemAdmin, canViewAudit: systemAdmin }, auditEvents: systemAdmin ? listAuditEvents(db, 25) : [] });
+    response.json({ ...result, actorCapabilities: { canCreateUsers: systemAdmin, canManageAccess: systemAdmin, canViewAudit: systemAdmin, canManageSystemSettings: systemAdmin }, auditEvents: systemAdmin ? listAuditEvents(db, 25) : [] });
+  });
+
+  router.patch('/settings/label-policy', (request: AuthenticatedRequest, response: Response) => {
+    if (!request.auth || !canManageUserPlatform(request.auth)) { denyMutation(db, request, response, { action: 'platform.label_policy.update', scopeType: 'platform' }); return; }
+    const parsed = labelPolicySchema.safeParse(request.body);
+    if (!parsed.success) { response.status(400).json({ message: 'maxLabelsPerBoard must be a whole number from 1 through 100.' }); return; }
+    const previousMaxLabelsPerBoard = getMaxLabelsPerBoard(db);
+    const boardsAboveLimit = countBoardsAboveLabelLimit(db, parsed.data.maxLabelsPerBoard);
+    db.transaction(() => {
+      updateMaxLabelsPerBoard(db, parsed.data.maxLabelsPerBoard);
+      audit(db, { actorUserId: request.auth!.user.id, scopeType: 'platform', action: 'platform.label_policy.update', outcome: 'success', metadata: { previousMaxLabelsPerBoard, maxLabelsPerBoard: parsed.data.maxLabelsPerBoard, boardsAboveLimit } });
+    })();
+    response.json({ maxLabelsPerBoard: parsed.data.maxLabelsPerBoard, boardsAboveLimit });
   });
 
   router.get('/users/:userId', (request: AuthenticatedRequest, response: Response) => {

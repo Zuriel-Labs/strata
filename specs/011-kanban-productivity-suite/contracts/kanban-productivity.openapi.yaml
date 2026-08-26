@@ -220,8 +220,11 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [labels]
+              required: [labels, expectedRevision]
               properties:
+                expectedRevision:
+                  type: integer
+                  minimum: 0
                 labels:
                   type: array
                   items:
@@ -233,7 +236,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [boardId, labels]
+                required: [boardId, labels, labelsRevision, maxLabelsPerBoard]
                 properties:
                   boardId:
                     type: string
@@ -241,12 +244,21 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Label'
+                  labelsRevision:
+                    type: integer
+                    minimum: 1
+                  maxLabelsPerBoard:
+                    type: integer
+                    minimum: 1
+                    maximum: 100
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Label limit or optimistic-concurrency conflict.
 components:
   securitySchemes:
     sessionCookie:

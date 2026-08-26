@@ -23,9 +23,9 @@ export const WORKSPACES: Workspace[] = [
 ];
 
 export const BOARDS: Board[] = [
-  { id: 'b1', title: 'Platform Sprint 24', workspaceId: 'w1', visibility: 'workspace', color: '#6366f1', starred: true, labels: defaultLabels },
-  { id: 'b2', title: 'Bug Tracker', workspaceId: 'w1', visibility: 'private', color: '#ef4444', starred: false, labels: defaultLabels },
-  { id: 'b3', title: 'Q1 Campaign Plan', workspaceId: 'w2', visibility: 'workspace', color: '#0891b2', starred: false, labels: defaultLabels },
+  { id: 'b1', title: 'Platform Sprint 24', workspaceId: 'w1', visibility: 'workspace', color: '#6366f1', starred: true, labels: defaultLabels, labelsRevision: 0 },
+  { id: 'b2', title: 'Bug Tracker', workspaceId: 'w1', visibility: 'private', color: '#ef4444', starred: false, labels: defaultLabels, labelsRevision: 0 },
+  { id: 'b3', title: 'Q1 Campaign Plan', workspaceId: 'w2', visibility: 'workspace', color: '#0891b2', starred: false, labels: defaultLabels, labelsRevision: 0 },
 ];
 
 export const LISTS: List[] = [

@@ -170,6 +170,14 @@ export interface Board {
   color: string;
   starred: boolean;
   labels: Label[];
+  labelsRevision: number;
+}
+
+export interface BoardLabelCollection {
+  boardId: string;
+  labels: Label[];
+  labelsRevision: number;
+  maxLabelsPerBoard: number;
 }
 
 export interface Workspace {
@@ -297,6 +305,12 @@ export interface AdminActorCapabilities {
   canCreateUsers: boolean;
   canManageAccess: boolean;
   canViewAudit: boolean;
+  canManageSystemSettings: boolean;
+}
+
+export interface LabelPolicySettings {
+  maxLabelsPerBoard: number;
+  boardsAboveLimit: number;
 }
 
 export interface AdminDirectoryResponse {
@@ -336,6 +350,7 @@ export interface AdminResourcePage {
 export type ViewMode = 'board' | 'table' | 'calendar';
 
 export interface AppState {
+  maxLabelsPerBoard: number;
   workspaces: Workspace[];
   boards: Board[];
   lists: List[];
@@ -398,7 +413,7 @@ export type Action =
   | { type: 'ADD_BOARD'; payload: { workspaceId: string; title: string; color: string } }
   | { type: 'ADD_BOARD_FROM_API'; payload: Board }
   | { type: 'UPDATE_BOARD_FROM_API'; payload: Board }
-  | { type: 'UPDATE_BOARD_LABELS'; payload: { boardId: string; labels: Label[] } }
+  | { type: 'UPDATE_BOARD_LABELS'; payload: BoardLabelCollection }
   | { type: 'ADD_WORKSPACE'; payload: Workspace }
   | { type: 'UPDATE_WORKSPACE_FROM_API'; payload: Workspace }
   | { type: 'TOGGLE_BOARD_STAR'; payload: string }

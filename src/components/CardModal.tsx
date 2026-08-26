@@ -334,7 +334,7 @@ export function CardModal() {
 
   const saveLabelsInCard = async (nextLabels: typeof labels) => {
     if (!board) throw new Error('Board not found.');
-    const result = await updateBoardLabelsApi(board.id, nextLabels);
+    const result = await updateBoardLabelsApi(board.id, nextLabels, board.labelsRevision);
     dispatch({ type: 'UPDATE_BOARD_LABELS', payload: result });
 
     const validIds = new Set(result.labels.map(label => label.id));
@@ -727,8 +727,11 @@ export function CardModal() {
               </div>
               {labelManagerOpen ? (
                 <LabelEditor
+                  key={board?.labelsRevision ?? 0}
                   autoFocus
                   labels={labels}
+                  maxLabelsPerBoard={state.maxLabelsPerBoard}
+                  onReload={auth.refresh}
                   usageCount={labelId => state.cards.filter(candidate => candidate.boardId === card.boardId && candidate.labelIds.includes(labelId)).length}
                   onCancel={() => setLabelManagerOpen(false)}
                   onSave={saveLabelsInCard}

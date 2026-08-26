@@ -185,6 +185,27 @@ describe('admin routes', () => {
     expect(getUserById(db, 'u1')).not.toBeNull();
   });
 
+  it('lets only a System Administrator configure the persisted label limit with impact and audit evidence', async () => {
+    const db = await createDatabase(':memory:');
+    db.prepare('UPDATE boards SET labels_json = ? WHERE id = ?').run(JSON.stringify(Array.from({ length: 8 }, (_, index) => ({ id: `policy-${index}`, name: '', color: '#123456' }))), 'b1');
+    const app = createApp(db); const admin = await loginAsAdmin(app);
+
+    const updated = await admin.patch('/api/admin/settings/label-policy').send({ maxLabelsPerBoard: 6 });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toEqual({ maxLabelsPerBoard: 6, boardsAboveLimit: 1 });
+    expect(db.prepare('SELECT max_labels_per_board AS value FROM platform_settings WHERE id = 1').get()).toEqual({ value: 6 });
+    const auditEvent = db.prepare("SELECT metadata_json AS metadataJson FROM audit_events WHERE action = 'platform.label_policy.update'").get() as { metadataJson: string };
+    expect(JSON.parse(auditEvent.metadataJson)).toEqual({ previousMaxLabelsPerBoard: 12, maxLabelsPerBoard: 6, boardsAboveLimit: 1 });
+
+    for (const invalid of [0, 101, 4.5, '12']) expect((await admin.patch('/api/admin/settings/label-policy').send({ maxLabelsPerBoard: invalid })).status).toBe(400);
+
+    const member = request.agent(app);
+    await member.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
+    const denied = await member.patch('/api/admin/settings/label-policy').send({ maxLabelsPerBoard: 20 });
+    expect(denied.status).toBe(403);
+    expect(db.prepare('SELECT max_labels_per_board AS value FROM platform_settings WHERE id = 1').get()).toEqual({ value: 6 });
+  });
+
   it('rejects deleting the last remaining system administrator in repository safeguards', async () => {
     const db = await createDatabase(':memory:');
     const onlyAdmin = getUserById(db, 'u1');

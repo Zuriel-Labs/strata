@@ -1,0 +1,209 @@
+openapi: 3.1.0
+info:
+  title: Strata Scalable Label Management
+  version: 1.0.0
+paths:
+  /api/auth/session:
+    get:
+      summary: Return authenticated app state including the effective label policy
+      responses:
+        '200':
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, appState]
+                properties:
+                  status:
+                    const: authenticated
+                  appState:
+                    type: object
+                    required: [maxLabelsPerBoard, boards]
+                    properties:
+                      maxLabelsPerBoard:
+                        type: integer
+                        minimum: 1
+                        maximum: 100
+                      boards:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Board'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/admin/settings/label-policy:
+    patch:
+      summary: Update the platform-wide per-Board label limit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [maxLabelsPerBoard]
+              properties:
+                maxLabelsPerBoard:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+      responses:
+        '200':
+          description: Updated effective policy
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [maxLabelsPerBoard, boardsAboveLimit]
+                properties:
+                  maxLabelsPerBoard:
+                    type: integer
+                    minimum: 1
+                    maximum: 100
+                  boardsAboveLimit:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/boards/{boardId}/labels:
+    put:
+      summary: Replace one Board label collection with limit and revision protection
+      parameters:
+        - name: boardId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [labels, expectedRevision]
+              properties:
+                labels:
+                  type: array
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/Label'
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+      responses:
+        '200':
+          description: Persisted authoritative collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelCollectionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Stale revision or effective label limit conflict
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LabelsVersionConflict'
+                  - $ref: '#/components/schemas/LabelLimitConflict'
+components:
+  schemas:
+    Label:
+      type: object
+      additionalProperties: false
+      required: [id, name, color]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        name:
+          type: string
+          maxLength: 50
+        color:
+          type: string
+          pattern: '^#[0-9a-f]{6}$'
+    Board:
+      type: object
+      required: [id, labels, labelsRevision]
+      properties:
+        id:
+          type: string
+        labels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+        labelsRevision:
+          type: integer
+          minimum: 0
+    LabelCollectionResponse:
+      type: object
+      additionalProperties: false
+      required: [boardId, labels, labelsRevision, maxLabelsPerBoard]
+      properties:
+        boardId:
+          type: string
+        labels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Label'
+        labelsRevision:
+          type: integer
+          minimum: 0
+        maxLabelsPerBoard:
+          type: integer
+          minimum: 1
+          maximum: 100
+    LabelsVersionConflict:
+      type: object
+      additionalProperties: false
+      required: [message, code, details]
+      properties:
+        message:
+          type: string
+        code:
+          const: LABEL_VERSION_CONFLICT
+        details:
+          $ref: '#/components/schemas/LabelCollectionResponse'
+    LabelLimitConflict:
+      type: object
+      additionalProperties: false
+      required: [message, code, details]
+      properties:
+        message:
+          type: string
+        code:
+          const: LABEL_LIMIT_EXCEEDED
+        details:
+          type: object
+          required: [maxLabelsPerBoard, currentLabelCount]
+          properties:
+            maxLabelsPerBoard:
+              type: integer
+              minimum: 1
+              maximum: 100
+            currentLabelCount:
+              type: integer
+              minimum: 0
+  responses:
+    BadRequest:
+      description: Invalid request
+    Unauthorized:
+      description: Authentication required
+    Forbidden:
+      description: Authenticated actor lacks authority
+    NotFound:
+      description: Board not found

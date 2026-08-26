@@ -9,6 +9,51 @@ const labels = [
 ];
 
 describe('LabelEditor', () => {
+  it('scrolls a newly added label row into the visible editor region', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(<LabelEditor labels={labels} onSave={vi.fn()} onCancel={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add new label' }));
+
+    const newLabelInput = screen.getByRole('textbox', { name: 'Label name for new label' });
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    expect(scrollIntoView.mock.contexts.at(-1)).toContainElement(newLabelInput);
+  });
+
+  it('scrolls an opened color picker into the visible editor region', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(<LabelEditor labels={labels} onSave={vi.fn()} onCancel={vi.fn()} />);
+
+    await user.click(screen.getByLabelText('Choose color for Feature'));
+
+    const colorPicker = screen.getByText('Choose a color').parentElement?.parentElement;
+    expect(colorPicker).toBeInstanceOf(HTMLElement);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(colorPicker);
+  });
+
+  it('reveals newly rendered controls without smooth motion when reduced motion is preferred', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'matchMedia').mockReturnValue({
+      matches: true,
+      media: '(prefers-reduced-motion: reduce)',
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    });
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    render(<LabelEditor labels={labels} onSave={vi.fn()} onCancel={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add new label' }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
+  });
+
   it('gives a sixth label a fresh identity after a persisted client ID is reloaded', async () => {
     const user = userEvent.setup();
     const persisted = [

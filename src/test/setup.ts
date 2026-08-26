@@ -67,6 +67,10 @@ if (typeof Element !== 'undefined' && !Element.prototype.animate) {
   } as unknown as Animation);
 }
 
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 if (typeof window !== 'undefined' && !window.matchMedia) {
   window.matchMedia = query => ({
     matches: false,

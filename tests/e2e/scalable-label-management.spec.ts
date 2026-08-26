@@ -73,3 +73,41 @@ test('sixth labels remain independent and the System Admin limit controls every 
   await page.request.patch('/api/admin/settings/label-policy', { data: { maxLabelsPerBoard: 12 } });
   await page.request.delete(`/api/boards/${created.id}`);
 });
+
+test('label manager reveals newly added rows and opened color pickers inside its scroll region', async ({ page }) => {
+  await authenticateSystemAdmin(page);
+  const title = `Scrollable labels ${Date.now()}`;
+  const initialLabels = Array.from({ length: 11 }, (_, index) => ({
+    id: `scroll-e2e-${index}`,
+    name: `Scrollable ${index + 1}`,
+    color: '#3b82f6',
+  }));
+  const createdResponse = await page.request.post('/api/boards', {
+    data: { workspaceId: 'w1', title, color: '#3b82f6', labels: initialLabels },
+  });
+  expect(createdResponse.ok()).toBeTruthy();
+  const created = await createdResponse.json() as { id: string };
+
+  await page.goto('/');
+  await page.locator('header select').nth(1).selectOption(created.id);
+  await page.getByRole('button', { name: 'Manage board labels' }).click();
+  const scrollRegion = page.getByRole('region', { name: 'Label definitions' });
+
+  await page.getByRole('button', { name: 'Add new label' }).click();
+  const newLabelInput = page.getByRole('textbox', { name: 'Label name for new label' });
+  await expect.poll(() => scrollRegion.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(async () => {
+    const [regionBox, inputBox] = await Promise.all([scrollRegion.boundingBox(), newLabelInput.boundingBox()]);
+    return Boolean(regionBox && inputBox && inputBox.y >= regionBox.y && inputBox.y + inputBox.height <= regionBox.y + regionBox.height);
+  }).toBe(true);
+
+  await page.getByLabel('Choose color for new label').click();
+  const colorPicker = page.getByText('Choose a color').locator('..').locator('..');
+  await expect.poll(async () => {
+    const [regionBox, pickerBox] = await Promise.all([scrollRegion.boundingBox(), colorPicker.boundingBox()]);
+    return Boolean(regionBox && pickerBox && pickerBox.y >= regionBox.y && pickerBox.y + pickerBox.height <= regionBox.y + regionBox.height);
+  }).toBe(true);
+
+  await page.getByRole('button', { name: 'Cancel label changes' }).click();
+  await page.request.delete(`/api/boards/${created.id}`);
+});

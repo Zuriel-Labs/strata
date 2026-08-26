@@ -63,6 +63,7 @@ export function createSchema(db: Database.Database) {
       color TEXT NOT NULL,
       starred INTEGER NOT NULL DEFAULT 0,
       labels_json TEXT NOT NULL,
+      labels_revision INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
     );
@@ -199,7 +200,32 @@ export function createSchema(db: Database.Database) {
       created_at TEXT NOT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS platform_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      max_labels_per_board INTEGER NOT NULL CHECK (max_labels_per_board BETWEEN 1 AND 100),
+      updated_at TEXT NOT NULL
+    );
   `);
+
+  const boardColumns = new Set(
+    (db.prepare('PRAGMA table_info(boards)').all() as Array<{ name: string }>).map(column => column.name),
+  );
+
+  if (!boardColumns.has('labels_revision')) {
+    db.exec('ALTER TABLE boards ADD COLUMN labels_revision INTEGER NOT NULL DEFAULT 0');
+  }
+
+  db.prepare(`
+    INSERT OR IGNORE INTO platform_settings (id, max_labels_per_board, updated_at)
+    VALUES (1, 12, ?)
+  `).run(new Date().toISOString());
+  db.prepare(`
+    UPDATE platform_settings
+    SET max_labels_per_board = 12, updated_at = ?
+    WHERE id = 1
+      AND (typeof(max_labels_per_board) != 'integer' OR max_labels_per_board NOT BETWEEN 1 AND 100)
+  `).run(new Date().toISOString());
 
   db.transaction(() => {
     db.exec(`

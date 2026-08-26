@@ -7,6 +7,7 @@ import { reconcileNavigationSelection } from './lib/navigation-selection';
 export const STORAGE_KEY = 'strata-app-state';
 
 export const initialState: AppState = {
+  maxLabelsPerBoard: 12,
   workspaces: WORKSPACES,
   boards: BOARDS,
   lists: LISTS,
@@ -74,10 +75,10 @@ function ruleMatchesConditions(card: Card, conditions: AutomationRule['condition
   return true;
 }
 
-function applyBoardLabelsToState(state: AppState, boardId: string, labels: Label[]): Pick<AppState, 'boards' | 'cards' | 'automationRules'> {
+function applyBoardLabelsToState(state: AppState, boardId: string, labels: Label[], labelsRevision: number): Pick<AppState, 'boards' | 'cards' | 'automationRules'> {
   const validLabelIds = new Set(labels.map(label => label.id));
   return {
-    boards: state.boards.map(board => board.id === boardId ? { ...board, labels } : board),
+    boards: state.boards.map(board => board.id === boardId ? { ...board, labels, labelsRevision } : board),
     cards: state.cards.map(card => card.boardId === boardId ? { ...card, labelIds: card.labelIds.filter(labelId => validLabelIds.has(labelId)) } : card),
     automationRules: state.automationRules.map(rule => {
       if (rule.boardId !== boardId) return rule;
@@ -478,6 +479,7 @@ export function reducer(state: AppState, action: Action): AppState {
         visibility: 'workspace' as const,
         color: action.payload.color,
         starred: false,
+        labelsRevision: 0,
         labels: [
           { id: uid(), name: 'Urgent', color: '#ef4444' },
           { id: uid(), name: 'Feature', color: '#a855f7' },
@@ -494,8 +496,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, boards: state.boards.map(board => board.id === action.payload.id ? action.payload : board) };
 
     case 'UPDATE_BOARD_LABELS': {
-      const next = applyBoardLabelsToState(state, action.payload.boardId, action.payload.labels);
-      return { ...state, ...next };
+      const next = applyBoardLabelsToState(state, action.payload.boardId, action.payload.labels, action.payload.labelsRevision);
+      return { ...state, ...next, maxLabelsPerBoard: action.payload.maxLabelsPerBoard };
     }
 
     case 'ADD_WORKSPACE':

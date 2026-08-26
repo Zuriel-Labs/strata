@@ -14,7 +14,7 @@ function session(systemAdmin = true) {
 const directory = {
   users:[{id:'u1',name:'System Admin',initials:'SA',color:'#6366f1',username:'admin',platformRole:'system_admin',active:true,mustChangePassword:false,createdAt:now,updatedAt:now,counts:{workspaceAdminGrants:0,boardAdminGrants:0,boardMemberships:0,derivedWorkspaces:0}}],
   page:{page:1,pageSize:25,total:1,totalPages:1},
-  actorCapabilities:{canCreateUsers:true,canManageAccess:true,canViewAudit:true},auditEvents:[],
+  actorCapabilities:{canCreateUsers:true,canManageAccess:true,canViewAudit:true,canManageSystemSettings:true},auditEvents:[],
 };
 const resources = {items:[{id:'w1',name:'Acme Engineering',kind:'workspace',workspaceId:null,workspaceName:null},{id:'b1',name:'Platform Sprint 24',kind:'board',workspaceId:'w1',workspaceName:'Acme Engineering'}],page:{page:1,pageSize:25,total:2,totalPages:1}};
 
@@ -23,7 +23,8 @@ function mockApi(systemAdmin = true) {
     const path=String(input);
     if(path.endsWith('/api/auth/session'))return Response.json(session(systemAdmin));
     if(path.endsWith('/api/admin/users')&&init?.method==='POST')return Response.json({user:{...directory.users[0],id:'u-new',name:'Jordan Lee',username:'jordan'},inviteToken:'invite-token-123'},{status:201});
-    if(path.includes('/api/admin/users?'))return Response.json(systemAdmin?directory:{...directory,actorCapabilities:{canCreateUsers:false,canManageAccess:false,canViewAudit:false}});
+    if(path.includes('/api/admin/users?'))return Response.json(systemAdmin?directory:{...directory,actorCapabilities:{canCreateUsers:false,canManageAccess:false,canViewAudit:false,canManageSystemSettings:false}});
+    if(path.endsWith('/api/admin/settings/label-policy')&&init?.method==='PATCH')return Response.json({maxLabelsPerBoard:6,boardsAboveLimit:1});
     if(path.includes('/api/admin/resources?'))return Response.json(resources);
     if(path.includes('/api/admin/boards/')&&path.includes('/members?'))return Response.json({items:[],page:{page:1,pageSize:25,total:0,totalPages:1}});
     if(path.includes('/eligible-users?'))return Response.json({items:[],page:{page:1,pageSize:25,total:0,totalPages:1}});
@@ -43,12 +44,25 @@ describe('layered administration UI',()=>{
     expect(screen.getByRole('button',{name:'Create User'})).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Board Members'})).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Audit Log'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'System Settings'})).toBeInTheDocument();
     await user.click(screen.getByRole('button',{name:'Create User'}));
     expect(screen.getByText('Workspace Administrator access')).toBeInTheDocument();
     expect(screen.getByText('Board Administrator access')).toBeInTheDocument();
     expect(screen.getByText('Member on Boards')).toBeInTheDocument();
     expect(screen.getByText('Observer on Boards')).toBeInTheDocument();
     expect(screen.getAllByPlaceholderText('Search…')).toHaveLength(4);
+  });
+
+  it('configures the label limit with impact feedback in System Settings',async()=>{
+    const fetchMock=mockApi(true); const user=userEvent.setup(); render(<App/>);
+    await user.click(await screen.findByRole('button',{name:'Open admin panel'}));
+    await user.click(screen.getByRole('button',{name:'System Settings'}));
+    const input=screen.getByLabelText('Maximum labels per Board');
+    expect(input).toHaveValue(12);
+    await user.clear(input); await user.type(input,'6');
+    await user.click(screen.getByRole('button',{name:'Save label policy'}));
+    expect(await screen.findByText(/1 Board is currently above this limit/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/label-policy',expect.objectContaining({method:'PATCH',body:JSON.stringify({maxLabelsPerBoard:6})}));
   });
 
   it('keeps a successful invite visible and copies it only from an explicit user action',async()=>{
@@ -100,6 +114,7 @@ describe('layered administration UI',()=>{
     expect(await screen.findByRole('heading',{name:'Access & Membership'})).toBeInTheDocument();
     expect(screen.queryByRole('button',{name:'Create User'})).not.toBeInTheDocument();
     expect(screen.queryByRole('button',{name:'Audit Log'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'System Settings'})).not.toBeInTheDocument();
     await user.click(screen.getByRole('button',{name:'Board Members'}));
     await waitFor(()=>expect(screen.getByLabelText('Board')).toBeInTheDocument());
   });

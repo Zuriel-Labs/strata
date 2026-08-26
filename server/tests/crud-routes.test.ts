@@ -129,6 +129,7 @@ describe('board CRUD routes', () => {
     expect(rule.status).toBe(201);
 
     const res = await agent.put('/api/boards/b1/labels').send({
+      expectedRevision: 0,
       labels: [
         { id: 'lb1', name: 'Urgent', color: '#ef4444' },
         { id: 'lb2', name: 'Feature', color: '#a855f7' },
@@ -151,6 +152,7 @@ describe('board CRUD routes', () => {
     const agent = await loginAdmin(app);
 
     const res = await agent.put('/api/boards/b1/labels').send({
+      expectedRevision: 0,
       labels: [
         { id: 'lb1', name: '', color: '#ef4444' },
         { id: 'lb2', name: 'Feature', color: '#a855f7' },
@@ -167,6 +169,7 @@ describe('board CRUD routes', () => {
     const agent = await loginAdmin(app);
 
     const valid = await agent.put('/api/boards/b1/labels').send({
+      expectedRevision: 0,
       labels: [{ id: 'lb1', name: '  Critical  ', color: '#AABBCC' }],
     });
     expect(valid.status).toBe(200);
@@ -177,9 +180,9 @@ describe('board CRUD routes', () => {
       [{ id: 'lb1', name: 'One', color: '#112233' }, { id: 'lb1', name: 'Two', color: '#445566' }],
       [{ id: 'lb1', name: 'Bad', color: '#112233', extra: true }],
     ]) {
-      const response = await agent.put('/api/boards/b1/labels').send({ labels });
+      const response = await agent.put('/api/boards/b1/labels').send({ labels, expectedRevision: 1 });
       expect(response.status).toBe(400);
-      expect(response.body).toEqual({ message: 'Invalid label payload.' });
+      expect(response.body).toMatchObject({ code: 'LABEL_DEFINITION_INVALID', message: 'Invalid label payload.' });
     }
   });
 
@@ -196,6 +199,7 @@ describe('board CRUD routes', () => {
     `);
 
     const response = await agent.put('/api/boards/b1/labels').send({
+      expectedRevision: 0,
       labels: [{ id: 'lb1', name: 'Urgent', color: '#ef4444' }],
     });
 
@@ -211,6 +215,7 @@ describe('board CRUD routes', () => {
     const agent = await loginAdmin(app);
 
     const response = await agent.put('/api/boards/b1/labels').send({
+      expectedRevision: 0,
       labels: [{ id: 'lb1', name: 'Urgent', color: '#ef4444' }],
     });
     expect(response.status).toBe(200);
@@ -234,6 +239,64 @@ describe('board CRUD routes', () => {
     expect(db.prepare('SELECT id FROM boards WHERE id = ?').get(board.body.id)).toBeUndefined();
     expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(list.body.id)).toBeUndefined();
     expect(db.prepare('SELECT id FROM cards WHERE id = ?').get(card.body.id)).toBeUndefined();
+  });
+});
+
+describe('scalable Board label policy', () => {
+  afterEach(() => { closeDatabase(); });
+
+  const makeLabels = (count: number) => Array.from({ length: count }, (_, index) => ({
+    id: `scale-${index + 1}`,
+    name: `Scale ${index + 1}`,
+    color: `#${(index + 1).toString(16).padStart(6, '0')}`,
+  }));
+
+  it('accepts 12 definitions and rejects a thirteenth without changing the Board', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db); const agent = await loginAdmin(app);
+    const accepted = await agent.put('/api/boards/b1/labels').send({ labels: makeLabels(12), expectedRevision: 0 });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toMatchObject({ labelsRevision: 1, maxLabelsPerBoard: 12 });
+
+    const rejected = await agent.put('/api/boards/b1/labels').send({ labels: makeLabels(13), expectedRevision: 1 });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body).toMatchObject({ code: 'LABEL_LIMIT_EXCEEDED', details: { maxLabelsPerBoard: 12, currentLabelCount: 12 } });
+    const row = db.prepare('SELECT labels_json AS labelsJson, labels_revision AS labelsRevision FROM boards WHERE id = ?').get('b1') as { labelsJson: string; labelsRevision: number };
+    expect(JSON.parse(row.labelsJson)).toHaveLength(12);
+    expect(row.labelsRevision).toBe(1);
+  });
+
+  it('preserves a grandfathered Board and allows rename, recolor, and delete but no new identity', async () => {
+    const db = await createDatabase(':memory:');
+    db.prepare('UPDATE platform_settings SET max_labels_per_board = 5 WHERE id = 1').run();
+    const labels = makeLabels(6);
+    db.prepare('UPDATE boards SET labels_json = ? WHERE id = ?').run(JSON.stringify(labels), 'b1');
+    const app = createApp(db); const agent = await loginAdmin(app);
+
+    const edited = labels.map((label, index) => index === 2 ? { ...label, name: 'Renamed', color: '#abcdef' } : label);
+    const editResponse = await agent.put('/api/boards/b1/labels').send({ labels: edited, expectedRevision: 0 });
+    expect(editResponse.status).toBe(200);
+    expect(editResponse.body.labels[2]).toMatchObject({ id: 'scale-3', name: 'Renamed', color: '#abcdef' });
+
+    const added = await agent.put('/api/boards/b1/labels').send({ labels: [...edited, { id: 'new-identity', name: 'New', color: '#123456' }], expectedRevision: 1 });
+    expect(added.status).toBe(409);
+    expect(added.body.code).toBe('LABEL_LIMIT_EXCEEDED');
+
+    const reduced = await agent.put('/api/boards/b1/labels').send({ labels: edited.slice(0, 5), expectedRevision: 1 });
+    expect(reduced.status).toBe(200);
+    expect(reduced.body.labels).toHaveLength(5);
+  });
+
+  it('rejects a stale aggregate replacement and returns the authoritative revision', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db); const agent = await loginAdmin(app);
+    const first = await agent.put('/api/boards/b1/labels').send({ labels: [{ id: 'lb1', name: 'First writer', color: '#112233' }], expectedRevision: 0 });
+    expect(first.status).toBe(200);
+
+    const stale = await agent.put('/api/boards/b1/labels').send({ labels: [{ id: 'lb1', name: 'Stale writer', color: '#445566' }], expectedRevision: 0 });
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ code: 'LABEL_VERSION_CONFLICT', details: { labelsRevision: 1, labels: [{ id: 'lb1', name: 'First writer', color: '#112233' }] } });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE action = 'board.labels.update'").get()).toEqual({ count: 1 });
   });
 });
 

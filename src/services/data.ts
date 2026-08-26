@@ -1,4 +1,4 @@
-import type { Board, List, Card, AutomationRule, Label } from '../types';
+import type { Board, BoardLabelCollection, List, Card, AutomationRule, Label } from '../types';
 import type { CardSortDirection } from '../lib/card-sort';
 import { apiRequest } from './api';
 
@@ -15,8 +15,8 @@ export function updateBoardApi(boardId: string, input: { title: string }) {
   return apiRequest<Board>(`/api/boards/${boardId}`, { method: 'PATCH', body: JSON.stringify(input) });
 }
 
-export function updateBoardLabelsApi(boardId: string, labels: Label[]) {
-  return apiRequest<{ boardId: string; labels: Label[] }>(`/api/boards/${boardId}/labels`, { method: 'PUT', body: JSON.stringify({ labels }) });
+export function updateBoardLabelsApi(boardId: string, labels: Label[], expectedRevision: number) {
+  return apiRequest<BoardLabelCollection>(`/api/boards/${boardId}/labels`, { method: 'PUT', body: JSON.stringify({ labels, expectedRevision }) });
 }
 
 export function deleteBoardApi(boardId: string) {

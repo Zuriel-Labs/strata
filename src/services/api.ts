@@ -1,9 +1,13 @@
 export class ApiError extends Error {
   status: number;
+  code: string | null;
+  details: Record<string, unknown> | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null, details: Record<string, unknown> | null = null) {
     super(message);
     this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -26,7 +30,11 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 
   if (!response.ok) {
     const message = typeof payload === 'object' && payload && 'message' in payload ? String(payload.message) : response.statusText;
-    throw new ApiError(response.status, message || 'Request failed.');
+    const code = typeof payload === 'object' && payload && 'code' in payload ? String(payload.code) : null;
+    const details = typeof payload === 'object' && payload && 'details' in payload && typeof payload.details === 'object' && payload.details
+      ? payload.details as Record<string, unknown>
+      : null;
+    throw new ApiError(response.status, message || 'Request failed.', code, details);
   }
 
   return payload as T;

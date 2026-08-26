@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
-import { uid } from '../data';
 import type { Label } from '../types';
+import { ApiError } from '../services/api';
 
 interface LabelEditorProps {
   labels: Label[];
@@ -9,6 +9,8 @@ interface LabelEditorProps {
   onCancel: () => void;
   usageCount?: (labelId: string) => number;
   autoFocus?: boolean;
+  maxLabelsPerBoard?: number;
+  onReload?: () => Promise<void> | void;
 }
 
 const LABEL_COLOR_OPTIONS = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#ec4899'];
@@ -21,21 +23,22 @@ function contrastingTextColor(color: string) {
   return ((red * 0.299) + (green * 0.587) + (blue * 0.114)) > 160 ? '#111827' : '#ffffff';
 }
 
-export function LabelEditor({ labels, onSave, onCancel, usageCount = () => 0, autoFocus = false }: LabelEditorProps) {
+export function LabelEditor({ labels, onSave, onCancel, usageCount = () => 0, autoFocus = false, maxLabelsPerBoard = 12, onReload }: LabelEditorProps) {
   const [draftLabels, setDraftLabels] = useState(() => labels.map(label => ({ ...label })));
   const [activeColorId, setActiveColorId] = useState<string | null>(null);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [conflicted, setConflicted] = useState(false);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (autoFocus) firstInputRef.current?.focus();
   }, [autoFocus]);
 
-  const pickColor = () => {
-    const used = new Set(draftLabels.map(label => label.color.toLowerCase()));
-    return LABEL_COLOR_OPTIONS.find(color => !used.has(color)) ?? LABEL_COLOR_OPTIONS[draftLabels.length % LABEL_COLOR_OPTIONS.length];
+  const pickColor = (currentLabels: Label[]) => {
+    const used = new Set(currentLabels.map(label => label.color.toLowerCase()));
+    return LABEL_COLOR_OPTIONS.find(color => !used.has(color)) ?? LABEL_COLOR_OPTIONS[currentLabels.length % LABEL_COLOR_OPTIONS.length];
   };
 
   const save = async () => {
@@ -45,6 +48,7 @@ export function LabelEditor({ labels, onSave, onCancel, usageCount = () => 0, au
     try {
       await onSave(draftLabels.map(label => ({ ...label, name: label.name.trim(), color: label.color.toLowerCase() })));
     } catch (saveError) {
+      if (saveError instanceof ApiError && saveError.code === 'LABEL_VERSION_CONFLICT') setConflicted(true);
       setError(saveError instanceof Error ? saveError.message : 'Labels could not be saved.');
     } finally {
       setPending(false);
@@ -57,6 +61,7 @@ export function LabelEditor({ labels, onSave, onCancel, usageCount = () => 0, au
     setActiveColorId(null);
     setDeleteCandidateId(null);
     setError('');
+    setConflicted(false);
     onCancel();
   };
 
@@ -124,16 +129,22 @@ export function LabelEditor({ labels, onSave, onCancel, usageCount = () => 0, au
       <button
         type="button"
         aria-label="Add new label"
-        disabled={pending}
-        onClick={() => setDraftLabels(current => [...current, { id: uid(), name: '', color: pickColor() }])}
+        disabled={pending || draftLabels.length >= maxLabelsPerBoard}
+        aria-describedby="label-limit-status"
+        onClick={() => setDraftLabels(current => [...current, { id: globalThis.crypto.randomUUID(), name: '', color: pickColor(current) }])}
         className="mt-3 inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-dashed text-sm font-medium disabled:opacity-60"
         style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
       ><Plus size={16} /> Add new label</button>
 
+      <p id="label-limit-status" aria-live="polite" className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        {draftLabels.length} of {maxLabelsPerBoard} labels used.{draftLabels.length >= maxLabelsPerBoard ? ' Delete a label before adding another.' : ''}
+      </p>
+
       {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
+      {conflicted && onReload && <button type="button" className="mt-2 min-h-[44px] self-start rounded-md px-3 text-sm font-semibold" style={{ background: 'var(--active-bg)' }} onClick={() => void onReload()}>Reload current labels</button>}
       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
         <button type="button" aria-label="Cancel label changes" disabled={pending} onClick={cancel} className="min-h-[44px] px-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Cancel</button>
-        <button type="button" aria-label="Save labels" disabled={pending} onClick={() => void save()} className="min-h-[44px] rounded-md px-4 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60" style={{ background: 'var(--accent)' }}>{pending ? 'Saving…' : 'Save'}</button>
+        <button type="button" aria-label="Save labels" disabled={pending || conflicted} onClick={() => void save()} className="min-h-[44px] rounded-md px-4 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60" style={{ background: 'var(--accent)' }}>{pending ? 'Saving…' : 'Save'}</button>
       </div>
 
       {deleteCandidate && (

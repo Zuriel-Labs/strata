@@ -41,6 +41,7 @@ describe('rbac matrix', () => {
       canCreateUsers: false,
       canManageAccess: false,
       canViewAudit: false,
+      canManageSystemSettings: false,
     });
   });
 });

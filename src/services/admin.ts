@@ -1,4 +1,4 @@
-import type { AdminDirectoryResponse, AdminResourcePage, AdminUserRecord, PageMeta } from '../types';
+import type { AdminDirectoryResponse, AdminResourcePage, AdminUserRecord, LabelPolicySettings, PageMeta } from '../types';
 import { apiRequest } from './api';
 
 export interface ManagedUserInput {
@@ -90,6 +90,13 @@ export function setBoardMember(boardId: string, userId: string, role: 'member' |
 
 export function removeBoardMember(boardId: string, userId: string) {
   return apiRequest<{ userId: string; boardId: string; derivedWorkspaceIds: string[] }>(`/api/admin/boards/${boardId}/members/${userId}`, { method: 'DELETE' });
+}
+
+export function updateLabelPolicy(maxLabelsPerBoard: number) {
+  return apiRequest<LabelPolicySettings>('/api/admin/settings/label-policy', {
+    method: 'PATCH',
+    body: JSON.stringify({ maxLabelsPerBoard }),
+  });
 }
 
 export function createWorkspace(input: { name: string; description: string; visibility: string }) {

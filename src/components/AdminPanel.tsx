@@ -6,9 +6,10 @@ import {
   createManagedUser, deleteManagedUser, fetchAdminDirectory, fetchAdminResources, fetchAdminUser,
   fetchBoardMembers, fetchEligibleBoardUsers, generateRecoveryKeyForUser, removeBoardMember,
   setBoardMember, updateManagedUser, type AdminPerson, type ManagedUserInput,
+  updateLabelPolicy,
 } from '../services/admin';
 
-type Tab = 'people' | 'create' | 'members' | 'audit';
+type Tab = 'people' | 'create' | 'members' | 'settings' | 'audit';
 const blankForm = (): ManagedUserInput => ({ name:'', initials:'', color:'#6366f1', username:'', platformRole:'user', active:true, workspaceAdminWorkspaceIds:[], boardAdminBoardIds:[], boardMemberships:[] });
 const formFor = (user: AdminUserRecord): ManagedUserInput => ({
   name:user.name, initials:user.initials, color:user.color, username:user.username, platformRole:user.platformRole, active:user.active,
@@ -27,7 +28,7 @@ export function AdminPanel() {
   useEffect(()=>{ if(auth.adminOpen&&canOpen) void Promise.resolve().then(loadDirectory).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to load administration.')); },[auth.adminOpen,canOpen,loadDirectory]);
   if(!auth.adminOpen||!canOpen)return null;
   const capabilities=directory?.actorCapabilities;
-  const tabs:Array<{key:Tab;label:string}>=[{key:'people',label:'People'},...(capabilities?.canCreateUsers?[{key:'create' as const,label:'Create User'}]:[]),{key:'members',label:'Board Members'},...(capabilities?.canViewAudit?[{key:'audit' as const,label:'Audit Log'}]:[])];
+  const tabs:Array<{key:Tab;label:string}>=[{key:'people',label:'People'},...(capabilities?.canCreateUsers?[{key:'create' as const,label:'Create User'}]:[]),{key:'members',label:'Board Members'},...(capabilities?.canManageSystemSettings?[{key:'settings' as const,label:'System Settings'}]:[]),...(capabilities?.canViewAudit?[{key:'audit' as const,label:'Audit Log'}]:[])];
   async function changed(){ await Promise.all([loadDirectory(),auth.refresh()]); }
   return <div className="fixed inset-0 z-40 flex items-center justify-center p-3" style={{background:'rgba(6,9,14,.62)'}} onClick={event=>{if(event.target===event.currentTarget)auth.setAdminOpen(false)}}>
     <section role="dialog" aria-modal="true" aria-labelledby="admin-title" className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border" style={{background:'#111a26',borderColor:'#334155'}}>
@@ -37,10 +38,19 @@ export function AdminPanel() {
         {tab==='people'&&<People directory={directory} query={query} setQuery={value=>{setQuery(value);setPage(1)}} page={page} setPage={setPage} canEdit={Boolean(capabilities?.canManageAccess)} onChanged={changed}/>}
         {tab==='create'&&capabilities?.canCreateUsers&&<Create onChanged={changed}/>}
         {tab==='members'&&<BoardMembers onChanged={changed}/>}
+        {tab==='settings'&&capabilities?.canManageSystemSettings&&<SystemSettings onChanged={changed}/>}
         {tab==='audit'&&capabilities?.canViewAudit&&<Audit directory={directory}/>}
       </main>
     </section>
   </div>;
+}
+
+function SystemSettings({onChanged}:{onChanged:()=>Promise<void>}) {
+  const auth=useAuth(); const current=auth.session?.appState.maxLabelsPerBoard ?? 12;
+  const [value,setValue]=useState(current); const [pending,setPending]=useState(false); const [message,setMessage]=useState<string|null>(null); const [error,setError]=useState<string|null>(null);
+  const boardsAbove=(auth.session?.appState.boards ?? []).filter(board=>board.labels.length>value).length;
+  const save=async()=>{if(pending)return;setPending(true);setError(null);setMessage(null);try{const result=await updateLabelPolicy(value);setMessage(`Saved. ${result.boardsAboveLimit} ${result.boardsAboveLimit===1?'Board is':'Boards are'} currently above this limit; no labels were removed.`);await onChanged()}catch(cause){setError(cause instanceof Error?cause.message:'Unable to save label policy.')}finally{setPending(false)}};
+  return <section className="mx-auto max-w-2xl rounded-xl border p-4" style={{borderColor:'#334155'}}><h3 className="text-lg font-bold">Label policy</h3><p className="mt-1 text-sm" style={{color:'#9bb1c0'}}>Set the maximum number of shared labels per Board across Strata. The default is 12.</p><label className="mt-5 block text-sm font-semibold">Maximum labels per Board<input aria-label="Maximum labels per Board" type="number" min={1} max={100} step={1} value={value} onChange={event=>setValue(Number(event.target.value))} className="mt-2 block min-h-[44px] w-full rounded-lg border px-3" style={{background:'#0d141c',borderColor:'#334155'}}/></label>{boardsAbove>0&&<p role="status" className="mt-3 rounded-lg p-3 text-sm" style={{background:'#3b2f17',color:'#fde68a'}}>{boardsAbove} {boardsAbove===1?'Board has':'Boards have'} more than {value} labels. Saving will preserve every existing label while blocking new labels on those Boards until they are below the limit.</p>}<button type="button" disabled={pending||!Number.isInteger(value)||value<1||value>100} onClick={()=>void save()} className="mt-4 min-h-[44px] rounded-lg px-4 font-bold disabled:opacity-60" style={{background:'#7ea2ff',color:'#0b1822'}}>{pending?'Saving…':'Save label policy'}</button>{message&&<p aria-live="polite" className="mt-3 text-sm" style={{color:'#bef264'}}>{message}</p>}{error&&<p role="alert" className="mt-3 text-sm" style={{color:'#fecaca'}}>{error}</p>}</section>;
 }
 
 function People({directory,query,setQuery,page,setPage,canEdit,onChanged}:{directory:AdminDirectoryResponse|null;query:string;setQuery:(v:string)=>void;page:number;setPage:(v:number)=>void;canEdit:boolean;onChanged:()=>Promise<void>}) {

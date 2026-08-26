@@ -134,7 +134,7 @@ describe('board rename RBAC', () => {
 
 describe('board label management RBAC', () => {
   afterEach(() => { closeDatabase(); });
-  const payload = { labels: [{ id: 'lb1', name: 'Managed', color: '#123456' }] };
+  const payload = { labels: [{ id: 'lb1', name: 'Managed', color: '#123456' }], expectedRevision: 0 };
 
   it('allows a board admin to manage shared labels', async () => {
     const db = await createDatabase(':memory:');

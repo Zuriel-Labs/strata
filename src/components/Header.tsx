@@ -296,12 +296,14 @@ export function Header() {
       <NavigationOverlay key={`${state.currentWorkspaceId ?? 'none'}:${state.currentBoardId ?? 'none'}`} open={navOpen} onClose={() => setNavOpen(false)} />
       {board && canManageLabels && labelsOpen && (
         <BoardLabelsDialog
-          key={board.id}
+          key={`${board.id}:${board.labelsRevision}`}
           open={labelsOpen}
           labels={board.labels}
+          maxLabelsPerBoard={state.maxLabelsPerBoard}
+          onReload={auth.refresh}
           onClose={() => setLabelsOpen(false)}
           onSave={async labels => {
-            const result = await updateBoardLabelsApi(board.id, labels);
+            const result = await updateBoardLabelsApi(board.id, labels, board.labelsRevision);
             dispatch({ type: 'UPDATE_BOARD_LABELS', payload: result });
           }}
         />

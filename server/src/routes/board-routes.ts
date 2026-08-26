@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { createBoard, createAuditEvent, updateBoardStarred, getBoardById, updateBoardLabels, updateBoardTitle } from '../db/repositories';
+import { createBoard, createAuditEvent, updateBoardStarred, getBoardById, getMaxLabelsPerBoard, updateBoardLabels, updateBoardTitle } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageWorkspace, canAccessBoard, canManageBoard, canManageBoardLabels } from '../rbac/permissions';
 
@@ -35,7 +35,12 @@ const updateBoardSchema = z.object({
 
 const updateBoardLabelsSchema = z.object({
   labels: labelsSchema,
+  expectedRevision: z.number().int().min(0),
 }).strict();
+
+function labelCollection(board: NonNullable<ReturnType<typeof getBoardById>>, maxLabelsPerBoard: number) {
+  return { boardId: board.id, labels: board.labels, labelsRevision: board.labelsRevision, maxLabelsPerBoard };
+}
 
 export function createBoardRoutes(db: Database.Database) {
   const router = Router();
@@ -52,11 +57,16 @@ export function createBoardRoutes(db: Database.Database) {
       return;
     }
     const id = randomUUID();
+    const maxLabelsPerBoard = getMaxLabelsPerBoard(db);
     const labels = parsed.data.labels ?? [
       { id: randomUUID(), name: 'Urgent', color: '#ef4444' },
       { id: randomUUID(), name: 'Feature', color: '#a855f7' },
       { id: randomUUID(), name: 'Bug', color: '#f97316' },
-    ];
+    ].slice(0, maxLabelsPerBoard);
+    if (labels.length > maxLabelsPerBoard) {
+      response.status(409).json({ code: 'LABEL_LIMIT_EXCEEDED', message: `Boards can have at most ${maxLabelsPerBoard} labels.`, details: { maxLabelsPerBoard, currentLabelCount: 0 } });
+      return;
+    }
     createBoard(db, id, parsed.data.title, parsed.data.workspaceId, 'workspace', parsed.data.color, JSON.stringify(labels));
     createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: id, action: 'board.create', outcome: 'success' });
 
@@ -93,15 +103,35 @@ export function createBoardRoutes(db: Database.Database) {
     }
     const parsed = updateBoardLabelsSchema.safeParse(request.body);
     if (!parsed.success) {
-      response.status(400).json({ message: 'Invalid label payload.' });
+      response.status(400).json({ code: 'LABEL_DEFINITION_INVALID', message: 'Invalid label payload.', details: { issues: parsed.error.issues.map(issue => ({ path: issue.path, message: issue.message })) } });
       return;
     }
 
-    db.transaction(() => {
-      updateBoardLabels(db, boardId, parsed.data.labels);
+    const maxLabelsPerBoard = getMaxLabelsPerBoard(db);
+    if (parsed.data.expectedRevision !== board.labelsRevision) {
+      response.status(409).json({ code: 'LABEL_VERSION_CONFLICT', message: 'Board labels changed since this editor was opened. Reload the current labels before saving again.', details: labelCollection(board, maxLabelsPerBoard) });
+      return;
+    }
+
+    const currentIds = new Set(board.labels.map(label => label.id));
+    const addsNewIdentity = parsed.data.labels.some(label => !currentIds.has(label.id));
+    if (addsNewIdentity && (board.labels.length >= maxLabelsPerBoard || parsed.data.labels.length > maxLabelsPerBoard)) {
+      response.status(409).json({ code: 'LABEL_LIMIT_EXCEEDED', message: `This Board has reached its limit of ${maxLabelsPerBoard} labels. Existing labels can still be renamed, recolored, or deleted.`, details: { maxLabelsPerBoard, currentLabelCount: board.labels.length } });
+      return;
+    }
+
+    const updated = db.transaction(() => {
+      const nextBoard = updateBoardLabels(db, boardId, parsed.data.labels, parsed.data.expectedRevision);
+      if (!nextBoard) return null;
       createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.labels.update', outcome: 'success' });
+      return nextBoard;
     })();
-    response.json({ boardId, labels: parsed.data.labels });
+    if (!updated) {
+      const current = getBoardById(db, boardId);
+      response.status(409).json({ code: 'LABEL_VERSION_CONFLICT', message: 'Board labels changed since this editor was opened. Reload the current labels before saving again.', details: current ? labelCollection(current, maxLabelsPerBoard) : { maxLabelsPerBoard } });
+      return;
+    }
+    response.json(labelCollection(updated, maxLabelsPerBoard));
   });
 
   router.patch('/:boardId', requireAuth, (request: AuthenticatedRequest, response) => {

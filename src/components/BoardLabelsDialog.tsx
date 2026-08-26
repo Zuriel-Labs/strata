@@ -7,9 +7,11 @@ interface BoardLabelsDialogProps {
   labels: Label[];
   onClose: () => void;
   onSave: (labels: Label[]) => Promise<void> | void;
+  maxLabelsPerBoard?: number;
+  onReload?: () => Promise<void> | void;
 }
 
-export function BoardLabelsDialog({ open, labels, onClose, onSave }: BoardLabelsDialogProps) {
+export function BoardLabelsDialog({ open, labels, onClose, onSave, maxLabelsPerBoard, onReload }: BoardLabelsDialogProps) {
   if (!open) return null;
 
   return (
@@ -26,6 +28,8 @@ export function BoardLabelsDialog({ open, labels, onClose, onSave }: BoardLabels
           <LabelEditor
             autoFocus
             labels={labels}
+            maxLabelsPerBoard={maxLabelsPerBoard}
+            onReload={onReload}
             onCancel={onClose}
             onSave={async nextLabels => {
               await onSave(nextLabels);

@@ -108,7 +108,8 @@ export function auditProjectState({ project, fieldData, itemData, openIssues, op
     }
     const pr = matching[0];
     if (pr.isDraft) errors.push(`In Review PR #${pr.number} must be ready for review`);
-    const verify = (pr.statusCheckRollup || []).find((check) => check.name === "verify" && check.workflowName === "Quality");
+    const verify = (pr.statusCheckRollup || []).find((check) => check.name === "verify"
+      && (check.workflowDisplayName || check.workflowName) === "Quality");
     if (!verify || verify.status !== "COMPLETED" || verify.conclusion !== "SUCCESS") {
       errors.push(`In Review PR #${pr.number} lacks successful Quality / verify evidence`);
     }
@@ -123,6 +124,12 @@ export function main() {
   const itemData = ghJson(["project", "item-list", PROJECT_NUMBER, "--owner", OWNER, "--limit", "100", "--format", "json"]);
   const openIssues = ghJson(["issue", "list", "--repo", REPO, "--state", "open", "--limit", "100", "--json", "number,title,labels,assignees,url"]);
   const openPrs = ghJson(["pr", "list", "--repo", REPO, "--state", "open", "--limit", "100", "--json", "number,title,body,isDraft,headRefName,headRefOid,baseRefName,statusCheckRollup,url"]);
+  for (const pr of openPrs) {
+    for (const check of pr.statusCheckRollup || []) {
+      const runId = check.detailsUrl?.match(/\/actions\/runs\/(\d+)/)?.[1];
+      if (runId) check.workflowDisplayName = ghJson(["api", `repos/${REPO}/actions/runs/${runId}`]).name;
+    }
+  }
   const repoSettings = ghJson(["api", `repos/${REPO}`]);
   const rulesets = ghJson(["api", `repos/${REPO}/rulesets?includes_parents=true`]);
   const errors = auditProjectState({ project, fieldData, itemData, openIssues, openPrs, repoSettings, rulesets });

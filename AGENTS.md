@@ -72,6 +72,7 @@ Run commands from the repository root unless the command itself specifies otherw
 | `npm run lint` | Run ESLint. |
 | `npm run test` | Run Vitest unit and integration tests. |
 | `npm run test:e2e` | Run Playwright end-to-end tests. |
+| `PLAYWRIGHT_PORT=4183 npm run test:e2e` | Run Playwright on an alternate frontend port when the default `4173` is occupied. |
 | `npm run build` | Typecheck, then build client and server artifacts. |
 | `npm run test:ci` | Full local CI: lint → test → build → E2E. |
 | `npm run skills:check` | Validate canonical skills, adapters, shared policy, and pipeline alignment. |

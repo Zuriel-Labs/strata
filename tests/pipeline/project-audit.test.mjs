@@ -63,3 +63,25 @@ test("requires exact Quality verify evidence for In Review", () => {
   });
   assert.ok(errors.some((error) => error.includes("lacks successful Quality / verify evidence")));
 });
+
+test("accepts GitHub bootstrap check metadata when the run display name is Quality", () => {
+  const errors = auditProjectState({
+    project: { title: "Strata", public: false, closed: false },
+    fieldData: fields,
+    itemData: { items: [issue(36, "In Review")] },
+    openIssues: [openIssue(36)],
+    openPrs: [{
+      number: 37,
+      body: "Refs #36",
+      isDraft: false,
+      statusCheckRollup: [{
+        name: "verify",
+        workflowName: "CI",
+        workflowDisplayName: "Quality",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+      }],
+    }],
+  });
+  assert.deepEqual(errors, []);
+});

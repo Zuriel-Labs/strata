@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Issue 36 Task List</title>
+  <style>
+    :root { color-scheme:dark; --bg:#090c12; --panel:#121927; --text:#eef2ff; --muted:#b3bdd3; --accent:#8ab4ff; --line:#2d3a55; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,sans-serif; }
+    main { width:min(920px,calc(100% - 28px)); margin:auto; padding:48px 0 80px; }
+    article { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; margin:16px 0; }
+    h1,h2 { line-height:1.2; } h2 { color:var(--accent); } p,li { color:var(--muted); } code { color:#dce7ff; background:#1a2436; padding:.12rem .35rem; border-radius:5px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Issue #36 Task List</h1>
+  <article>
+    <h2>1. Governance foundation</h2>
+    <ul><li>Acceptance: Strata-specific <code>AGENTS.md</code>, policy HTML, context imports, spec and plan agree on repository, Project, roles, state flow, no-protection decision and release boundaries.</li><li>Verify: HTML validation, alignment assertions and <code>git diff --check</code>.</li><li>Files: governance and planning documents.</li></ul>
+  </article>
+  <article>
+    <h2>2. Shared skill registry</h2>
+    <ul><li>Acceptance: five reviewed shared frontend skills and regular-file Claude adapters exist with provenance and no <code>.DS_Store</code>.</li><li>Verify: bundled skill validator and registry audit.</li><li>Files: one package per focused import.</li></ul>
+  </article>
+  <article>
+    <h2>3. Strata workflow skills</h2>
+    <ul><li>Acceptance: nine narrowly scoped <code>strata-*</code> skills encode the approved Issue, review, Canary, Production, closure, health and maintenance workflows.</li><li>Verify: bundled validator plus positive/negative routing inspection.</li><li>Files: one skill entrypoint per package.</li></ul>
+  </article>
+  <article>
+    <h2>4. Deterministic pipeline scripts</h2>
+    <ul><li>Acceptance: alignment, Project health, candidate and live verification scripts fail closed on inconsistent state and model Strata topology.</li><li>Verify: failing pre-implementation fixtures, then passing positive and expected-failure negative cases.</li><li>Files: four scripts and focused tests/fixtures.</li></ul>
+  </article>
+  <article>
+    <h2>5. CI and repository integration</h2>
+    <ul><li>Acceptance: package commands expose <code>skills:check</code>, <code>pipeline:health</code> and <code>check</code>; CI is <code>Quality / verify</code>; issue forms use governed types.</li><li>Verify: focused commands, workflow syntax inspection and existing application tests.</li><li>Files: <code>package.json</code>, workflow and issue forms.</li></ul>
+  </article>
+  <article>
+    <h2>6. Source handoff</h2>
+    <ul><li>Acceptance: complete gates pass, intended files are committed, branch is pushed, PR references Issue #36 without auto-close syntax, and exact-head CI passes.</li><li>Verify: clean tree, SHA/tree readback, GitHub PR and check readback.</li><li>Files: no new implementation files.</li></ul>
+  </article>
+  <article>
+    <h2>7. Canary handoff</h2>
+    <ul><li>Acceptance: exact PR head is built once for <code>linux/amd64</code>, pushed to Zot, pinned in Strata Canary through Gitea/Argo CD, verified all-green, and Issue #36 moves to In Review.</li><li>Verify: candidate and live scripts, logs/events/probes, external health, cluster health and Project audit.</li><li>Files: only the Strata Canary values file in homelab.</li></ul>
+  </article>
+</main>
+</body>
+</html>

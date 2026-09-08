@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Strata Development Pipeline Bootstrap Specification</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090c12;
+      --panel: #111827;
+      --panel-2: #172033;
+      --text: #eef2ff;
+      --muted: #aeb8cf;
+      --accent: #8ab4ff;
+      --accent-2: #b69cff;
+      --good: #72d6a0;
+      --warn: #f2c66d;
+      --danger: #ff8c9b;
+      --line: #2b3853;
+      --code: #d8e5ff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(80, 110, 190, 0.17), transparent 34rem),
+        radial-gradient(circle at 92% 8%, rgba(126, 82, 190, 0.13), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font: 16px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 96px; }
+    header, section {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--panel) 93%, transparent);
+      box-shadow: 0 22px 70px rgba(0, 0, 0, 0.24);
+    }
+    header { padding: clamp(28px, 5vw, 56px); }
+    section { margin-top: 22px; padding: clamp(24px, 4vw, 38px); }
+    h1, h2, h3 { line-height: 1.15; letter-spacing: -0.025em; }
+    h1 { margin: 0 0 16px; font-size: clamp(2.25rem, 6vw, 4.5rem); }
+    h2 { margin: 0 0 18px; color: var(--accent); font-size: clamp(1.45rem, 3vw, 2rem); }
+    h3 { margin: 26px 0 10px; color: var(--accent-2); }
+    p { max-width: 78ch; color: var(--muted); }
+    li { margin: 7px 0; color: var(--muted); }
+    strong { color: var(--text); }
+    code {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--code);
+      padding: 0.12rem 0.36rem;
+    }
+    pre {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #080d18;
+      color: var(--code);
+      padding: 18px;
+    }
+    pre code { border: 0; background: transparent; padding: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { border: 1px solid var(--line); padding: 12px 14px; text-align: left; vertical-align: top; }
+    th { background: var(--panel-2); color: var(--text); }
+    td { color: var(--muted); }
+    .eyebrow { margin: 0 0 12px; color: var(--accent-2); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .lede { max-width: 72ch; color: var(--text); font-size: 1.15rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .tag { border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); color: var(--muted); padding: 7px 11px; }
+    .callout { border-left: 4px solid var(--warn); background: rgba(242, 198, 109, 0.08); padding: 14px 18px; }
+    .callout.danger { border-left-color: var(--danger); background: rgba(255, 140, 155, 0.08); }
+    .callout.good { border-left-color: var(--good); background: rgba(114, 214, 160, 0.08); }
+    .checklist { list-style: none; padding-left: 0; }
+    .checklist li::before { content: "□"; color: var(--accent); margin-right: 10px; }
+    .decision { color: var(--warn); font-weight: 700; }
+    a { color: var(--accent); }
+    @media (max-width: 680px) {
+      main { width: min(100% - 20px, 1120px); padding-top: 18px; }
+      header, section { border-radius: 13px; }
+      th, td { padding: 9px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">Specification · review gate</p>
+    <h1>Strata Development Pipeline Bootstrap</h1>
+    <p class="lede">Adopt Versa’s one-active-Issue, agent-managed, Canary-to-Production development model while preserving Strata’s Express/Vite architecture, SQLite data safety, Discord coordination, existing issue forms, and GitOps topology.</p>
+    <div class="meta">
+      <span class="tag">Source baseline: Zuriel-Labs/strata origin/main</span>
+      <span class="tag">Reference: Zuriel-Labs/versa main</span>
+      <span class="tag">Status: proposed</span>
+      <span class="tag">Production: explicitly out of scope until approval</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Assumptions requiring PM review</h2>
+    <ol>
+      <li><strong>Dedicated Project:</strong> create a private Zuriel-Labs organization Project titled <code>Strata</code>, separate from the legacy <code>Broville Roadmap</code>, because this is the closest match to Versa’s live structure and avoids mixing the one-active-Issue invariant with other Broville products.</li>
+      <li><strong>Historical migration:</strong> add every existing Strata Issue to the dedicated Project as <code>Done</code>, preserving Issue state and labels. Do not invent missing historical Impact or Effort. After readback proves the new Project is complete, remove only the duplicate Strata cards from <code>Broville Roadmap</code>; do not alter other projects or Issues.</li>
+      <li><strong>Bootstrap record:</strong> create one approved maintenance Issue for this adoption, make it the sole <code>In Progress</code> item, and deliver the bootstrap through its own branch, PR, local QA, CI, immutable Canary image, and PM Canary review.</li>
+      <li><strong>Approval transport:</strong> preserve Strata’s existing Discord governance. The exact candidate-specific phrase <code>Approved to merge and deploy production</code> must be attributable to the PM through the Strata Discord/Issue synchronization record before merge or Production promotion.</li>
+      <li><strong>No branch protection:</strong> do not create a repository or organization ruleset and do not add classic branch protection. Strata has one active developer, so the workflow will use squash-only merge settings, automatic merged-branch deletion, CI evidence, policy, and pipeline audits without a server-enforced PR gate.</li>
+    </ol>
+    <p class="callout danger"><span class="decision">Decision gate:</span> implementation must not begin until the PM approves these assumptions or supplies corrections.</p>
+  </section>
+
+  <section>
+    <h2>Objective and observable outcome</h2>
+    <p>Make Strata’s development workflow deterministic across Codex, Claude, Gemini, OpenCode-compatible agents, GitHub, Zot, Gitea, Argo CD, Canary, and Production. The PM selects work and approves exact candidates; agents own metadata transitions, implementation, review, release mechanics, verification, rollback, and readback.</p>
+    <h3>Acceptance criteria</h3>
+    <ul class="checklist">
+      <li>One canonical <code>AGENTS.md</code> describes the Strata-specific pipeline without stale Versa names or Next.js assumptions.</li>
+      <li><code>CLAUDE.md</code> and <code>GEMINI.md</code> import <code>AGENTS.md</code>; they do not duplicate policy.</li>
+      <li>Nine <code>strata-*</code> workflow skills, five shared frontend skills, regular-file Claude adapters, and deterministic alignment scripts are repository-owned and validated.</li>
+      <li>The private <code>Strata</code> Project has the exact governed fields and views, contains every Strata Issue, and has no more than one active Issue.</li>
+      <li>Issue, Project, label, assignee, branch, PR, CI, candidate, Canary, Production, and completion states remain synchronized and auditable.</li>
+      <li>The CI job is consistently named <code>Quality / verify</code> and runs the repository skill check plus Strata’s complete application gates.</li>
+      <li>Canary is built once from an exact clean committed archive for <code>linux/amd64</code>, pinned by Zot digest through Gitea/Argo CD, and verified before PM review.</li>
+      <li>Production reuses the exact approved Canary digest, preserves the NFS-backed SQLite database and backup system, and rolls back non-destructively on deployment failure.</li>
+      <li>No user-owned checkout changes, runtime SQLite data, secrets, unrelated Project cards, or unrelated homelab changes are overwritten or committed.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Governed GitHub structure</h2>
+    <table>
+      <thead><tr><th>Concern</th><th>Strata contract</th></tr></thead>
+      <tbody>
+        <tr><td>Project</td><td>Private, Zuriel-Labs organization-owned, open Project titled <code>Strata</code>; project number and IDs are discovered live and never copied from Versa.</td></tr>
+        <tr><td>Views</td><td><code>Backlog</code> board and <code>Kanban</code> board, matching the live Versa layout.</td></tr>
+        <tr><td>Status</td><td><code>Backlog</code>, <code>On Hold</code>, <code>In Progress</code>, <code>In Review</code>, <code>Done</code>.</td></tr>
+        <tr><td>Active slot</td><td>Exactly one Issue maximum across <code>In Progress</code> and <code>In Review</code>.</td></tr>
+        <tr><td>Priority</td><td><code>P0</code>, <code>P1</code>, <code>P2</code>, <code>P3</code>.</td></tr>
+        <tr><td>Impact</td><td><code>High</code>, <code>Medium</code>, <code>Low</code>.</td></tr>
+        <tr><td>Effort</td><td><code>XS</code>, <code>S</code>, <code>M</code>, <code>L</code>, <code>XL</code>.</td></tr>
+        <tr><td>New Issue labels</td><td>Exactly one of <code>type:bug</code>, <code>type:feature</code>, <code>type:maintenance</code>, or <code>type:security</code>; at least one of <code>area:api</code>, <code>area:identity</code>, <code>area:data</code>, <code>area:deployment</code>, <code>area:documentation</code>, <code>area:notifications</code>, <code>area:ui</code>, or <code>area:workflow</code>.</td></tr>
+        <tr><td>Legacy labels</td><td>Preserve existing historical labels and timestamps. Mark the old <code>agent:*</code>/<code>claimed_at:*</code> mechanism as legacy; do not mass-delete historical metadata during this bootstrap.</td></tr>
+        <tr><td>Assignment</td><td>Backlog Issues are open and unassigned. Active Issues are assigned only to <code>brimdor</code>. Done Issues are closed.</td></tr>
+        <tr><td>Branches and PRs</td><td><code>issue/&lt;number&gt;-&lt;slug&gt;</code>; PR targets <code>main</code>, contains <code>Refs #N</code>, and never uses an auto-close keyword before verified Production completion.</td></tr>
+      </tbody>
+    </table>
+    <p class="callout">Live baseline: Strata currently has no open Issues or PRs. Seven old Strata cards remain incorrectly marked Backlog in the shared Broville Roadmap even though their Issues are closed; newer closed Issues are absent from that Project. The migration must correct this without changing unrelated Roadmap cards.</p>
+  </section>
+
+  <section>
+    <h2>Repository structure</h2>
+    <pre><code>AGENTS.md
+CLAUDE.md
+GEMINI.md
+.agents/
+  strata-pipeline-policy.html
+  skills/
+    strata-create-issue/
+    strata-audit-issues/
+    strata-work-issue/
+    strata-review-issue/
+    strata-release-canary/
+    strata-close-issue/
+    strata-release-production/
+    strata-pipeline-health/
+    strata-maintain-skills/
+    awesome-design/
+    design-taste-frontend/
+    image-to-code/
+    playwright-cli/
+    web-design-guidelines/
+.claude/skills/                 regular-file adapters only
+.github/workflows/test.yml      Quality / verify
+.github/ISSUE_TEMPLATE/         retained and aligned
+specs/development-pipeline-bootstrap/
+  spec.html</code></pre>
+    <p>The five shared frontend skills are copied at their reviewed Versa versions with their provenance and licenses. The nine workflow skills are renamed and rewritten for Strata; product names, repository owner, project identity, build topology, runtime probes, storage, and release checks must not be search-and-replace accidents.</p>
+  </section>
+
+  <section>
+    <h2>Workflow contract</h2>
+    <ol>
+      <li><strong>Create:</strong> research duplicates, show the complete HTML Issue and metadata, receive exact-draft approval, create it in Backlog, populate governed fields, and read everything back.</li>
+      <li><strong>Select:</strong> PM selects work; agent verifies the active slot is empty, moves the Issue to In Progress, assigns only <code>brimdor</code>, and reads back the transition.</li>
+      <li><strong>Implement:</strong> use an isolated worktree from current <code>origin/main</code>, Red → Green → Refactor, focused commits, full local gates, and a PR with <code>Refs #N</code>.</li>
+      <li><strong>Agent review:</strong> independently inspect correctness, security, RBAC, audit, validation, SQLite compatibility, UX/accessibility, responsive behavior, and operations; run hands-on local browser tests; remediate all findings.</li>
+      <li><strong>Canary:</strong> require <code>Quality / verify</code> for the exact PR head; build once from an exact archive; push to Zot; update only <code>apps/strata-canary/values.yaml</code>; verify exact digest and all-green; then move to In Review.</li>
+      <li><strong>PM review:</strong> provide numbered, change-specific Canary steps and the exact approval phrase in its own copyable code block. Findings move the Issue back to In Progress and invalidate the candidate.</li>
+      <li><strong>Close:</strong> after exact approval, squash-merge; prove the merged tree equals the approved PR tree; promote the approved digest without rebuild; verify Production and storage; clean only unreferenced Strata image manifests; close the Issue and move it to Done.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Strata-specific release alignment</h2>
+    <table>
+      <thead><tr><th>Versa reference</th><th>Required Strata adaptation</th></tr></thead>
+      <tbody>
+        <tr><td>Next.js web + worker + migration init container</td><td>Vite/Express single <code>main</code> container; no worker or migration-container assumptions.</td></tr>
+        <tr><td><code>/healthz</code> and <code>/readyz</code></td><td>Probe and verify Strata’s <code>/api/health</code> on port <code>8787</code>.</td></tr>
+        <tr><td>PostgreSQL in both environments</td><td>Canary uses isolated <code>emptyDir</code> SQLite; Production uses the existing <code>strata-data</code> PVC backed by NFS and the existing backup CronJob/PVC.</td></tr>
+        <tr><td>Three rendered image references</td><td>Require exactly the rendered Strata image references produced by the current charts; determine the count from Helm output and lock it in regression tests.</td></tr>
+        <tr><td>Migration success</td><td>Require startup/schema compatibility, <code>PRAGMA integrity_check</code> for Production, expected database location/ownership, and a fresh successful backup before and after promotion.</td></tr>
+        <tr><td>Cloudflare Access redirect</td><td>Verify Strata’s actual external behavior and TLS without weakening authentication or exposing session identifiers.</td></tr>
+        <tr><td>Versa registry cleanup</td><td>Resolve active Strata digests in both <code>apps/strata-canary</code> and <code>apps/strata</code>; delete only unreferenced Strata manifests and confirm retained Production digest pullability.</td></tr>
+      </tbody>
+    </table>
+    <p class="callout good"><strong>Candidate identity:</strong> Issue + PR URL + full PR head SHA + Git tree + immutable Zot digest + Canary homelab commit. Any source, dependency, image, schema, rendered configuration, rebase, merge resolution, or included documentation change invalidates approval.</p>
+  </section>
+
+  <section>
+    <h2>Commands and quality gates</h2>
+    <table>
+      <thead><tr><th>Purpose</th><th>Command</th></tr></thead>
+      <tbody>
+        <tr><td>Development</td><td><code>npm run dev</code></td></tr>
+        <tr><td>Typecheck</td><td><code>npm run typecheck</code></td></tr>
+        <tr><td>Lint</td><td><code>npm run lint</code></td></tr>
+        <tr><td>Unit/integration</td><td><code>npm run test</code></td></tr>
+        <tr><td>Browser E2E</td><td><code>npm run test:e2e</code></td></tr>
+        <tr><td>Application build</td><td><code>npm run build</code></td></tr>
+        <tr><td>Repository skills</td><td><code>npm run skills:check</code></td></tr>
+        <tr><td>Full source gate</td><td><code>npm run check</code> → skills check + existing <code>npm run test:ci</code></td></tr>
+        <tr><td>Read-only pipeline audit</td><td><code>npm run pipeline:health</code></td></tr>
+        <tr><td>Whitespace safety</td><td><code>git diff --check</code></td></tr>
+      </tbody>
+    </table>
+    <p>CI will retain Playwright browser installation and Strata’s full E2E gate, align its Node runtime with the repository Dockerfile, and expose one stable <code>Quality / verify</code> check. Pipeline health remains a credentialed, read-only operator command rather than a pull-request CI step.</p>
+  </section>
+
+  <section>
+    <h2>Code and skill style</h2>
+    <pre><code>const parsed = requestSchema.safeParse(req.body);
+if (!parsed.success) {
+  return res.status(400).json({ error: "Invalid request" });
+}
+
+// Authorization remains server-owned.
+assertAllowed(actor, "card:update", card);</code></pre>
+    <ul>
+      <li>Strict TypeScript, ESM, type-only imports, intentional early returns, no unproven <code>any</code>, casts, or non-null assertions.</li>
+      <li>Zod validation at every external boundary; RBAC in <code>server/src/rbac/policies.ts</code>; audit coverage for state-changing and security-sensitive paths.</li>
+      <li>Existing shadcn/Radix and Tailwind patterns before new primitives or dependencies; accessible semantics, keyboard operation, focus, errors, loading, empty, and responsive states.</li>
+      <li>Skill descriptions remain discriminating. Shared policy lives once in the dark-mode HTML policy; skill entrypoints contain only workflow-specific decisions and links.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Testing strategy</h2>
+    <ul>
+      <li><strong>Pipeline unit tests:</strong> temporary fixture repositories exercise alignment, adapter, candidate, and Project-audit scripts without mutating GitHub.</li>
+      <li><strong>Negative cases:</strong> two active Issues, missing metadata, stale Project title, auto-close PR text, wrong check name, wrong digest, wrong chart target, dirty source, mismatched tree, multiple/missing image pins, and unsafe Production rebuild all fail closed.</li>
+      <li><strong>Skill validation:</strong> run the current bundled skill validator on all nine adapted workflow packages and five shared packages; run alignment and realistic routing checks.</li>
+      <li><strong>Application regression:</strong> <code>npm run check</code>, including typecheck, lint, Vitest, build, and Playwright E2E.</li>
+      <li><strong>GitHub readback:</strong> Project identity, field options, views, Issue/card metadata, one-active count, repository merge settings, PR linkage, and CI result.</li>
+      <li><strong>Canary runtime:</strong> exact digest, Argo revision/sync/health, pod readiness/restarts, <code>/api/health</code>, logs/events, external TLS/route, and whole-cluster health.</li>
+      <li><strong>Production runtime:</strong> all Canary-grade checks plus pre/post SQLite integrity, data counts/sanity, PVC identity, backup freshness/success, and rollback target.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Boundaries</h2>
+    <h3>Always</h3>
+    <ul>
+      <li>Read live Issue, Project, PR, CI, Git, registry, homelab, and runtime state immediately before dependent action.</li>
+      <li>Use isolated worktrees and exact committed archives; preserve unknown user-owned changes.</li>
+      <li>Perform and read back agent-owned metadata transitions; provide numbered PM testing steps.</li>
+      <li>Keep durable deployment changes in homelab Gitea <code>master</code> and let Argo CD reconcile.</li>
+    </ul>
+    <h3>Ask first</h3>
+    <ul>
+      <li>Create a GitHub Issue from a proposed draft; change a candidate after approval; add dependencies; perform destructive schema/data recovery; change Discord approval authority; or expand beyond Strata.</li>
+    </ul>
+    <h3>Never</h3>
+    <ul>
+      <li>Deploy Production without the exact current-candidate approval; rebuild for Production; close on merge alone; bypass auth/RBAC/audit/CI; expose secrets; use a Kubernetes node as a build host; delete a referenced image; or overwrite runtime/user-owned data.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Known gaps found during research</h2>
+    <ol>
+      <li><strong>Versa reference drift:</strong> the live Project is titled <code>Versa</code>, while Versa’s checked-in health script expects <code>Versa Development</code>; <code>npm run pipeline:health</code> currently fails. Strata will use one discovered/canonical title and test this condition.</li>
+      <li><strong>Intentionally unprotected Strata main:</strong> Strata currently permits squash, merge commits, and rebase merges; automatic branch deletion is off. Per PM direction, the bootstrap will make merging squash-only and enable automatic branch deletion, but will not create branch protection or a ruleset.</li>
+      <li><strong>Project drift:</strong> the shared Roadmap has different Status/Priority names, no Impact field, and stale closed Strata cards in Backlog.</li>
+      <li><strong>Repository drift:</strong> the primary local checkout is one commit ahead, nineteen commits behind, and has a user-owned <code>AGENTS.md</code> edit. Implementation must remain in the isolated clean worktree and reconcile the useful local policy without touching that checkout.</li>
+      <li><strong>CI mismatch:</strong> current Strata CI is named <code>CI / test</code>, runs Node 20/actions v4, and does not validate repository skills; the Dockerfile uses Node 22.</li>
+      <li><strong>Missing portability layer:</strong> Strata has no canonical repo-local skills, Claude adapters, Gemini import, shared policy, alignment audit, candidate check, or pipeline-health command.</li>
+      <li><strong>Release verifier mismatch:</strong> Versa’s verifier assumes one pod with migrate/web/worker; Strata needs one main container plus SQLite/PVC/backup checks.</li>
+      <li><strong>External feedback access:</strong> Zuriel-Labs currently has no spare paid seat, and GitHub provides no Issues-only permission for a private source repository. <code>doreliz</code> will not be added during this bootstrap; a separate feedback channel is deferred.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Non-goals</h2>
+    <ul>
+      <li>No product feature, API, schema, UI, authentication, RBAC, or runtime-data change.</li>
+      <li>No Production deployment or merge before exact candidate approval.</li>
+      <li>No mass deletion of legacy labels or historical Issue metadata.</li>
+      <li>No modification of unrelated Broville Roadmap cards or homelab applications.</li>
+      <li>No branch protection or repository ruleset.</li>
+      <li>No paid seat or repository access for <code>doreliz</code>.</li>
+      <li>No attempt to imitate Versa’s Next.js/PostgreSQL runtime topology.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

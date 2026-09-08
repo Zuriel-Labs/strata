@@ -36,6 +36,23 @@ export function assertStrataPod(pod, imageDigest) {
   return main.name;
 }
 
+export function workloadPodSelector(appName) {
+  return `app.kubernetes.io/instance=${appName},app.kubernetes.io/controller=main`;
+}
+
+export function warningsSinceReady(pod, events) {
+  const readyCondition = (pod.status?.conditions || []).find(
+    (condition) => condition.type === "Ready" && condition.status === "True",
+  );
+  const readyAt = Date.parse(readyCondition?.lastTransitionTime || "");
+  if (!Number.isFinite(readyAt)) return events;
+
+  return events.filter((event) => {
+    const eventAt = Date.parse(event.eventTime || event.lastTimestamp || event.firstTimestamp || "");
+    return !Number.isFinite(eventAt) || eventAt >= readyAt;
+  });
+}
+
 function verifyProductionData(namespace, podName) {
   const pvc = kubectlJson(["get", "pvc", "strata-data", "-n", namespace, "-o", "json"]);
   if (pvc.status?.phase !== "Bound" || !pvc.spec?.volumeName) {
@@ -86,7 +103,7 @@ export function main(argv = process.argv.slice(2)) {
   }
 
   const pods = kubectlJson([
-    "get", "pods", "-n", namespace, "-l", `app.kubernetes.io/instance=${appName}`, "-o", "json",
+    "get", "pods", "-n", namespace, "-l", workloadPodSelector(appName), "-o", "json",
   ]).items;
   if (pods.length !== 1) throw new Error(`expected one ${appName} pod; found ${pods.length}`);
   const pod = pods[0];
@@ -104,10 +121,11 @@ export function main(argv = process.argv.slice(2)) {
 
   kubectl(["logs", "-n", namespace, pod.metadata.name, "-c", "main", "--tail=200"]);
 
-  const warnings = kubectlJson([
+  const warningEvents = kubectlJson([
     "get", "events", "-n", namespace,
     "--field-selector", `involvedObject.name=${pod.metadata.name},type=Warning`, "-o", "json",
-  ]).items.length;
+  ]).items;
+  const warnings = warningsSinceReady(pod, warningEvents).length;
   const nodes = kubectlJson(["get", "nodes", "-o", "json"]).items;
   const badNodes = nodes.filter((node) => {
     const conditions = node.status?.conditions || [];

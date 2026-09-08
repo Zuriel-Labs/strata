@@ -1,7 +1,7 @@
 name: "Enhancement"
 description: Improve an existing feature or part of the application.
 title: "[Enhancement] "
-labels: ["enhancement"]
+labels: ["enhancement", "type:feature"]
 body:
   - type: markdown
     attributes:

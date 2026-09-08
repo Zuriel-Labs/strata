@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Issue 36 Implementation Plan</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090c12; --panel:#121927; --text:#eef2ff; --muted:#b3bdd3; --accent:#8ab4ff; --line:#2d3a55; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,sans-serif; }
+    main { width:min(980px,calc(100% - 28px)); margin:auto; padding:48px 0 80px; }
+    section,header { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:28px; margin-bottom:20px; }
+    h1,h2 { line-height:1.15; } h1 { margin-top:0; } h2 { color:var(--accent); } p,li,td { color:var(--muted); }
+    code { color:#dce7ff; background:#1a2436; padding:.12rem .35rem; border-radius:5px; }
+    table { width:100%; border-collapse:collapse; } th,td { border:1px solid var(--line); padding:10px; text-align:left; vertical-align:top; }
+    th { color:var(--text); background:#182238; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Issue #36 Implementation Plan</h1>
+    <p>Deliver the approved Strata pipeline bootstrap from the clean <code>origin/main</code> baseline through repository validation, pull request, immutable Canary deployment, and PM review. Production remains gated.</p>
+  </header>
+  <section>
+    <h2>Architecture decisions</h2>
+    <ul>
+      <li><code>AGENTS.md</code> is canonical; Claude and Gemini files contain imports only.</li>
+      <li>Project #2 is the live metadata authority. The health script discovers and validates exact fields instead of copying opaque IDs.</li>
+      <li>Workflow skills are Strata-specific; shared design skills retain upstream provenance.</li>
+      <li>Release verification models one Express container, <code>/api/health</code>, ephemeral Canary SQLite, persistent Production SQLite, and backup state.</li>
+      <li>No branch protection or ruleset. Squash-only merge settings and CI evidence remain required by policy.</li>
+      <li>Human-facing artifacts use self-contained Dark Mode HTML, so this plan intentionally uses <code>tasks/plan.html</code> instead of the generic Markdown convention.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>Dependency order</h2>
+    <table>
+      <thead><tr><th>Phase</th><th>Deliverable</th><th>Depends on</th><th>Checkpoint</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Canonical policy, context imports, specification and plan</td><td>Transferred repository and live Project</td><td>HTML and policy consistency validation</td></tr>
+        <tr><td>2</td><td>Shared and Strata workflow skill registries</td><td>Phase 1 terminology and boundaries</td><td>Skill package validation</td></tr>
+        <tr><td>3</td><td>Alignment, Project, candidate and live-runtime scripts</td><td>Phase 2 paths and contracts</td><td>Negative fixtures fail; positive fixtures pass</td></tr>
+        <tr><td>4</td><td>Package commands, CI and issue-form alignment</td><td>Phase 3 scripts</td><td>Focused script checks and workflow inspection</td></tr>
+        <tr><td>5</td><td>Full repository verification, commit, push and PR</td><td>Phases 1–4</td><td><code>npm run check</code>, pipeline health, CI</td></tr>
+        <tr><td>6</td><td>Exact immutable Canary candidate and PM handoff</td><td>Phase 5 exact PR head</td><td>Zot digest, GitOps revision, Argo/runtime/all-green</td></tr>
+      </tbody>
+    </table>
+  </section>
+  <section>
+    <h2>Risks and mitigations</h2>
+    <table>
+      <thead><tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Copying stale Versa identity</td><td>High</td><td>Use Project #2 live title/fields and fixture-test identity drift.</td></tr>
+        <tr><td>Touching the divergent main checkout</td><td>High</td><td>All work remains in the isolated Issue #36 worktree.</td></tr>
+        <tr><td>Versa runtime assumptions in Strata</td><td>High</td><td>Render Strata charts and test one-container, port, probe and storage expectations.</td></tr>
+        <tr><td>Data loss during Production</td><td>High</td><td>Production skill requires backup freshness, PVC identity, SQLite integrity and non-destructive GitOps rollback.</td></tr>
+        <tr><td>No server-enforced PR gate</td><td>Medium</td><td>Document the deliberate exception; validate exact CI/candidate state before every merge.</td></tr>
+        <tr><td>Large shared-skill import</td><td>Low</td><td>Copy reviewed packages mechanically with provenance, exclude metadata junk, validate exact registry.</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

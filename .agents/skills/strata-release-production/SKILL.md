@@ -1,0 +1,19 @@
+---
+name: strata-release-production
+description: "Promote an explicitly PM-approved Strata Canary digest to homelab Production after merge, preserving SQLite data and backups with agent-owned verification and safe GitOps rollback."
+---
+
+# Release Strata Production
+
+Read `AGENTS.md`, `.agents/strata-pipeline-policy.html`, both repositories' live instructions, the approval, merged PR, and exact candidate evidence. Run only from `strata-close-issue` after `Approved to merge and deploy production` for the current candidate.
+
+1. Confirm the merged `main` tree equals the approved PR head tree and GitHub `Quality / verify` succeeds for the merge result. Reuse the exact Canary Zot digest; never rebuild or replace it.
+2. Confirm current Production state, previous image/configuration, `strata-data` PVC identity, latest successful backup and backup target, SQLite integrity, schema compatibility, and the precise non-destructive GitOps rollback commit. Data restoration or destructive schema work is not pre-authorized.
+3. In homelab `apps/strata/values.yaml`, pin only the `main` container to the approved Canary tag/digest. Preserve the Production hostname, `strata_session` cookie, `SEED_DATA=false`, database path, `strata-data` PVC, backup CronJob/PVC, namespace, TLS, network policy, and resources.
+4. Confirm the established controller, service, ingress, persistence, backup, and network-policy resources remain enabled and render with their existing identities.
+5. Run Helm lint/render, targeted pre-commit, `git diff --check`, and `node .agents/skills/strata-release-canary/scripts/check-candidate.mjs production <approved-source-sha> <digest>`.
+6. Commit only intended Production GitOps files, push Gitea `master`, refresh/wait for Argo CD `strata`, and run `node .agents/skills/strata-release-canary/scripts/verify-live.mjs production <digest> <homelab-sha>`.
+7. Inspect startup/schema and `main` container logs; `/api/health`; events; restart count; exact digest; Argo CD sync/health; Production PVC identity; SQLite integrity and expected sanity counts; post-promotion backup success; and every homelab all-green layer. Do not require an authenticated browser or landing-page login check in Production; the exact healthy container plus these data, runtime, and cluster gates are sufficient because application behavior was verified locally before release.
+8. Only after Production and the whole cluster are verified green, resolve every Strata digest referenced by active homelab GitOps state, including Canary and Production. Purge obsolete unreferenced Strata image manifests from Zot, then confirm the retained Production digest is still pullable. Never delete a referenced digest, and do not declare the release complete if cleanup fails or the retained digest is unavailable. Zot may reclaim orphaned blobs through its normal delayed background garbage collection; do not wait for that pass or repeat the Production and whole-cluster green checks solely because manifest cleanup occurred.
+9. On deployment failure, revert the Production GitOps commit to the recorded previous state and verify recovery. If recovery requires data restoration or destructive schema work, stop and request PM authorization with exact evidence. Do not run image cleanup before a failed deployment has recovered.
+10. Report approved Canary identity, merge commit/tree, Production GitOps commit, exact digest, PVC/SQLite/backup evidence, purged manifests, retained references, pre-cleanup all-green evidence, and any rollback action. Include numbered, change-specific `PM testing steps` for Production smoke and regression coverage with exact actions and expected results; agent-owned verification never replaces this PM-facing handoff.

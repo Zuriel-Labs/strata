@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   assertRenderedImage,
+  assertSourceCommit,
   expectedImageReference,
 } from "../../.agents/skills/strata-release-canary/scripts/check-candidate.mjs";
 
@@ -13,6 +14,14 @@ test("builds the Strata registry reference from the exact source and digest", ()
   assert.equal(
     expectedImageReference(sourceSha, digest),
     `10.0.20.11:32309/strata:${"a".repeat(7)}@${digest}`,
+  );
+});
+
+test("requires the supplied full source SHA to resolve to that exact commit", () => {
+  assert.equal(assertSourceCommit(sourceSha, sourceSha), sourceSha);
+  assert.throws(
+    () => assertSourceCommit(sourceSha, `a${sourceSha.slice(1, -1)}b`),
+    /does not resolve to the exact local commit/,
   );
 });
 

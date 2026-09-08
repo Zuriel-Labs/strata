@@ -14,6 +14,13 @@ export function expectedImageReference(sourceSha, imageDigest) {
   return `10.0.20.11:32309/strata:${sourceSha.slice(0, 7)}@${imageDigest}`;
 }
 
+export function assertSourceCommit(sourceSha, resolvedSourceSha) {
+  if (resolvedSourceSha !== sourceSha) {
+    throw new Error(`source SHA ${sourceSha} does not resolve to the exact local commit ${resolvedSourceSha}`);
+  }
+  return resolvedSourceSha;
+}
+
 export function assertRenderedImage(rendered, expected) {
   const imageLines = rendered.split("\n").filter((line) => {
     const normalized = line.trim().replaceAll('"', "").replace(/^-\s*/, "");
@@ -37,6 +44,8 @@ export function main(argv = process.argv) {
   let temporaryChartRoot;
   try {
     validateInputs(track, sourceSha, imageDigest, argv.length);
+    const resolvedSourceSha = run("git", ["-C", strataRepo, "rev-parse", "--verify", `${sourceSha}^{commit}`]).trim();
+    assertSourceCommit(sourceSha, resolvedSourceSha);
     const homelabRepo = path.resolve(explicitHomelabRepo || path.join(strataRepo, "..", "homelab"));
     const chartName = track === "canary" ? "strata-canary" : "strata";
     const sourceChartDir = path.join(homelabRepo, "apps", chartName);

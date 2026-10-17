@@ -145,4 +145,58 @@ describe('board invitation lifecycle', () => {
     expect(db.prepare("SELECT id FROM audit_events WHERE action = 'board.invitation_accept' AND outcome = 'success'").all()).toHaveLength(1);
   });
 
+  async function issueForAlex() {
+    const app = createApp(db);
+    const issuer = request.agent(app);
+    const target = request.agent(app);
+    expect((await issuer.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' })).status).toBe(200);
+    expect((await target.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' })).status).toBe(200);
+    const created = await issuer.post('/api/admin/boards/b1/invitations').send({ targetUserId: 'u2', role: 'observer', expiresAt: new Date(Date.now() + 86400000).toISOString() });
+    expect(created.status).toBe(201);
+    return { app, issuer, target, token: String(created.body.token), invitationId: String(created.body.invitation.id) };
+  }
+
+  it.each(['expired', 'revoked', 'wrong recipient', 'issuer lost and regained authority', 'unknown'])('rejects %s with the same unavailable response and no membership', async scenario => {
+    const context = await issueForAlex();
+    if (scenario === 'expired') db.prepare('UPDATE board_invitations SET expires_at = ?').run(new Date(Date.now() - 1000).toISOString());
+    if (scenario === 'revoked') await context.issuer.delete(`/api/admin/boards/b1/invitations/${context.invitationId}`);
+    if (scenario === 'issuer lost and regained authority') {
+      db.prepare("DELETE FROM board_admin_grants WHERE user_id = 'u4'").run();
+      replaceAssignments(db, 'u1', 'u4', { workspaceAdminWorkspaceIds: [], boardAdminBoardIds: ['b1'], boardMemberships: [] });
+    }
+    const caller = scenario === 'wrong recipient' ? context.issuer : context.target;
+    const result = await caller.post('/api/auth/board-invitations/accept').send({ token: scenario === 'unknown' ? `bi_${'0'.repeat(64)}` : context.token });
+    expect(result.status).toBe(404);
+    expect(result.body).toEqual({ code: 'INVITATION_UNAVAILABLE', message: 'Invitation unavailable.' });
+    expect(db.prepare("SELECT id FROM board_memberships WHERE user_id = 'u2' AND board_id = 'b1'").all()).toEqual([]);
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'board.invitation_accept' AND outcome = 'success'").all()).toEqual([]);
+  });
+
+  it('rolls back membership, acceptance and all session changes if acceptance audit fails', async () => {
+    const { target, token } = await issueForAlex();
+    const sessions = db.prepare("SELECT * FROM sessions WHERE user_id = 'u2' ORDER BY id").all();
+    db.exec("CREATE TRIGGER fail_accept_audit BEFORE INSERT ON audit_events WHEN NEW.action = 'board.invitation_accept' AND NEW.outcome = 'success' BEGIN SELECT RAISE(ABORT, 'Synthetic acceptance failure'); END;");
+    const result = await target.post('/api/auth/board-invitations/accept').send({ token });
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ message: 'Unable to accept invitation.' });
+    expect(result.headers['set-cookie']).toBeUndefined();
+    expect(db.prepare("SELECT id FROM board_memberships WHERE user_id = 'u2' AND board_id = 'b1'").all()).toEqual([]);
+    expect(db.prepare('SELECT accepted_at FROM board_invitations').get()).toEqual({ accepted_at: null });
+    expect(db.prepare("SELECT id FROM sessions WHERE user_id = 'u2' ORDER BY id").all()).toEqual(sessions.map(row => ({ id: (row as { id: string }).id })));
+    expect((await target.get('/api/auth/session')).status).toBe(200);
+  });
+
+  it('never changes an existing membership role or recreates removed acceptance', async () => {
+    const { target, issuer, token } = await issueForAlex();
+    db.prepare("INSERT INTO board_memberships (id, user_id, board_id, role, created_at) VALUES ('existing', 'u2', 'b1', 'member', ?)").run(new Date().toISOString());
+    expect((await target.post('/api/auth/board-invitations/accept').send({ token })).status).toBe(409);
+    expect(db.prepare("SELECT role FROM board_memberships WHERE id = 'existing'").get()).toEqual({ role: 'member' });
+    db.prepare("DELETE FROM board_memberships WHERE id = 'existing'").run();
+    expect((await target.post('/api/auth/board-invitations/accept').send({ token })).status).toBe(200);
+    expect((await issuer.delete('/api/admin/boards/b1/members/u2')).status).toBe(200);
+    await target.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' });
+    expect((await target.post('/api/auth/board-invitations/accept').send({ token })).status).toBe(404);
+    expect(db.prepare("SELECT id FROM board_memberships WHERE user_id = 'u2' AND board_id = 'b1'").all()).toEqual([]);
+  });
+
 });

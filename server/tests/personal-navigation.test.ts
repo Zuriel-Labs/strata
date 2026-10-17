@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type DatabaseHandle } from '../src/db/database';
+import request from 'supertest';
+import { createApp } from '../src/app';
 import { createSchema } from '../src/db/schema';
 
 describe('personal navigation', () => {
@@ -21,4 +23,15 @@ describe('personal navigation', () => {
     expect(tables.map(table => db.prepare(`SELECT * FROM ${table} ORDER BY id`).all())).toEqual(before);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
+  it('lets a member set only their personal star without changing shared stars', async () => {
+    const agent = request.agent(createApp(db));
+    await agent.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
+    const shared = db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1');
+    const result = await agent.put('/api/auth/navigation/boards/b1/star').send({ starred: true });
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ boardId: 'b1', starred: true });
+    expect(db.prepare('SELECT user_id, board_id, starred FROM user_board_navigation').all()).toEqual([{ user_id: 'u3', board_id: 'b1', starred: 1 }]);
+    expect(db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1')).toEqual(shared);
+  });
+
 });

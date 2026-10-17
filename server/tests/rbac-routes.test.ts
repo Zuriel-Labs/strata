@@ -78,7 +78,7 @@ describe('board creation RBAC', () => {
   });
 });
 
-// ─── Board star toggle (requires canAccessBoard) ─────────────────────────
+// ─── Board star toggle (requires canManageUserBoard) ─────────────────────
 
 describe('board star toggle RBAC', () => {
   afterEach(() => { closeDatabase(); });
@@ -92,21 +92,54 @@ describe('board star toggle RBAC', () => {
     expect(res.status).toBe(200);
   });
 
-  it('allows board member to star a board', async () => {
+  it('denies board member shared-star writes without changing shared state', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
     const agent = await login(app, 'priya', 'Member12345!');
+    const before = db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1');
     const res = await agent.patch('/api/boards/b1/star').send();
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
+    expect(db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1')).toEqual(before);
+    expect(db.prepare("SELECT outcome FROM audit_events WHERE action = 'board.star_update'").all()).toEqual([{ outcome: 'failure' }]);
   });
 
-  it('allows observer to star a board', async () => {
+  it('denies observer shared-star writes without changing shared state', async () => {
     const db = await createDatabase(':memory:');
     const app = createApp(db);
     const agent = await login(app, 'marcus', 'BoardAdmin123!');
     // marcus is observer on b2
+    const before = db.prepare('SELECT starred FROM boards WHERE id = ?').get('b2');
     const res = await agent.patch('/api/boards/b2/star').send();
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
+    expect(db.prepare('SELECT starred FROM boards WHERE id = ?').get('b2')).toEqual(before);
+    expect(db.prepare("SELECT outcome FROM audit_events WHERE action = 'board.star_update'").all()).toEqual([{ outcome: 'failure' }]);
+  });
+
+  it.each([
+    { username: 'alex', password: 'WorkspaceAdmin123!' },
+    { username: 'marcus', password: 'BoardAdmin123!' },
+  ])('allows scoped administrator $username and audits the shared change', async actor => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await login(app, actor.username, actor.password);
+    const before = db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1') as { starred: number };
+    const result = await agent.patch('/api/boards/b1/star').send();
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ starred: !before.starred });
+    expect(db.prepare("SELECT outcome FROM audit_events WHERE action = 'board.star_update'").all()).toEqual([{ outcome: 'success' }]);
+  });
+
+  it('rolls back the shared toggle if its audit cannot be written', async () => {
+    const db = await createDatabase(':memory:');
+    const app = createApp(db);
+    const agent = await login(app, 'marcus', 'BoardAdmin123!');
+    const before = db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1');
+    db.exec(`CREATE TRIGGER fail_star_audit BEFORE INSERT ON audit_events
+      WHEN NEW.action = 'board.star_update'
+      BEGIN SELECT RAISE(ABORT, 'Synthetic star audit failure'); END;`);
+    const result = await agent.patch('/api/boards/b1/star').send();
+    expect(result.status).toBe(500);
+    expect(db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1')).toEqual(before);
   });
 });
 

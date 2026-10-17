@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth-context';
 import { getContrastingTextColor } from '../lib/color';
 import { markNotificationReadApi, markAllNotificationsReadApi, updateBoardLabelsApi } from '../services/data';
 import { NavigationOverlay } from './NavigationOverlay';
+import { HomeNavigation } from './HomeNavigation';
 import { ProfileOverlay } from './ProfileOverlay';
 import { BoardLabelsDialog } from './BoardLabelsDialog';
 
@@ -56,12 +57,13 @@ export function Header() {
       <header className="shrink-0 border-b" style={{ borderColor: 'var(--border)', background: 'var(--header-bg)' }}>
         {/* Row 1: Workspace / Board centered */}
         <div className="h-10 flex items-center justify-center px-4">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0 max-w-full">
             {hasMultipleWorkspaces ? (
               <select
+                aria-label="Current workspace"
                 value={state.currentWorkspaceId || ''}
                 onChange={e => dispatch({ type: 'SET_CURRENT_WORKSPACE', payload: e.target.value })}
-                className="bg-transparent text-sm font-bold outline-none cursor-pointer truncate max-w-[200px]"
+                className="bg-transparent text-sm font-bold outline-none cursor-pointer truncate max-w-36 sm:max-w-[200px]"
                 style={{ color: 'var(--text-primary)' }}
               >
                 {state.workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
@@ -75,9 +77,10 @@ export function Header() {
                 <span className="text-sm shrink-0" style={{ color: 'var(--text-muted)' }}>—</span>
                 {wsBoards.length > 1 ? (
                   <select
+                    aria-label="Current board"
                     value={state.currentBoardId || ''}
                     onChange={e => dispatch({ type: 'SET_CURRENT_BOARD', payload: e.target.value })}
-                    className="bg-transparent text-sm font-semibold outline-none cursor-pointer truncate max-w-[200px]"
+                    className="bg-transparent text-sm font-semibold outline-none cursor-pointer truncate max-w-36 sm:max-w-[200px]"
                     style={{ color: 'var(--text-secondary)' }}
                   >
                     {wsBoards.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
@@ -91,19 +94,22 @@ export function Header() {
         </div>
 
         {/* Row 2: All actions */}
-        <div className="h-10 flex items-center justify-between px-4 border-t" style={{ borderColor: 'var(--border)' }}>
-          {/* Left: Hamburger */}
+        <div className="min-h-10 flex flex-wrap items-center justify-between gap-2 px-3 py-1 border-t" style={{ borderColor: 'var(--border)' }}>
+          {/* Home is available to every signed-in role. */}
+          <div className="flex items-center gap-1.5"><HomeNavigation />
           {canOpenNavigation ? (
             <button aria-label="Open navigation" onClick={() => setNavOpen(true)} className="w-8 h-8 rounded-md flex items-center justify-center hover:opacity-70 transition-opacity shrink-0" style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
             </button>
-          ) : <div className="w-8 h-8 shrink-0" aria-hidden="true" />}
+          ) : null}
+          </div>
 
           {/* Center/Right: View, Filter, Search, Notifications, Admin, Profile */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {/* View switcher */}
             {board && (
               <select
+                aria-label="Board view"
                 value={state.viewMode}
                 onChange={e => dispatch({ type: 'SET_VIEW_MODE', payload: e.target.value as 'board' | 'table' | 'calendar' })}
                 className="rounded-md px-2 h-8 text-[11px] font-medium capitalize cursor-pointer outline-none border"

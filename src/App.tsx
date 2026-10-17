@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import { AppProvider, useAppState } from './store';
+import { BoardHome } from './components/BoardHome';
+import { visitBoard } from './services/navigation';
+import { ApiError } from './services/api';
 import { Header } from './components/Header';
 import { BoardView, TableView, CalendarView } from './components/BoardView';
 import { CardModal } from './components/CardModal';
@@ -17,6 +20,19 @@ function AppInner() {
   const auth = useAuth();
   const board = state.boards.find(b => b.id === state.currentBoardId);
   const themePreference = auth.session?.user.themePreference ?? 'dark';
+  const [visitError, setVisitError] = useState<string | null>(null);
+  const boardId = board?.id;
+  const refresh = auth.refresh;
+  useEffect(() => {
+    if (!boardId) return;
+    let cancelled = false;
+    void visitBoard(boardId).then(() => { if (!cancelled) setVisitError(null); }).catch(async failure => {
+      if (cancelled) return;
+      setVisitError('Unable to update recent boards. Open Home to retry.');
+      if (failure instanceof ApiError && [401, 404].includes(failure.status)) await refresh();
+    });
+    return () => { cancelled = true; };
+  }, [boardId, refresh]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themePreference;
@@ -30,16 +46,11 @@ function AppInner() {
           <span>Connection interrupted. Content may be out of date.</span>
           <button className="underline shrink-0 focus-visible:outline focus-visible:outline-2" onClick={() => void auth.refresh()}>Retry connection</button>
         </div>}
+        {visitError && <p role="status" className="px-4 py-1 text-sm">{visitError}</p>}
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 flex flex-col overflow-hidden">
             {!board ? (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="text-5xl mb-4 opacity-30">📋</div>
-                  <h2 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Select a board</h2>
-                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Open the menu to pick a board and get started</p>
-                </div>
-              </div>
+              <div className="flex-1 overflow-y-auto"><BoardHome /></div>
             ) : state.viewMode === 'board' ? (
               <BoardView />
             ) : state.viewMode === 'table' ? (

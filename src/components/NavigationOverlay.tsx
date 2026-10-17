@@ -521,7 +521,7 @@ function BoardsContent({
 
       {starred.length > 0 && (
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>★ Starred</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>★ Shared stars</p>
           <div className="space-y-1">
             {starred.map(b => (
               <BoardRow

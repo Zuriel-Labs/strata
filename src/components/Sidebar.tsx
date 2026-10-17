@@ -107,7 +107,7 @@ export function Sidebar() {
       {starred.length > 0 && (
         <div className="px-3 pt-4 pb-1">
           <h3 className="text-[10px] font-bold uppercase tracking-widest mb-2 px-1" style={{ color: 'var(--text-muted)' }}>
-            ★ Starred
+            ★ Shared stars
           </h3>
           {starred.map(b => (
             <button

@@ -50,7 +50,7 @@ function AppInner() {
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 flex flex-col overflow-hidden">
             {!board ? (
-              <div className="flex-1 overflow-y-auto"><BoardHome /></div>
+              <div className="flex-1 overflow-y-auto"><BoardHome initialSection="all" /></div>
             ) : state.viewMode === 'board' ? (
               <BoardView />
             ) : state.viewMode === 'table' ? (

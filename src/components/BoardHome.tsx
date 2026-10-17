@@ -7,13 +7,13 @@ import { Button } from './ui/button';
 import { AcceptBoardInvitation } from './AcceptBoardInvitation';
 
 type HomeSection = 'recent' | 'starred' | 'all';
-export function BoardHome({ onOpen }: { onOpen?: () => void }) {
+export function BoardHome({ onOpen, initialSection = 'recent' }: { onOpen?: () => void; initialSection?: HomeSection }) {
   const state = useAppState();
   const dispatch = useDispatch();
   const { refresh } = useAuth();
-  const [section, setSection] = useState<HomeSection>('recent');
+  const [section, setSection] = useState<HomeSection>(initialSection);
   const [page, setPage] = useState<NavigationPage>({ items: [], nextCursor: null });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialSection !== 'all');
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -80,13 +80,13 @@ export function BoardHome({ onOpen }: { onOpen?: () => void }) {
       if (failure instanceof ApiError && [401, 404].includes(failure.status)) await refresh();
     } finally { setPending(null); }
   }
-  return <section className="w-full max-w-3xl mx-auto p-4 space-y-4 min-w-0" aria-label="Your boards">
-    <h2 className="text-xl font-semibold">Home</h2>
+  return <section className="personal-navigation w-full max-w-3xl mx-auto p-4 space-y-4 min-w-0" aria-label="Your boards">
+    {!onOpen && <h2 className="text-xl font-semibold">Home</h2>}
     <div className="flex flex-wrap gap-2" aria-label="Board sections">
       {([['recent', 'Recent'], ['starred', 'Your stars'], ['all', 'All boards']] as const).map(([key, title]) => <Button key={key} disabled={pending !== null} variant={section === key ? 'secondary' : 'outline'} aria-pressed={section === key} onClick={() => { if (key !== section) changeSection(key); }}>{title}</Button>)}
     </div>
     {section === 'all' && <label className="block text-sm">Workspace
-      <select className="block w-full mt-1 p-2 border rounded bg-background" value={state.currentWorkspaceId ?? ''} onChange={event => dispatch({ type: 'SET_CURRENT_WORKSPACE', payload: event.target.value })}>
+      <select aria-label="Workspace" className="block w-full mt-1 p-2 border rounded bg-background" value={state.currentWorkspaceId ?? ''} onChange={event => dispatch({ type: 'SET_CURRENT_WORKSPACE', payload: event.target.value })}>
         {!state.workspaces.length && <option value="">No workspaces available</option>}
         {state.workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
       </select>

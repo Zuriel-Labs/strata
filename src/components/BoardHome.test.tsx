@@ -5,6 +5,7 @@ import { AppProvider, initialState, useAppState } from '../store';
 import { HomeNavigation } from './HomeNavigation';
 import { BoardHome } from './BoardHome';
 import * as navigation from '../services/navigation';
+import { ApiError } from '../services/api';
 
 const refresh = vi.fn().mockResolvedValue(undefined);
 vi.mock('../lib/auth-context', () => ({ useAuth: () => ({ refresh }) }));
@@ -13,6 +14,28 @@ function Harness() { const state = useAppState(); return <><BoardHome /><output>
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(navigation.fetchNavigation).mockResolvedValue({ items: [], nextCursor: null }); vi.mocked(navigation.visitBoard).mockResolvedValue(undefined); });
 
 describe('Home navigation for every role', () => {
+  it('recovers from a transport failure without replacing an authenticated destination', async () => {
+    const user = userEvent.setup();
+    vi.mocked(navigation.fetchNavigation).mockRejectedValueOnce(new Error('Offline'));
+    render(<AppProvider initialAppState={initialState}><BoardHome /></AppProvider>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load your boards. Retry when connected.');
+    expect(refresh).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Retry boards' }));
+    expect(await screen.findByText('No recent boards yet.')).toBeInTheDocument();
+  });
+
+  it('does not select a stale destination after the server confirms access is gone', async () => {
+    const user = userEvent.setup();
+    const board = initialState.boards[0];
+    vi.mocked(navigation.visitBoard).mockRejectedValueOnce(new ApiError(404, 'Destination unavailable.'));
+    render(<AppProvider initialAppState={{ ...initialState, currentBoardId: null }}><Harness /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'All boards' }));
+    await user.click(screen.getByRole('button', { name: `Open ${board.title}` }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Destination unavailable.');
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(screen.getByRole('status')).toHaveTextContent('No board');
+  });
+
   it('distinguishes no history and lets a member open an accessible board without Management', async () => {
     render(<AppProvider initialAppState={{ ...initialState, currentBoardId: null }}><Harness /></AppProvider>);
     expect(await screen.findByText('No recent boards yet.')).toBeInTheDocument();
@@ -53,6 +76,7 @@ describe('Home navigation for every role', () => {
     const trigger = screen.getByRole('button', { name: 'Open Home' });
     await user.click(trigger);
     const dialog = await screen.findByRole('dialog', { name: 'Home' });
+    expect(screen.getAllByRole('heading', { name: 'Home' })).toHaveLength(1);
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
     await user.keyboard('{Escape}');
     await waitFor(() => expect(trigger).toHaveFocus());

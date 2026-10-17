@@ -22,7 +22,7 @@
     <section><h2>First use and account recovery</h2><ul>
       <li>On an empty, unseeded installation, first-run setup lets the operator choose the initial System Administrator username and password. There is no fixed first-run credential.</li>
       <li>Demo seed data is enabled only by <code>SEED_DATA=true</code>. Its <code>admin</code> account uses a temporary password and must change it at first sign-in. Demo credentials are not a Production setup procedure.</li>
-      <li>System Administrators can create managed accounts and issue activation or recovery credentials. Account activation is distinct from the proposed board invitation lifecycle.</li>
+      <li>System Administrators can create managed accounts and issue activation or recovery credentials. Account activation remains distinct from board invitations.</li>
       <li>Keep a generated recovery key securely: the server stores a hash. Anonymous recovery replaces the password and recovery key, revokes old sessions, and requires a new sign-in. The replacement key is returned once; a lost success response requires administrator recovery reissue.</li>
       <li>Password change replaces the current session cookie and invalidates the account's other sessions. A failed transaction changes no credentials. Session cookies remain HttpOnly and SameSite=Lax, with Secure in Production; the default session lifetime is 24 hours.</li>
     </ul><p class="status">Credential/session improvements describe the Issue #39 completion branch. They require the normal verified-candidate release before becoming deployed behavior.</p></section>
@@ -35,9 +35,17 @@
         <tr><th scope="row">Assistive technology</th><td>Semantic and keyboard tests do not establish manual screen-reader compatibility. Record manual checks separately.</td></tr>
       </tbody></table>
     </section>
-    <section><h2>Access and navigation</h2><p>Administrative grants and board membership remain separate. Workspace context does not grant access to sibling boards. Stored visibility alone grants no new public access. Shared board stars are administrative state; proposed personal stars and recents grant no board access.</p>
+    <section><h2>Access and navigation</h2><p>Administrative grants and board membership remain separate. Workspace context does not grant access to sibling boards. Stored visibility alone grants no new public access. Shared board stars are administrative state; personal stars and recents grant no board access.</p>
+      <p>Home is available to every signed-in role. Recent retains up to 50 board references per account. Your stars starts empty and remains separate from Shared stars. Both lists filter current access before server pagination. All boards follows the selected accessible workspace. Failed network requests offer retry; a confirmed expired session clears private content.</p>
       <p>Ctrl/Cmd+K opens card search outside editable fields. Escape closes search. Tab moves through search results; Enter opens one. Account dialogs support keyboard Back and Close with focus return.</p>
     </section>
+    <section><h2>Existing-account board invitations</h2><ul>
+      <li>System, Workspace and Board Administrators can invite an existing active account within their effective Board scope. Choose Member or read-only Observer and an expiry of one, three or seven days. No invitation grants administration or creates an account.</li>
+      <li>Administration → Board Members shows pending invitations and revocation. Creation returns a code once; copy it privately before dismissal. The server keeps only its hash. The recipient signs in to the bound account and pastes the code into Home → Join a board.</li>
+      <li>First acceptance grants one Board membership, replaces the recipient's current session and invalidates their other sessions. Retrying an accepted invitation preserves existing membership without upgrading its role.</li>
+      <li>Expiry, revocation, the wrong recipient or loss of issuer authority makes the code unavailable. Restoring issuer authority never revives it. Removing an accepted membership prevents the code from recreating access. Revoking a code alone does not remove existing membership; use Current members to remove access.</li>
+      <li>Accepted, revoked or expired invitation metadata is removed after 30 days by startup/hourly maintenance in bounded batches. Audit history remains. Public boards, read links and notification controls remain deferred by the approved Issue #39 decisions.</li>
+    </ul><p class="status">These navigation and invitation contracts describe the completion branch; deployment is established only by its exact-candidate release evidence.</p></section>
     <section><h2>Source evidence</h2><ul>
       <li><a href="../server/src/routes/auth-routes.ts">Auth routes</a>: username payloads, bootstrap, recovery and password-change transactions.</li>
       <li><a href="../server/src/auth/session.ts">Session cookie contract</a> and <a href="../server/src/db/repositories.ts">24-hour session persistence</a>.</li>

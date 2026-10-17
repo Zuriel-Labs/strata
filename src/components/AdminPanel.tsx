@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { AdminDirectoryResponse, AdminUserRecord } from '../types';
 import { useAuth } from '../lib/auth-context';
 import { AdminAssignmentPicker } from './AdminAssignmentPicker';
 import { BoardInvitations } from './BoardInvitations';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import {
   createManagedUser, deleteManagedUser, fetchAdminDirectory, fetchAdminResources, fetchAdminUser,
   fetchBoardMembers, fetchEligibleBoardUsers, generateRecoveryKeyForUser, removeBoardMember,
@@ -22,6 +23,7 @@ const formFor = (user: AdminUserRecord): ManagedUserInput => ({
 
 export function AdminPanel() {
   const auth=useAuth(); const permissions=auth.session?.permissions;
+  const opener = useRef<HTMLElement | null>(null);
   const canOpen=Boolean(permissions?.isSystemAdmin || permissions?.workspaceAdminGrants?.length || permissions?.boardAdminGrants?.length);
   const [tab,setTab]=useState<Tab>('people'); const [directory,setDirectory]=useState<AdminDirectoryResponse|null>(null);
   const [query,setQuery]=useState(''); const [page,setPage]=useState(1); const [error,setError]=useState<string|null>(null);
@@ -31,9 +33,10 @@ export function AdminPanel() {
   const capabilities=directory?.actorCapabilities;
   const tabs:Array<{key:Tab;label:string}>=[{key:'people',label:'People'},...(capabilities?.canCreateUsers?[{key:'create' as const,label:'Create User'}]:[]),{key:'members',label:'Board Members'},...(capabilities?.canManageSystemSettings?[{key:'settings' as const,label:'System Settings'}]:[]),...(capabilities?.canViewAudit?[{key:'audit' as const,label:'Audit Log'}]:[])];
   async function changed(){ await Promise.all([loadDirectory(),auth.refresh()]); }
-  return <div className="fixed inset-0 z-40 flex items-center justify-center p-3" style={{background:'rgba(6,9,14,.62)'}} onClick={event=>{if(event.target===event.currentTarget)auth.setAdminOpen(false)}}>
-    <section role="dialog" aria-modal="true" aria-labelledby="admin-title" className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border" style={{background:'#111a26',borderColor:'#334155'}}>
-      <header className="flex shrink-0 items-center justify-between border-b p-4" style={{borderColor:'#334155'}}><div><p className="text-xs uppercase tracking-[.25em]" style={{color:'#8ca1af'}}>Administration</p><h2 id="admin-title" className="text-xl font-bold">Access &amp; Membership</h2></div><button onClick={()=>auth.setAdminOpen(false)}>Close</button></header>
+  return <Dialog open={auth.adminOpen} onOpenChange={auth.setAdminOpen}>
+    <DialogContent showCloseButton={false} className="flex max-h-[92vh] w-[calc(100vw-1.5rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-2xl p-0" style={{background:'#111a26',borderColor:'#334155'}} onOpenAutoFocus={()=>{opener.current=document.activeElement instanceof HTMLElement?document.activeElement:null}} onCloseAutoFocus={event=>{event.preventDefault();if(opener.current?.isConnected)opener.current.focus()}}>
+      <DialogDescription className="sr-only">Manage accounts, Board memberships and invitations within your administrative scope.</DialogDescription>
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b p-4" style={{borderColor:'#334155'}}><div><p className="text-xs uppercase tracking-[.25em]" style={{color:'#8ca1af'}}>Administration</p><DialogTitle asChild><h2 id="admin-title" className="text-xl font-bold">Access &amp; Membership</h2></DialogTitle></div><button className="min-h-11 px-2" onClick={()=>auth.setAdminOpen(false)}>Close</button></header>
       <nav className="flex shrink-0 overflow-x-auto border-b px-3" style={{borderColor:'#334155'}}>{tabs.map(item=><button key={item.key} className="whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold" style={{borderColor:tab===item.key?'#7ea2ff':'transparent',color:tab===item.key?'#edf2f7':'#9bb1c0'}} onClick={()=>setTab(item.key)}>{item.label}</button>)}</nav>
       <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">{error&&<p className="mb-4 rounded-lg p-3 text-sm" style={{background:'#3f1d25',color:'#fecaca'}}>{error}</p>}
         {tab==='people'&&<People directory={directory} query={query} setQuery={value=>{setQuery(value);setPage(1)}} page={page} setPage={setPage} canEdit={Boolean(capabilities?.canManageAccess)} onChanged={changed}/>}
@@ -42,8 +45,8 @@ export function AdminPanel() {
         {tab==='settings'&&capabilities?.canManageSystemSettings&&<SystemSettings onChanged={changed}/>}
         {tab==='audit'&&capabilities?.canViewAudit&&<Audit directory={directory}/>}
       </main>
-    </section>
-  </div>;
+    </DialogContent>
+  </Dialog>;
 }
 
 function SystemSettings({onChanged}:{onChanged:()=>Promise<void>}) {

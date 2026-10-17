@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../services/api';
 import { fetchNavigation, setPersonalStar, visitBoard, type NavigationBoard, type NavigationPage } from '../services/navigation';
 import { Button } from './ui/button';
+import { AcceptBoardInvitation } from './AcceptBoardInvitation';
 
 type HomeSection = 'recent' | 'starred' | 'all';
 export function BoardHome({ onOpen }: { onOpen?: () => void }) {
@@ -101,5 +102,6 @@ export function BoardHome({ onOpen }: { onOpen?: () => void }) {
       <Button variant="outline" disabled={pending !== null} aria-label={row.starred ? `Remove ${row.title} from your stars` : `Add ${row.title} to your stars`} onClick={() => void changeStar(row)}>{row.starred ? '★' : '☆'}</Button>
     </li>)}</ul>}
     {!loading && !error && section !== 'all' && page.nextCursor && <Button variant="outline" disabled={pending !== null} onClick={() => void loadMore()}>Load more boards</Button>}
+    <AcceptBoardInvitation />
   </section>;
 }

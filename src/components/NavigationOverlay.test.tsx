@@ -4,6 +4,7 @@ import { NavigationOverlay } from './NavigationOverlay';
 import { AppProvider, initialState } from '../store';
 import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/admin';
 import { createBoardApi, deleteBoardApi, updateBoardApi } from '../services/data';
+import { toggleBoardStarApi } from '../services/data';
 
 const { createAutomationRuleApiMock, updateAutomationRuleApiMock, createBoardApiMock, updateBoardApiMock, deleteBoardApiMock, authState } = vi.hoisted(() => ({
   createAutomationRuleApiMock: vi.fn(),
@@ -389,6 +390,27 @@ describe('NavigationOverlay automations', () => {
 
     expect(createAutomationRuleApiMock).not.toHaveBeenCalled();
     expect(screen.getByText('Select a member to assign.')).toBeInTheDocument();
+  });
+
+  it('hides shared-star controls for boards the actor cannot manage', async () => {
+    const user = userEvent.setup();
+    authState.canManageBoard.mockImplementation(boardId => boardId === 'b1');
+    renderOverlay();
+    await user.click(screen.getByRole('button', { name: 'Boards' }));
+    expect(screen.getByRole('button', { name: /(?:Unstar|Star) Platform Sprint 24/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /(?:Unstar|Star) Bug Tracker/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps the shared star unchanged when the server rejects the mutation', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(await import('../services/data'), 'toggleBoardStarApi').mockRejectedValueOnce(new Error('Access denied.'));
+    renderOverlay();
+    await user.click(screen.getByRole('button', { name: 'Boards' }));
+    const board = initialState.boards[0];
+    const label = `${board.starred ? 'Unstar' : 'Star'} ${board.title}`;
+    await user.click(screen.getByRole('button', { name: label }));
+    await waitFor(() => expect(toggleBoardStarApi).toHaveBeenCalledWith(board.id));
+    expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
   });
 
   it('creates a rule once the required action details are provided', async () => {

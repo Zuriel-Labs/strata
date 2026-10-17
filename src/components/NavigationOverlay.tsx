@@ -3,7 +3,8 @@ import { Trash2 } from 'lucide-react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/admin';
-import { createBoardApi, deleteBoardApi, toggleBoardStarApi, updateBoardApi } from '../services/data';
+import { createBoardApi, deleteBoardApi, updateBoardApi } from '../services/data';
+import { useSharedBoardStar } from '../hooks/use-shared-board-star';
 import type { AutomationRule, Board, Workspace } from '../types';
 import { createAutomationRuleApi, updateAutomationRuleApi, deleteAutomationRuleApi } from '../services/data';
 import {
@@ -445,6 +446,7 @@ function BoardsContent({
   const dispatch = useDispatch();
   const auth = useAuth();
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
+  const sharedStar = useSharedBoardStar();
   const [boardRenameDraft, setBoardRenameDraft] = useState('');
   const [boardRenameError, setBoardRenameError] = useState<{ id: string; message: string } | null>(null);
   const [boardRenameSavingId, setBoardRenameSavingId] = useState<string | null>(null);
@@ -537,7 +539,8 @@ function BoardsContent({
                   void submitBoardRename(b);
                 }}
                 onCancelEdit={resetBoardRename}
-                onToggleStar={() => { dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); void toggleBoardStarApi(b.id); }}
+                starPending={sharedStar.pending}
+                onToggleStar={() => { void sharedStar.toggle(b.id); }}
                 onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined}
               />
             ))}
@@ -564,7 +567,8 @@ function BoardsContent({
                 void submitBoardRename(b);
               }}
               onCancelEdit={resetBoardRename}
-              onToggleStar={() => { dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); void toggleBoardStarApi(b.id); }}
+              starPending={sharedStar.pending}
+              onToggleStar={() => { void sharedStar.toggle(b.id); }}
               onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined}
             />
           ))}
@@ -621,6 +625,7 @@ function BoardRow({
   onSubmitEdit,
   onCancelEdit,
   onToggleStar,
+  starPending,
   onDelete,
 }: {
   board: Board;
@@ -635,6 +640,7 @@ function BoardRow({
   onSubmitEdit: () => void;
   onCancelEdit: () => void;
   onToggleStar: () => void;
+  starPending: boolean;
   onDelete?: () => void;
 }) {
   return (
@@ -678,15 +684,17 @@ function BoardRow({
             <span className="truncate">{board.title}</span>
           </button>
         )}
-        <button
+        {canEdit && <button
           type="button"
           aria-label={`${board.starred ? 'Unstar' : 'Star'} ${board.title}`}
+          title="Shared board star"
+          disabled={starPending}
           onClick={event => { event.stopPropagation(); onToggleStar(); }}
-          className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-md flex items-center justify-center text-sm transition-opacity"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 w-8 h-8 rounded-md flex items-center justify-center text-sm transition-opacity"
           style={{ color: board.starred ? '#eab308' : 'var(--text-muted)' }}
         >
           {board.starred ? '★' : '☆'}
-        </button>
+        </button>}
         {onDelete && (
           <button
             type="button"

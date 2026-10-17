@@ -2,13 +2,15 @@ import { useState } from 'react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import { createWorkspace } from '../services/admin';
-import { createBoardApi, toggleBoardStarApi } from '../services/data';
+import { createBoardApi } from '../services/data';
+import { useSharedBoardStar } from '../hooks/use-shared-board-star';
 import { ArchiveItems } from './ArchiveItems';
 
 export function Sidebar() {
   const state = useAppState();
   const dispatch = useDispatch();
   const auth = useAuth();
+  const sharedStar = useSharedBoardStar();
   const [newBoardName, setNewBoardName] = useState('');
   const [addingBoard, setAddingBoard] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -158,13 +160,16 @@ export function Sidebar() {
               <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: b.color }} />
               <span className="truncate">{b.title}</span>
             </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_BOARD_STAR', payload: b.id }); toggleBoardStarApi(b.id); }}
-              className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-md flex items-center justify-center text-sm transition-opacity"
+            {auth.canManageBoard(b.id) && <button
+              aria-label={`${b.starred ? 'Unstar' : 'Star'} ${b.title}`}
+              title="Shared board star"
+              disabled={sharedStar.pending}
+              onClick={(e) => { e.stopPropagation(); void sharedStar.toggle(b.id); }}
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 w-8 h-8 rounded-md flex items-center justify-center text-sm transition-opacity"
               style={{ color: b.starred ? '#eab308' : 'var(--text-muted)' }}
             >
               {b.starred ? '★' : '☆'}
-            </button>
+            </button>}
           </div>
         ))}
 

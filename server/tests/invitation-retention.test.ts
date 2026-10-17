@@ -1,8 +1,9 @@
 // @vitest-environment node
 
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createDatabase, type DatabaseHandle } from '../src/db/database';
 import { purgeTerminalBoardInvitations } from '../src/db/invitation-repositories';
+import { startInvitationMaintenance } from '../src/maintenance/invitations';
 import { audit } from '../src/audit/audit-log';
 
 let db: DatabaseHandle;
@@ -27,4 +28,22 @@ it('purges terminal metadata after 30 days while retaining audit history and liv
   expect(db.prepare('SELECT id FROM board_invitations ORDER BY id').all()).toEqual([{ id: 'pending' }, { id: 'recent' }]);
   expect(db.prepare('SELECT * FROM audit_events ORDER BY id').all()).toEqual(history);
   expect(purgeTerminalBoardInvitations(db, new Date('2026-10-17T12:00:00.000Z'))).toBe(0);
+});
+
+it('drains bounded batches at startup and hourly, and stops its owned timers', async () => {
+  const insert = db.prepare(`INSERT INTO board_invitations (id, board_id, target_user_id, role, token_hash, issuer_user_id, created_at, expires_at)
+    VALUES (?, 'b1', 'u2', 'member', ?, 'u4', '2026-08-01T00:00:00.000Z', '2026-08-02T00:00:00.000Z')`);
+  db.transaction(() => { for (let n = 0; n < 1001; n++) insert.run(`old-${n}`, `old-hash-${n}`); })();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-17T12:00:00.000Z'));
+  const stop = startInvitationMaintenance(db);
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM board_invitations').get()).toEqual({ count: 0 });
+    insert.run('next-hour', 'next-hour-hash');
+    await vi.advanceTimersByTimeAsync(3600000);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM board_invitations').get()).toEqual({ count: 0 });
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { stop(); vi.useRealTimers(); }
 });

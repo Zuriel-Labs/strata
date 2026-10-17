@@ -44,6 +44,8 @@ export function listPendingBoardInvitations(db: Database.Database, boardId: stri
   const parameters = { boardId, now: new Date().toISOString() };
   const total = (db.prepare(`SELECT COUNT(*) AS count FROM board_invitations WHERE ${where}`).get(parameters) as { count: number }).count;
   const items = db.prepare(`SELECT id, board_id AS boardId, target_user_id AS targetUserId, role,
+    (SELECT name FROM users WHERE id = target_user_id) AS targetName,
+    (SELECT username FROM users WHERE id = target_user_id) AS targetUsername,
     issuer_user_id AS issuerUserId, created_at AS createdAt, expires_at AS expiresAt, 'pending' AS status
     FROM board_invitations WHERE ${where} ORDER BY created_at DESC, id ASC LIMIT @limit OFFSET @offset`)
     .all({ ...parameters, limit: pageSize, offset: (page - 1) * pageSize });

@@ -114,6 +114,8 @@ describe('board invitation lifecycle', () => {
     expect(listed.status).toBe(200);
     expect(listed.body.items).toHaveLength(1);
     expect(listed.body.items[0]).toMatchObject({ id: created.body.invitation.id, targetUserId: 'u2', status: 'pending' });
+    expect(listed.body.items[0].targetName).toBe(getUserById(db, 'u2')?.name);
+    expect(listed.body.items[0].targetUsername).toBe(getUserById(db, 'u2')?.username);
     expect(JSON.stringify(listed.body)).not.toMatch(/token|hash/);
     const memberships = db.prepare('SELECT * FROM board_memberships ORDER BY id').all();
     for (let n = 0; n < 2; n++) expect((await agent.delete(`/api/admin/boards/b1/invitations/${created.body.invitation.id}`)).status).toBe(204);

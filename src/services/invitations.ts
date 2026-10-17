@@ -3,6 +3,7 @@ import type { PageMeta } from '../types';
 
 export interface BoardInvitation {
   id: string; boardId: string; targetUserId: string; role: 'member' | 'observer'; expiresAt: string; status: 'pending';
+  targetName?: string; targetUsername?: string;
 }
 export function createBoardInvitation(boardId: string, targetUserId: string, role: 'member' | 'observer', expiresAt: string) {
   return apiRequest<{ invitation: BoardInvitation; token: string }>(`/api/admin/boards/${encodeURIComponent(boardId)}/invitations`, { method: 'POST', body: JSON.stringify({ targetUserId, role, expiresAt }) });

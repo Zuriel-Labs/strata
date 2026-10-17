@@ -3,7 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type DatabaseHandle } from '../src/db/database';
 import { createSchema } from '../src/db/schema';
-import { replaceAssignments } from '../src/db/admin-repositories';
+import { getUserById } from '../src/db/repositories';
+import { replaceAssignments, updateManagedUser } from '../src/db/admin-repositories';
 
 describe('board invitation lifecycle', () => {
   let db: DatabaseHandle;
@@ -71,6 +72,18 @@ describe('board invitation lifecycle', () => {
     db.exec('DROP TRIGGER fail_invitation_audit');
     db.prepare("DELETE FROM users WHERE id = 'u4'").run();
     expect(db.prepare('SELECT issuer_user_id, revoked_at FROM board_invitations').get()).toEqual({ issuer_user_id: null, revoked_at: expect.any(String) });
+  });
+
+  it('preserves pending invitations across an atomic change to equivalent effective authority', () => {
+    db.prepare("UPDATE users SET platform_role = 'system_admin' WHERE id = 'u4'").run();
+    replaceAssignments(db, 'u1', 'u4', { workspaceAdminWorkspaceIds: [], boardAdminBoardIds: [], boardMemberships: [] });
+    insertInvitation();
+    const actor = getUserById(db, 'u1');
+    if (!actor) throw new Error('Expected administrator fixture');
+    updateManagedUser(db, actor, 'u4', { platformRole: 'user', workspaceAdminWorkspaceIds: ['w1'], boardAdminBoardIds: [], boardMemberships: [] });
+    expect(db.prepare('SELECT revoked_at FROM board_invitations').get()).toEqual({ revoked_at: null });
+    updateManagedUser(db, actor, 'u4', { platformRole: 'system_admin', workspaceAdminWorkspaceIds: [], boardAdminBoardIds: [], boardMemberships: [] });
+    expect(db.prepare('SELECT revoked_at FROM board_invitations').get()).toEqual({ revoked_at: null });
   });
 
 });

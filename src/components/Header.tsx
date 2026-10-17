@@ -200,7 +200,8 @@ export function Header() {
             onClick={() => dispatch({ type: 'SET_SEARCH_OPEN', payload: true })}
             className="w-8 h-8 rounded-md flex items-center justify-center transition-colors"
             style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}
-            title="Search (Ctrl+K)"
+            aria-keyshortcuts="Control+K Meta+K"
+            title="Search (Ctrl/Cmd+K)"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           </button>

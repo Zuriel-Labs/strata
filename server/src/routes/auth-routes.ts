@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
-import { clearSessionCookie, createUserSession, destroyUserSession, SESSION_COOKIE } from '../auth/session';
-import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey } from '../db/repositories';
+import { clearSessionCookie, createUserSession, setSessionCookie, SESSION_COOKIE } from '../auth/session';
+import { buildSessionPayload, consumePasswordReset, createSession, deleteRecoveryKey, deleteSession, deleteSessionsForUser, getRecoveryKeyByUserId, getSession, getUserById, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey } from '../db/repositories';
 import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
 import { hashRecoveryKey, verifyRecoveryKey } from '../auth/recovery-keys';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
@@ -119,13 +119,20 @@ export function createAuthRoutes(db: Database.Database) {
       return;
     }
 
-    createUserSession(db, user.id, request, response);
-    audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.login', outcome: 'success' });
-    const refreshedUser = getUserByUsername(db, parsed.data.username);
-    if (!refreshedUser) {
-      response.status(500).json({ message: 'Unable to start session.' });
+    const started = db.transaction(() => {
+      const currentUser = getUserById(db, user.id);
+      if (!currentUser?.active || currentUser.passwordHash !== user.passwordHash) return null;
+      const session = createSession(db, user.id);
+      audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.login', outcome: 'success' });
+      return { session, user: currentUser };
+    })();
+    if (!started) {
+      audit(db, { scopeType: 'auth', action: 'auth.login', outcome: 'failure', metadata: { username: parsed.data.username } });
+      response.status(401).json({ message: 'Invalid credentials.' });
       return;
     }
+    setSessionCookie(request, response, started.session.id);
+    const refreshedUser = started.user;
     if (refreshedUser.mustChangePassword) {
       response.json({
         status: 'password-change-required',
@@ -138,10 +145,13 @@ export function createAuthRoutes(db: Database.Database) {
 
   router.post('/logout', (request: AuthenticatedRequest, response) => {
     const sessionId = request.cookies?.[SESSION_COOKIE];
-    if (request.auth) {
-      audit(db, { actorUserId: request.auth.user.id, scopeType: 'auth', action: 'auth.logout', outcome: 'success' });
-    }
-    destroyUserSession(db, sessionId, response);
+    db.transaction(() => {
+      if (sessionId) deleteSession(db, sessionId);
+      if (request.auth) {
+        audit(db, { actorUserId: request.auth.user.id, scopeType: 'auth', action: 'auth.logout', outcome: 'success' });
+      }
+    })();
+    clearSessionCookie(response);
     response.status(204).send();
   });
 
@@ -241,13 +251,33 @@ export function createAuthRoutes(db: Database.Database) {
     }
     try {
       validatePassword(parsed.data.nextPassword);
-      const passwordHash = await hashPassword(parsed.data.nextPassword);
-      updateUserPassword(db, request.auth.user.id, passwordHash, false);
-      consumePasswordReset(db, request.auth.user.id);
-      audit(db, { actorUserId: request.auth.user.id, scopeType: 'auth', action: 'auth.password_change', outcome: 'success' });
-      response.status(204).send();
     } catch (error) {
-      response.status(400).json({ message: error instanceof Error ? error.message : 'Password update failed.' });
+      response.status(400).json({ message: error instanceof Error ? error.message : 'Invalid password.' });
+      return;
+    }
+    const actor = request.auth;
+    try {
+      const passwordHash = await hashPassword(parsed.data.nextPassword);
+      const session = db.transaction(() => {
+        const currentUser = getUserById(db, actor.user.id);
+        const currentSession = getSession(db, actor.session.id);
+        if (!currentUser?.active || !currentSession || currentSession.userId !== actor.user.id
+          || currentUser.passwordHash !== actor.user.passwordHash) return null;
+        updateUserPassword(db, actor.user.id, passwordHash, false);
+        consumePasswordReset(db, actor.user.id);
+        deleteSessionsForUser(db, actor.user.id);
+        const replacement = createSession(db, actor.user.id);
+        audit(db, { actorUserId: actor.user.id, scopeType: 'auth', action: 'auth.password_change', outcome: 'success' });
+        return replacement;
+      })();
+      if (!session) {
+        response.status(401).json({ message: 'Password change is no longer authorized.' });
+        return;
+      }
+      setSessionCookie(request, response, session.id);
+      response.status(204).send();
+    } catch {
+      response.status(500).json({ message: 'Password update failed.' });
     }
   });
 
@@ -258,8 +288,11 @@ export function createAuthRoutes(db: Database.Database) {
     }
     const rawKey = randomBytes(32).toString('hex');
     const keyHash = hashRecoveryKey(rawKey);
-    upsertRecoveryKey(db, request.auth.user.id, keyHash);
-    audit(db, { actorUserId: request.auth.user.id, scopeType: 'auth', action: 'auth.recovery_key_generate', outcome: 'success' });
+    const actor = request.auth;
+    db.transaction(() => {
+      upsertRecoveryKey(db, actor.user.id, keyHash);
+      audit(db, { actorUserId: actor.user.id, scopeType: 'auth', action: 'auth.recovery_key_generate', outcome: 'success' });
+    })();
     response.json({ recoveryKey: rawKey });
   });
 
@@ -274,34 +307,52 @@ export function createAuthRoutes(db: Database.Database) {
       return;
     }
     const user = getUserByUsername(db, parsed.data.username);
-    if (!user) {
-      response.status(401).json({ message: 'Invalid recovery request.' });
+    if (!user || !user.active) {
+      response.status(401).json({ code: 'RECOVERY_INVALID', message: 'Invalid recovery request.' });
       return;
     }
     const recovery = getRecoveryKeyByUserId(db, user.id);
     if (!recovery) {
-      response.status(401).json({ message: 'No recovery key configured.' });
+      response.status(401).json({ code: 'RECOVERY_INVALID', message: 'Invalid recovery request.' });
       return;
     }
     const keyValid = await verifyRecoveryKey(parsed.data.recoveryKey, recovery.keyHash);
     if (!keyValid) {
       audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.recovery_consume', outcome: 'failure' });
-      response.status(401).json({ message: 'Invalid recovery key.' });
+      response.status(401).json({ code: 'RECOVERY_INVALID', message: 'Invalid recovery request.' });
       return;
     }
     try {
       validatePassword(parsed.data.newPassword);
-      const passwordHash = await hashPassword(parsed.data.newPassword);
-      updateUserPassword(db, user.id, passwordHash, false);
-      deleteRecoveryKey(db, user.id);
-      // Generate a new recovery key automatically
-      const newRawKey = randomBytes(32).toString('hex');
-      const newKeyHash = hashRecoveryKey(newRawKey);
-      upsertRecoveryKey(db, user.id, newKeyHash);
-      audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.recovery_consume', outcome: 'success' });
-      response.json({ newRecoveryKey: newRawKey });
     } catch (error) {
-      response.status(400).json({ message: error instanceof Error ? error.message : 'Password reset failed.' });
+      response.status(400).json({ message: error instanceof Error ? error.message : 'Invalid password.' });
+      return;
+    }
+    const passwordHash = await hashPassword(parsed.data.newPassword);
+    // Generate a new recovery key automatically
+    const newRawKey = randomBytes(32).toString('hex');
+    const newKeyHash = hashRecoveryKey(newRawKey);
+    try {
+      const consumed = db.transaction(() => {
+        const currentUser = getUserById(db, user.id);
+        const currentKey = getRecoveryKeyByUserId(db, user.id);
+        if (!currentUser?.active || !currentKey || currentKey.id !== recovery.id
+          || currentKey.keyHash !== recovery.keyHash || currentKey.createdAt !== recovery.createdAt) return false;
+        deleteRecoveryKey(db, user.id);
+        updateUserPassword(db, user.id, passwordHash, false);
+        consumePasswordReset(db, user.id);
+        upsertRecoveryKey(db, user.id, newKeyHash);
+        deleteSessionsForUser(db, user.id);
+        audit(db, { actorUserId: user.id, scopeType: 'auth', action: 'auth.recovery_consume', outcome: 'success' });
+        return true;
+      })();
+      if (!consumed) {
+        response.status(401).json({ code: 'RECOVERY_INVALID', message: 'Invalid recovery request.' });
+        return;
+      }
+      response.json({ newRecoveryKey: newRawKey });
+    } catch {
+      response.status(500).json({ message: 'Password reset failed.' });
     }
   });
 

@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, initialState, useAppState } from '../store';
+import { HomeNavigation } from './HomeNavigation';
 import { BoardHome } from './BoardHome';
 import * as navigation from '../services/navigation';
 
@@ -23,4 +24,39 @@ describe('Home navigation for every role', () => {
     expect(navigation.visitBoard).toHaveBeenCalledWith(board.id);
     expect(screen.queryByText('Management')).not.toBeInTheDocument();
   });
+  it('adds personal stars after server success without reading shared star values', async () => {
+    const user = userEvent.setup();
+    const board = initialState.boards[0];
+    vi.mocked(navigation.setPersonalStar).mockResolvedValue({ boardId: board.id, starred: true });
+    render(<AppProvider initialAppState={initialState}><BoardHome /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'All boards' }));
+    await user.click(screen.getByRole('button', { name: `Add ${board.title} to your stars` }));
+    expect(navigation.setPersonalStar).toHaveBeenCalledWith(board.id, true);
+    expect(await screen.findByRole('button', { name: `Remove ${board.title} from your stars` })).toBeInTheDocument();
+    expect(initialState.boards[0].starred).toBe(board.starred);
+  });
+
+  it('loads the next page while retaining previous recent boards', async () => {
+    const user = userEvent.setup();
+    const rows = initialState.boards.slice(0, 2).map(board => ({ boardId: board.id, workspaceId: board.workspaceId, title: board.title, color: board.color, starred: false, lastVisitedAt: '2026-10-01T00:00:00.000Z' }));
+    vi.mocked(navigation.fetchNavigation).mockResolvedValueOnce({ items: [rows[0]], nextCursor: 'next' }).mockResolvedValueOnce({ items: [rows[1]], nextCursor: null });
+    render(<AppProvider initialAppState={initialState}><BoardHome /></AppProvider>);
+    await user.click(await screen.findByRole('button', { name: 'Load more boards' }));
+    expect(await screen.findByRole('button', { name: `Open ${rows[1].title}` })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Open ${rows[0].title}` })).toBeInTheDocument();
+    expect(navigation.fetchNavigation).toHaveBeenLastCalledWith('recent', 'next');
+  });
+
+  it('offers a named Home modal with keyboard focus return', async () => {
+    const user = userEvent.setup();
+    render(<AppProvider initialAppState={initialState}><HomeNavigation /></AppProvider>);
+    const trigger = screen.getByRole('button', { name: 'Open Home' });
+    await user.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Home' });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
 });

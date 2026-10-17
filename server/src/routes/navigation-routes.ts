@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canUsePersonalBoardNavigation } from '../rbac/policies';
-import { listPersonalBoardNavigation, setPersonalBoardStar } from '../db/navigation-repositories';
+import { listPersonalBoardNavigation, recordPersonalBoardVisit, setPersonalBoardStar } from '../db/navigation-repositories';
 
 const boardParams = z.object({ boardId: z.string().min(1).max(100) }).strict();
 const starBody = z.object({ starred: z.boolean() }).strict();
@@ -16,6 +16,21 @@ const cursorSchema = z.object({ userId: z.string(), kind: z.enum(['recent', 'sta
 export function createNavigationRoutes(db: Database.Database) {
   const router = Router();
   router.use(requireAuth);
+  router.put('/boards/:boardId/visit', (request: AuthenticatedRequest, response) => {
+    const actor = request.auth;
+    if (!actor) return;
+    const params = boardParams.safeParse(request.params);
+    if (!params.success || !z.object({}).strict().safeParse(request.body ?? {}).success) {
+      response.status(400).json({ code: 'NAVIGATION_INVALID', message: 'Invalid navigation request.' });
+      return;
+    }
+    if (!canUsePersonalBoardNavigation(db, actor, params.data.boardId)) {
+      response.status(404).json({ code: 'DESTINATION_UNAVAILABLE', message: 'Destination unavailable.' });
+      return;
+    }
+    recordPersonalBoardVisit(db, actor.user.id, params.data.boardId);
+    response.status(204).send();
+  });
   router.get('/', (request: AuthenticatedRequest, response) => {
     const actor = request.auth;
     if (!actor) return;

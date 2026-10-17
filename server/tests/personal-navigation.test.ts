@@ -51,4 +51,23 @@ describe('personal navigation', () => {
     expect((await member.put('/api/auth/navigation/boards/b1/star').send({ starred: false })).body.code).toBe('DESTINATION_UNAVAILABLE');
   });
 
+  it('records authorized visits once and rejects stale or forged destinations without writes', async () => {
+    const app = createApp(db);
+    const member = request.agent(app);
+    await member.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
+    for (let n = 0; n < 2; n++) expect((await member.put('/api/auth/navigation/boards/b1/visit').send({})).status).toBe(204);
+    const recent = await member.get('/api/auth/navigation?kind=recent');
+    expect(recent.body.items).toHaveLength(1);
+    expect(recent.body.items[0]).toMatchObject({ boardId: 'b1', starred: false, lastVisitedAt: expect.any(String) });
+    const before = db.prepare('SELECT * FROM user_board_navigation').all();
+    for (const id of ['missing', 'b2']) {
+      const rejected = await member.put(`/api/auth/navigation/boards/${id}/visit`).send({});
+      expect(rejected.status).toBe(404);
+      expect(rejected.body).toEqual({ code: 'DESTINATION_UNAVAILABLE', message: 'Destination unavailable.' });
+    }
+    expect((await member.put('/api/auth/navigation/boards/b1/visit').send({ userId: 'u4' })).status).toBe(400);
+    expect(db.prepare('SELECT * FROM user_board_navigation').all()).toEqual(before);
+    expect((await request(app).get('/api/auth/navigation?kind=recent')).status).toBe(401);
+  });
+
 });

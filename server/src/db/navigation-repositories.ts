@@ -4,6 +4,19 @@ import { personalNavigationAccessSql } from '../rbac/policies';
 
 export interface NavigationCursor { userId: string; kind: 'recent' | 'starred'; timestamp: string; boardId: string }
 
+export function recordPersonalBoardVisit(db: Database.Database, userId: string, boardId: string) {
+  db.transaction(() => {
+    db.prepare(`INSERT INTO user_board_navigation (user_id, board_id, last_visited_at) VALUES (?, ?, ?)
+      ON CONFLICT(user_id, board_id) DO UPDATE SET last_visited_at = excluded.last_visited_at`)
+      .run(userId, boardId, new Date().toISOString());
+    db.prepare(`UPDATE user_board_navigation SET last_visited_at = NULL
+      WHERE user_id = @userId AND last_visited_at IS NOT NULL AND board_id NOT IN (
+        SELECT board_id FROM user_board_navigation WHERE user_id = @userId AND last_visited_at IS NOT NULL
+        ORDER BY last_visited_at DESC, board_id ASC LIMIT 50)`).run({ userId });
+    db.prepare('DELETE FROM user_board_navigation WHERE user_id = ? AND starred = 0 AND last_visited_at IS NULL').run(userId);
+  })();
+}
+
 export function listPersonalBoardNavigation(db: Database.Database, userId: string, kind: 'recent' | 'starred', limit: number, cursor?: NavigationCursor) {
   const orderColumn = kind === 'recent' ? 'last_visited_at' : 'starred_at';
   const rows = db.prepare(`SELECT boards.id AS boardId, boards.workspace_id AS workspaceId, boards.title, boards.color,

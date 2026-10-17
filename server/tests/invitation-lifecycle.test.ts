@@ -59,6 +59,23 @@ describe('board invitation lifecycle', () => {
     expect(db.prepare('SELECT revoked_at FROM board_invitations').get()).toEqual({ revoked_at: expect.any(String) });
   });
 
+  it.each(['deactivation', 'demotion'])('permanently revokes after issuer %s even if authority returns', kind => {
+    if (kind === 'demotion') {
+      db.prepare("UPDATE users SET platform_role = 'system_admin' WHERE id = 'u4'").run();
+      db.prepare("DELETE FROM board_admin_grants WHERE user_id = 'u4'").run();
+    }
+    insertInvitation();
+    if (kind === 'deactivation') {
+      db.prepare("UPDATE users SET active = 0 WHERE id = 'u4'").run();
+      db.prepare("UPDATE users SET active = 1 WHERE id = 'u4'").run();
+    } else {
+      db.prepare("UPDATE users SET platform_role = 'user' WHERE id = 'u4'").run();
+      db.prepare("UPDATE users SET platform_role = 'system_admin' WHERE id = 'u4'").run();
+    }
+    expect(db.prepare('SELECT revoked_at FROM board_invitations').get()).toEqual({ revoked_at: expect.any(String) });
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'board.invitation_revoke'").all()).toHaveLength(1);
+  });
+
   it('revokes accepted tokens on membership removal without deleting invitation history', () => {
     insertInvitation('accepted', 'u4', 'u3', true);
     db.prepare("DELETE FROM board_memberships WHERE user_id = 'u3' AND board_id = 'b1'").run();

@@ -5,11 +5,28 @@ import { createDatabase, type DatabaseHandle } from '../src/db/database';
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { createSchema } from '../src/db/schema';
+import { createSession } from '../src/db/repositories';
 
 describe('personal navigation', () => {
   let db: DatabaseHandle;
   beforeEach(async () => { process.env.SEED_DATA = 'true'; db = await createDatabase(':memory:'); });
   afterEach(() => db.close());
+
+  it.each([
+    ['System Administrator', 'u1', 'b3'], ['Workspace Administrator', 'u2', 'b2'],
+    ['Board Administrator', 'u4', 'b1'], ['Member', 'u3', 'b1'], ['Observer', 'u4', 'b2'],
+  ])('filters personal navigation against live %s access without a visibility grant', async (_role, userId, boardId) => {
+    db.prepare('UPDATE users SET must_change_password = 0 WHERE id = ?').run(userId);
+    const cookie = `strata_session=${createSession(db, userId).id}`;
+    const app = createApp(db);
+    expect((await request(app).put(`/api/auth/navigation/boards/${boardId}/star`).set('Cookie', cookie).send({ starred: true })).status).toBe(200);
+    expect((await request(app).get('/api/auth/navigation?kind=starred').set('Cookie', cookie)).body.items).toHaveLength(1);
+    db.prepare("UPDATE users SET platform_role = 'user' WHERE id = ?").run(userId);
+    for (const table of ['workspace_admin_grants', 'board_admin_grants', 'board_memberships']) db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+    db.prepare("UPDATE boards SET visibility = 'public' WHERE id = ?").run(boardId);
+    expect((await request(app).get('/api/auth/navigation?kind=starred').set('Cookie', cookie)).body.items).toEqual([]);
+    expect((await request(app).put(`/api/auth/navigation/boards/${boardId}/visit`).set('Cookie', cookie).send({})).status).toBe(404);
+  });
 
   it('migrates twice without copying shared stars or changing existing records', () => {
     // Finish the existing legacy card-membership migration before modeling a prior database.
@@ -38,7 +55,8 @@ describe('personal navigation', () => {
     const app = createApp(db);
     const member = request.agent(app);
     expect((await member.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' })).status).toBe(200);
-    await member.put('/api/auth/navigation/boards/b1/star').send({ starred: true });
+    const starred = await member.put('/api/auth/navigation/boards/b1/star').send({ starred: true });
+    expect({ status: starred.status, body: starred.body }).toEqual({ status: 200, body: { boardId: 'b1', starred: true } });
     const list = await member.get('/api/auth/navigation?kind=starred&limit=1').timeout({ response: 2000 });
     expect(list.status).toBe(200);
     expect(list.body.items).toEqual([{ boardId: 'b1', workspaceId: 'w1', ...db.prepare('SELECT title, color FROM boards WHERE id = ?').get('b1') as { title: string; color: string }, starred: true, lastVisitedAt: null }]);

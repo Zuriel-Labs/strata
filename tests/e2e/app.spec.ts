@@ -35,10 +35,11 @@ test('mvp flow works end to end', async ({ page }) => {
   await page.reload();
   const workspaceSelect = page.locator('header select').first();
   await workspaceSelect.selectOption(emptyWorkspace.id);
-  await expect(page.getByRole('heading', { name: 'Select a board' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible();
+  await expect(page.getByText('No boards in this workspace.')).toBeVisible();
   await page.waitForTimeout(6_000);
   await expect(workspaceSelect).toHaveValue(emptyWorkspace.id);
-  await expect(page.getByRole('heading', { name: 'Select a board' })).toBeVisible();
+  await expect(page.getByText('No boards in this workspace.')).toBeVisible();
   await expect(page.locator('header').getByText('Platform Sprint 24')).toHaveCount(0);
   await workspaceSelect.selectOption('w1');
 

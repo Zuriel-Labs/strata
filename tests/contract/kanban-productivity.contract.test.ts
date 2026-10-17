@@ -57,7 +57,8 @@ describe.sequential('kanban productivity OpenAPI contract', () => {
     const agent = await adminAgent(createApp(db));
 
     expect((await agent.post('/api/lists/l1/sort').send({ direction: 'asc', unknown: true })).body).toEqual({ message: 'Invalid sort payload.' });
-    expect((await agent.post('/api/cards/c5/duplicate').send({ unknown: true })).body).toEqual({ message: 'Invalid payload.' });
+    const duplicate = await agent.post('/api/cards/c5/duplicate').send({ unknown: true });
+    expect({ status: duplicate.status, type: duplicate.headers['content-type'], body: duplicate.body }).toEqual({ status: 400, type: expect.stringMatching(/^application\/json/), body: { message: 'Invalid payload.' } });
     expect((await agent.post('/api/cards/c5/move').send({ toListId: 'l1', toPosition: 0, unknown: true })).status).toBe(400);
     expect((await agent.patch('/api/cards/c5').send({ title: 'Known', unknown: true })).status).toBe(400);
     expect((await agent.patch('/api/cards/c5').send({ checklists: [{ id: 'bad', title: '', items: [] }] })).status).toBe(400);

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Strata — Identity and client contract</title>
+  <style>
+    :root{color-scheme:dark;font:16px/1.65 system-ui,sans-serif;background:#0a101b;color:#e8edf7}
+    body{max-width:58rem;margin:0 auto;padding:clamp(1rem,4vw,3rem)}
+    section{padding:1.4rem;margin:1.5rem 0;border:1px solid #354257;border-radius:1rem;background:#141e2d}
+    h1,h2{line-height:1.25}a{color:#9ecaff}code{overflow-wrap:anywhere;color:#b9e2ff}
+    :focus-visible{outline:3px solid #9ecaff;outline-offset:4px}li+li{margin-top:.6rem}
+    .status{color:#bdcbe1}table{border-collapse:collapse;width:100%}th,td{text-align:left;vertical-align:top;padding:.7rem;border-bottom:1px solid #354257}
+    @media(max-width:32rem){th,td{padding:.4rem}}
+  </style>
+</head>
+<body>
+  <header><p class="status">Issue #39 · T1 · Repository contract</p><h1>Identity and clients</h1>
+    <p>Strata signs accounts in with a username and password. Email is not the account identifier or a recovery dependency.</p></header>
+  <main>
+    <section><h2>First use and account recovery</h2><ul>
+      <li>On an empty, unseeded installation, first-run setup lets the operator choose the initial System Administrator username and password. There is no fixed first-run credential.</li>
+      <li>Demo seed data is enabled only by <code>SEED_DATA=true</code>. Its <code>admin</code> account uses a temporary password and must change it at first sign-in. Demo credentials are not a Production setup procedure.</li>
+      <li>System Administrators can create managed accounts and issue activation or recovery credentials. Account activation is distinct from the proposed board invitation lifecycle.</li>
+      <li>Keep a generated recovery key securely: the server stores a hash. Anonymous recovery replaces the password and recovery key, revokes old sessions, and requires a new sign-in. The replacement key is returned once; a lost success response requires administrator recovery reissue.</li>
+      <li>Password change replaces the current session cookie and invalidates the account's other sessions. A failed transaction changes no credentials. Session cookies remain HttpOnly and SameSite=Lax, with Secure in Production; the default session lifetime is 24 hours.</li>
+    </ul><p class="status">Credential/session improvements describe the Issue #39 completion branch. They require the normal verified-candidate release before becoming deployed behavior.</p></section>
+    <section><h2>Supported surface and evidence limits</h2>
+      <table><caption>Implementation target versus verification</caption><thead><tr><th scope="col">Surface</th><th scope="col">Evidence</th></tr></thead><tbody>
+        <tr><th scope="row">Web interface</th><td>React/Vite client served with the Express API. Repository Playwright configuration targets Chromium. Local browser checks are candidate-specific release evidence.</td></tr>
+        <tr><th scope="row">Chromium</th><td>Automated keyboard/focus component checks are included. Desktop, tablet and phone viewport browser checks must be recorded for each changed candidate.</td></tr>
+        <tr><th scope="row">Firefox and Safari</th><td>No verification or compatibility guarantee is established by this document. The repository's default browser suite does not run these engines.</td></tr>
+        <tr><th scope="row">Native apps, offline and external identity providers</th><td>No support promise is made by the inspected implementation. They are outside this contract.</td></tr>
+        <tr><th scope="row">Assistive technology</th><td>Semantic and keyboard tests do not establish manual screen-reader compatibility. Record manual checks separately.</td></tr>
+      </tbody></table>
+    </section>
+    <section><h2>Access and navigation</h2><p>Administrative grants and board membership remain separate. Workspace context does not grant access to sibling boards. Stored visibility alone grants no new public access. Shared board stars are administrative state; proposed personal stars and recents grant no board access.</p>
+      <p>Ctrl/Cmd+K opens card search outside editable fields. Escape closes search. Tab moves through search results; Enter opens one. Account dialogs support keyboard Back and Close with focus return.</p>
+    </section>
+    <section><h2>Source evidence</h2><ul>
+      <li><a href="../server/src/routes/auth-routes.ts">Auth routes</a>: username payloads, bootstrap, recovery and password-change transactions.</li>
+      <li><a href="../server/src/auth/session.ts">Session cookie contract</a> and <a href="../server/src/db/repositories.ts">24-hour session persistence</a>.</li>
+      <li><a href="../server/src/seed/bootstrap.ts">Explicit demo seed configuration</a>.</li>
+      <li><a href="../server/tests/credential-lifecycle.test.ts">Credential lifecycle regression tests</a>, <a href="../server/tests/auth-routes.test.ts">existing auth coverage</a>, and <a href="../playwright.config.ts">browser configuration</a>.</li>
+      <li><a href="../specs/039-identity-navigation-access-policy/blueprint.html">Approved Issue #39 blueprint</a>: baseline evidence, requirements, policy gates and executable scenarios.</li>
+    </ul></section>
+  </main>
+</body>
+</html>

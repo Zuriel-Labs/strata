@@ -162,10 +162,24 @@ export function validateAssignments(db: Database.Database, input: AssignmentInpu
   check('workspaces',input.workspaceAdminWorkspaceIds); check('boards',[...new Set([...input.boardAdminBoardIds,...input.boardMemberships.map(item=>item.boardId)])]);
 }
 
-export function replaceAssignments(db: Database.Database, actorId:string, userId:string, input:AssignmentInput) {
-  db.prepare('DELETE FROM workspace_admin_grants WHERE user_id=?').run(userId); db.prepare('DELETE FROM board_admin_grants WHERE user_id=?').run(userId); db.prepare('DELETE FROM board_memberships WHERE user_id=?').run(userId);
-  const now=new Date().toISOString(); const wg=db.prepare('INSERT INTO workspace_admin_grants (id,user_id,workspace_id,granted_by_user_id,created_at) VALUES (?,?,?,?,?)'); const bg=db.prepare('INSERT INTO board_admin_grants (id,user_id,board_id,granted_by_user_id,created_at) VALUES (?,?,?,?,?)'); const bm=db.prepare('INSERT INTO board_memberships (id,user_id,board_id,role,created_at) VALUES (?,?,?,?,?)');
-  input.workspaceAdminWorkspaceIds.forEach(id=>wg.run(randomUUID(),userId,id,actorId,now)); input.boardAdminBoardIds.forEach(id=>bg.run(randomUUID(),userId,id,actorId,now)); input.boardMemberships.forEach(item=>bm.run(randomUUID(),userId,item.boardId,item.role,now));
+export function replaceAssignments(db: Database.Database, actorId: string, userId: string, input: AssignmentInput) {
+  db.transaction(() => {
+    const now = new Date().toISOString();
+    const workspaceGrant = db.prepare('INSERT OR IGNORE INTO workspace_admin_grants (id, user_id, workspace_id, granted_by_user_id, created_at) VALUES (?, ?, ?, ?, ?)');
+    const boardGrant = db.prepare('INSERT OR IGNORE INTO board_admin_grants (id, user_id, board_id, granted_by_user_id, created_at) VALUES (?, ?, ?, ?, ?)');
+    const membership = db.prepare(`INSERT INTO board_memberships (id, user_id, board_id, role, created_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, board_id) DO UPDATE SET role = excluded.role`);
+    // Install replacement authority first so an unchanged effective scope never disappears mid-transaction.
+    input.workspaceAdminWorkspaceIds.forEach(id => workspaceGrant.run(randomUUID(), userId, id, actorId, now));
+    input.boardAdminBoardIds.forEach(id => boardGrant.run(randomUUID(), userId, id, actorId, now));
+    input.boardMemberships.forEach(item => membership.run(randomUUID(), userId, item.boardId, item.role, now));
+    db.prepare('DELETE FROM workspace_admin_grants WHERE user_id = ? AND workspace_id NOT IN (SELECT value FROM json_each(?))')
+      .run(userId, JSON.stringify(input.workspaceAdminWorkspaceIds));
+    db.prepare('DELETE FROM board_admin_grants WHERE user_id = ? AND board_id NOT IN (SELECT value FROM json_each(?))')
+      .run(userId, JSON.stringify(input.boardAdminBoardIds));
+    db.prepare('DELETE FROM board_memberships WHERE user_id = ? AND board_id NOT IN (SELECT value FROM json_each(?))')
+      .run(userId, JSON.stringify(input.boardMemberships.map(item => item.boardId)));
+  })();
 }
 
 export function createManagedUser(db:Database.Database, actor:UserRecord, input:ManagedUserInput) {
@@ -173,9 +187,31 @@ export function createManagedUser(db:Database.Database, actor:UserRecord, input:
   return db.transaction(()=>{ const id=randomUUID(); const now=new Date().toISOString(); db.prepare('INSERT INTO users (id,name,initials,color,username,platform_role,password_hash,active,must_change_password,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(id,input.name,input.initials,input.color,input.username,input.platformRole,input.passwordHash,input.active?1:0,input.mustChangePassword?1:0,now,now); replaceAssignments(db,actor.id,id,input); createAuditEvent(db,{actorUserId:actor.id,targetUserId:id,scopeType:'platform',action:'user.create',outcome:'success',metadata:{workspaceAdminGrants:input.workspaceAdminWorkspaceIds.length,boardAdminGrants:input.boardAdminBoardIds.length,boardMemberships:input.boardMemberships.length}}); return getUserById(db,id); })();
 }
 
-export function updateManagedUser(db:Database.Database, actor:UserRecord, userId:string, input:Partial<Omit<ManagedUserInput,keyof AssignmentInput>>&AssignmentInput) {
-  validateAssignments(db,input);
-  return db.transaction(()=>{ const current=getUserById(db,userId); if(!current)return null; if(input.expectedUpdatedAt&&input.expectedUpdatedAt!==current.updatedAt)throw new Error('This account changed since it was loaded. Refresh and try again.'); if(current.platformRole==='system_admin'&&input.platformRole==='user'&&countSystemAdmins(db)<=1)throw new Error('Cannot remove the last remaining system administrator.'); if(current.platformRole==='system_admin'&&input.active===false&&countSystemAdmins(db)<=1)throw new Error('Cannot deactivate the last remaining system administrator.'); const candidateTimestamp=new Date().toISOString(); const now=candidateTimestamp===current.updatedAt?new Date(Date.parse(candidateTimestamp)+1).toISOString():candidateTimestamp; db.prepare('UPDATE users SET name=?,initials=?,color=?,username=?,platform_role=?,active=?,must_change_password=?,updated_at=? WHERE id=?').run(input.name??current.name,input.initials??current.initials,input.color??current.color,input.username??current.username,input.platformRole??current.platformRole,input.active===undefined?(current.active?1:0):input.active?1:0,input.mustChangePassword===undefined?(current.mustChangePassword?1:0):input.mustChangePassword?1:0,now,userId); replaceAssignments(db,actor.id,userId,input); createAuditEvent(db,{actorUserId:actor.id,targetUserId:userId,scopeType:'platform',action:'user.update',outcome:'success',metadata:{workspaceAdminGrants:input.workspaceAdminWorkspaceIds.length,boardAdminGrants:input.boardAdminBoardIds.length,boardMemberships:input.boardMemberships.length}}); return getUserById(db,userId); })();
+export function updateManagedUser(db: Database.Database, actor: UserRecord, userId: string, input: Partial<Omit<ManagedUserInput, keyof AssignmentInput>> & AssignmentInput) {
+  validateAssignments(db, input);
+  return db.transaction(() => {
+    const current = getUserById(db, userId);
+    if (!current) return null;
+    if (input.expectedUpdatedAt && input.expectedUpdatedAt !== current.updatedAt) throw new Error('This account changed since it was loaded. Refresh and try again.');
+    if (current.platformRole === 'system_admin' && input.platformRole === 'user' && countSystemAdmins(db) <= 1) throw new Error('Cannot remove the last remaining system administrator.');
+    if (current.platformRole === 'system_admin' && input.active === false && countSystemAdmins(db) <= 1) throw new Error('Cannot deactivate the last remaining system administrator.');
+    const candidateTimestamp = new Date().toISOString();
+    const now = candidateTimestamp === current.updatedAt ? new Date(Date.parse(candidateTimestamp) + 1).toISOString() : candidateTimestamp;
+    // Preserve continuous authority when a transaction trades platform and scoped grants.
+    if (input.platformRole === 'system_admin' && current.platformRole !== 'system_admin') {
+      db.prepare("UPDATE users SET platform_role = 'system_admin' WHERE id = ?").run(userId);
+    }
+    replaceAssignments(db, actor.id, userId, input);
+    db.prepare('UPDATE users SET name=?, initials=?, color=?, username=?, platform_role=?, active=?, must_change_password=?, updated_at=? WHERE id=?')
+      .run(input.name ?? current.name, input.initials ?? current.initials, input.color ?? current.color,
+        input.username ?? current.username, input.platformRole ?? current.platformRole,
+        input.active === undefined ? Number(current.active) : Number(input.active),
+        input.mustChangePassword === undefined ? Number(current.mustChangePassword) : Number(input.mustChangePassword), now, userId);
+    createAuditEvent(db, { actorUserId: actor.id, targetUserId: userId, scopeType: 'platform', action: 'user.update', outcome: 'success', metadata: {
+      workspaceAdminGrants: input.workspaceAdminWorkspaceIds.length, boardAdminGrants: input.boardAdminBoardIds.length, boardMemberships: input.boardMemberships.length,
+    } });
+    return getUserById(db, userId);
+  })();
 }
 
 export function upsertBoardMembership(db:Database.Database, actor:UserRecord, boardId:string, userId:string, role:BoardMembershipRecord['role']) {

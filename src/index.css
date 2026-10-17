@@ -4,6 +4,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Personal navigation uses the app's existing hex theme tokens. */
+.personal-navigation,
+.personal-navigation :is(.border, .border-t, input, select, textarea, button) {
+  border-color: var(--border);
+}
+.personal-navigation :is(input, select, textarea) {
+  background: var(--input-bg);
+  color: var(--text-primary);
+}
+.personal-navigation button { background: var(--bg-elevated); color: var(--text-primary); }
+.personal-navigation button[aria-pressed="true"] { background: var(--active-bg); color: var(--accent); }
+.personal-navigation button:not([type="submit"]):hover:not(:disabled) { background: var(--bg-hover); }
+.personal-navigation button[type="submit"] { background: var(--accent); color: var(--bg); }
+.personal-navigation :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.personal-navigation .text-muted-foreground { color: var(--text-muted); }
+
 :root {
   color-scheme: dark;
   --bg: #0b0f16;

@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createBoard, createAuditEvent, updateBoardStarred, getBoardById, getMaxLabelsPerBoard, updateBoardLabels, updateBoardTitle } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { canManageWorkspace, canAccessBoard, canManageBoard, canManageBoardLabels } from '../rbac/permissions';
+import { canManageWorkspace, canManageBoard, canManageBoardLabels } from '../rbac/permissions';
+import { canManageUserBoard } from '../rbac/policies';
 
 const labelSchema = z.object({
   id: z.string().trim().min(1).max(100),
@@ -76,17 +77,26 @@ export function createBoardRoutes(db: Database.Database) {
 
   // Toggle star
   router.patch('/:boardId/star', requireAuth, (request: AuthenticatedRequest, response) => {
-    const { boardId } = request.params;
-    if (!canAccessBoard(db, request.auth!, boardId as string)) {
+    const boardId = String(request.params.boardId);
+    const actor = request.auth;
+    if (!actor) {
+      response.status(401).json({ message: 'Authentication required.' });
+      return;
+    }
+    if (!canManageUserBoard(db, actor, boardId)) {
+      createAuditEvent(db, { actorUserId: actor.user.id, scopeType: 'board', scopeId: boardId, action: 'board.star_update', outcome: 'failure' });
       response.status(403).json({ message: 'Access denied.' });
       return;
     }
-    const board = getBoardById(db, boardId as string);
+    const board = getBoardById(db, boardId);
     if (!board) {
       response.status(404).json({ message: 'Board not found.' });
       return;
     }
-    updateBoardStarred(db, boardId as string, !board.starred);
+    db.transaction(() => {
+      updateBoardStarred(db, boardId, !board.starred);
+      createAuditEvent(db, { actorUserId: actor.user.id, scopeType: 'board', scopeId: boardId, action: 'board.star_update', outcome: 'success', metadata: { starred: !board.starred } });
+    })();
     response.json({ starred: !board.starred });
   });
 

@@ -89,6 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (requestId !== refreshRequestId.current) return;
       if (requestError instanceof ApiError && requestError.status === 401) {
         setError(null);
+        setAdminOpen(false);
+        setAccessDenied(null);
+        handleSession(null);
         try {
           const bootstrapCheck = await checkBootstrap();
           if (bootstrapCheck.needsBootstrap) {
@@ -98,11 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           // If bootstrap check fails, fall through to anonymous
         }
-        handleSession(null);
         return;
       }
       setError(requestError instanceof Error ? requestError.message : 'Unable to restore session.');
-      handleSession(null);
+      setStatus(current => current === 'loading' ? 'anonymous' : current);
     }
   }, [handleSession]);
 

@@ -6,6 +6,7 @@ Strata is a React + Vite visual project management app with a lightweight Node b
 
 - Quickstart: `docs/quickstart.md`
 - Roles and permissions: `docs/roles-and-permissions.html`
+- Identity and client contract: `docs/identity-and-clients.html`
 - Latest RBAC validation report: `docs/reports/auth-rbac-test-report.md`
 - Prototype artifact: `docs/prototypes/flowboard.html`
 
@@ -91,9 +92,9 @@ npm run preview
 
 ## Current Features
 
-- Email/password sign-in with server-managed sessions
-- Forced password change for bootstrap or reset credentials
-- Seeded `system_admin` bootstrap user and SQLite persistence
+- Username/password sign-in with server-managed sessions
+- Forced password change for demo seed or administrator-reset credentials
+- Optional demo seed `system_admin` user and SQLite persistence
 - Protected admin panel for user creation, role assignment, memberships, and password resets
 - API-level authorization for authenticated session, admin, and authorized bootstrap routes
 - Multi-board workspace navigation
@@ -108,10 +109,9 @@ npm run preview
 
 ## Notes
 
-- First-run bootstrap admin credentials:
-  - Email: `admin@strata.local`
-  - Password: `ChangeMe123!`
-- The bootstrap admin must rotate the temporary password on first sign-in
+- Empty, unseeded installations ask the operator to choose the first System Administrator username and password.
+- Only demo seed mode (`SEED_DATA=true`) creates username `admin` with temporary password `ChangeMe123!`; first sign-in requires rotation.
+- See `docs/identity-and-clients.html` for recovery/session behavior and tested versus unverified client boundaries.
 - GitHub Actions runs linting, Vitest, production build, and Playwright smoke coverage on every push and pull request
 - Local logs, build output, dependencies, coverage artifacts, SQLite data files, and environment files are ignored through `.gitignore`
 

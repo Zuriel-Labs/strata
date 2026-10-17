@@ -6,7 +6,9 @@ import cookieParser from 'cookie-parser';
 import type Database from 'better-sqlite3';
 import { attachAuth } from './http/auth-middleware';
 import { createAuthRoutes } from './routes/auth-routes';
+import { createNavigationRoutes } from './routes/navigation-routes';
 import { createAdminRoutes } from './routes/admin-routes';
+import { createAdminInvitationRoutes, createRecipientInvitationRoutes } from './routes/invitation-routes';
 import { createBootstrapRoutes } from './routes/bootstrap-routes';
 import { createBoardRoutes } from './routes/board-routes';
 import { createListRoutes } from './routes/list-routes';
@@ -53,7 +55,10 @@ export function createApp(db: Database.Database) {
   });
 
   app.use('/api/auth', createAuthRoutes(db));
+  app.use('/api/auth/navigation', createNavigationRoutes(db));
+  app.use('/api/auth', createRecipientInvitationRoutes(db));
   app.use('/api/admin', createAdminRoutes(db));
+  app.use('/api/admin', createAdminInvitationRoutes(db));
   app.use('/api/workspaces', createBootstrapRoutes(db));
   app.use('/api/boards', createBoardRoutes(db));
   app.use('/api/lists', createListRoutes(db));

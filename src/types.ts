@@ -416,7 +416,7 @@ export type Action =
   | { type: 'UPDATE_BOARD_LABELS'; payload: BoardLabelCollection }
   | { type: 'ADD_WORKSPACE'; payload: Workspace }
   | { type: 'UPDATE_WORKSPACE_FROM_API'; payload: Workspace }
-  | { type: 'TOGGLE_BOARD_STAR'; payload: string }
+  | { type: 'SET_BOARD_STAR'; payload: { boardId: string; starred: boolean } }
   | { type: 'ADD_AUTOMATION_RULE'; payload: Omit<AutomationRule, 'id' | 'lastRunAt'> }
   | { type: 'ADD_AUTOMATION_RULE_FROM_API'; payload: AutomationRule }
   | { type: 'UPDATE_AUTOMATION_RULE'; payload: Partial<AutomationRule> & { id: string } }

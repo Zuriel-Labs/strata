@@ -1,21 +1,23 @@
 import { useRef, useEffect, useMemo } from 'react';
 import { useAppState, useDispatch } from '../store';
 import { compareDateOnlyToToday, formatDateOnly, todayDateOnly } from '../lib/date-only';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
 export function SearchOverlay() {
   const state = useAppState();
   const dispatch = useDispatch();
   const inputRef = useRef<HTMLInputElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (state.searchOpen) inputRef.current?.focus();
-  }, [state.searchOpen]);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); dispatch({ type: 'SET_SEARCH_OPEN', payload: !state.searchOpen }); }
-      if (e.key === 'Escape' && state.searchOpen) dispatch({ type: 'SET_SEARCH_OPEN', payload: false });
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+      const target = e.target;
+      if (target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        dispatch({ type: 'SET_SEARCH_OPEN', payload: !state.searchOpen });
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -60,31 +62,39 @@ export function SearchOverlay() {
     return cards.slice(0, 20);
   }, [state.searchQuery, state.searchTimestamp, state.cards, state.users, state.boards]);
 
-  if (!state.searchOpen) return null;
-
   return (
-    <div
-      ref={overlayRef}
-      onClick={e => { if (e.target === overlayRef.current) dispatch({ type: 'SET_SEARCH_OPEN', payload: false }); }}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-20"
-      style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
-    >
-      <div className="w-full max-w-lg rounded-xl shadow-2xl border overflow-hidden" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)' }}>
+    <Dialog open={state.searchOpen} onOpenChange={open => dispatch({ type: 'SET_SEARCH_OPEN', payload: open })}>
+      <DialogContent
+        className="top-20 translate-y-0 w-[calc(100%-1.5rem)] max-h-[calc(100dvh-6rem)] gap-0 overflow-y-auto rounded-xl p-0 shadow-2xl"
+        style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+        onOpenAutoFocus={event => {
+          returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          event.preventDefault();
+          inputRef.current?.focus();
+        }}
+        onCloseAutoFocus={event => {
+          event.preventDefault();
+          if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+        }}
+      >
+        <DialogTitle className="sr-only">Search cards</DialogTitle>
+        <DialogDescription className="sr-only">Open search with Control or Command K outside text fields. Press Escape to close. Tab through results, then press Enter to open a card.</DialogDescription>
         <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-muted)' }}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input
             ref={inputRef}
+            aria-label="Search cards"
             value={state.searchQuery}
             onChange={e => dispatch({ type: 'SET_SEARCH_QUERY', payload: e.target.value })}
             placeholder="Search cards… (try @name, #label, is:overdue)"
-            className="flex-1 bg-transparent outline-none text-sm"
+            className="min-w-0 flex-1 bg-transparent text-sm"
             style={{ color: 'var(--text-primary)' }}
           />
-          <kbd className="text-[9px] px-1.5 py-0.5 rounded border font-mono" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>ESC</kbd>
+          <kbd className="mr-8 text-[9px] px-1.5 py-0.5 rounded border font-mono" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>ESC</kbd>
         </div>
 
         {state.searchQuery.trim() && (
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-80 overflow-y-auto" aria-live="polite">
             {results.length === 0 && (
               <p className="text-sm p-4" style={{ color: 'var(--text-muted)' }}>No cards found</p>
             )}
@@ -130,6 +140,7 @@ export function SearchOverlay() {
         {!state.searchQuery.trim() && (
           <div className="p-4">
             <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Search operators:</p>
+            <p className="mb-3 text-xs" style={{ color: 'var(--text-muted)' }}>Ctrl/Cmd+K opens search outside text fields. Escape closes it. Tab to a result, then Enter to open.</p>
             <div className="grid grid-cols-2 gap-1 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
               <span><code className="px-1 py-0.5 rounded" style={{ background: 'var(--active-bg)' }}>@name</code> Filter by member</span>
               <span><code className="px-1 py-0.5 rounded" style={{ background: 'var(--active-bg)' }}>#label</code> Filter by label</span>
@@ -138,7 +149,7 @@ export function SearchOverlay() {
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

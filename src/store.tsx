@@ -506,8 +506,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_WORKSPACE_FROM_API':
       return { ...state, workspaces: state.workspaces.map(workspace => workspace.id === action.payload.id ? action.payload : workspace) };
 
-    case 'TOGGLE_BOARD_STAR':
-      return { ...state, boards: state.boards.map(board => board.id === action.payload ? { ...board, starred: !board.starred } : board) };
+    case 'SET_BOARD_STAR':
+      return { ...state, boards: state.boards.map(board => board.id === action.payload.boardId ? { ...board, starred: action.payload.starred } : board) };
 
     case 'ADD_AUTOMATION_RULE':
       return { ...state, automationRules: [...state.automationRules, { ...action.payload, id: uid(), lastRunAt: null }] };

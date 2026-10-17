@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { createIdentitySchema } from './identity-schema';
 
 export function createSchema(db: Database.Database) {
   db.exec(`
@@ -78,6 +79,7 @@ export function createSchema(db: Database.Database) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
     );
+
 
     CREATE TABLE IF NOT EXISTS board_admin_grants (
       id TEXT PRIMARY KEY,
@@ -291,4 +293,6 @@ export function createSchema(db: Database.Database) {
   if (!automationRuleColumns.has('last_run_at')) {
     db.exec('ALTER TABLE automation_rules ADD COLUMN last_run_at TEXT');
   }
+  createIdentitySchema(db);
+
 }

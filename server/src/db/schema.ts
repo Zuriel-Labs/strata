@@ -79,6 +79,19 @@ export function createSchema(db: Database.Database) {
       FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS user_board_navigation (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+      last_visited_at TEXT,
+      starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)),
+      starred_at TEXT,
+      PRIMARY KEY (user_id, board_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_navigation_recent
+      ON user_board_navigation(user_id, last_visited_at DESC, board_id);
+    CREATE INDEX IF NOT EXISTS idx_navigation_starred
+      ON user_board_navigation(user_id, starred, starred_at DESC, board_id);
+
     CREATE TABLE IF NOT EXISTS board_admin_grants (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,

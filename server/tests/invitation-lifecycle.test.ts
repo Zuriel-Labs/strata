@@ -199,4 +199,55 @@ describe('board invitation lifecycle', () => {
     expect(db.prepare("SELECT id FROM board_memberships WHERE user_id = 'u2' AND board_id = 'b1'").all()).toEqual([]);
   });
 
+  it('bounds issuance and management inputs without creating accounts or privileged invitations', async () => {
+    const { app, issuer, target, token } = await issueForAlex();
+    const users = db.prepare('SELECT COUNT(*) AS count FROM users').get();
+    const valid = { targetUserId: 'u2', role: 'member', expiresAt: new Date(Date.now() + 86400000).toISOString() };
+    for (const body of [{ ...valid, expiresAt: new Date(Date.now() + 8 * 86400000).toISOString() }, { ...valid, expiresAt: new Date(Date.now() - 1000).toISOString() }, { ...valid, role: 'system_admin' }, { ...valid, targetUserId: 'missing' }, { ...valid, userId: 'u1' }]) {
+      expect((await issuer.post('/api/admin/boards/b1/invitations').send(body)).status).toBe(400);
+    }
+    const member = request.agent(app);
+    await member.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
+    for (const [agent, boardId] of [[member, 'b1'], [issuer, 'b2'], [issuer, 'b3']] as const) {
+      expect((await agent.post(`/api/admin/boards/${boardId}/invitations`).send(valid)).status).toBe(403);
+    }
+    expect((await request(app).post('/api/auth/board-invitations/accept').send({ token })).status).toBe(401);
+    expect((await target.post('/api/auth/board-invitations/accept').send({ token, userId: 'u1' })).status).toBe(400);
+    expect((await target.post('/api/auth/board-invitations/accept').send({ token: '0'.repeat(64) })).status).toBe(400);
+    expect((await issuer.delete('/api/admin/boards/b1/invitations/invalid-id')).status).toBe(400);
+    for (const query of ['page=0', 'pageSize=51', 'status=accepted', 'userId=u1']) expect((await issuer.get(`/api/admin/boards/b1/invitations?${query}`)).status).toBe(400);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM users').get()).toEqual(users);
+    expect(db.prepare('SELECT id FROM board_invitations').all()).toHaveLength(1);
+  });
+
+  it('commits at most one membership and success audit when acceptance races', async () => {
+    const { app, target, token } = await issueForAlex();
+    const other = request.agent(app);
+    expect((await other.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' })).status).toBe(200);
+    const results = await Promise.all([target, other].map(agent => agent.post('/api/auth/board-invitations/accept').send({ token })));
+    expect(results.map(result => result.status).sort()).toEqual([200, 401]);
+    expect(db.prepare("SELECT id FROM board_memberships WHERE user_id = 'u2' AND board_id = 'b1'").all()).toHaveLength(1);
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'board.invitation_accept' AND outcome = 'success'").all()).toHaveLength(1);
+    const winner = results[0].status === 200 ? target : other;
+    expect((await winner.post('/api/auth/board-invitations/accept').send({ token })).body.alreadyAccepted).toBe(true);
+  });
+
+  it('binds a renamed recipient by ID and projects new access without granting sibling mutations', async () => {
+    const app = createApp(db);
+    const issuer = request.agent(app);
+    const target = request.agent(app);
+    await issuer.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' });
+    await target.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
+    const created = await issuer.post('/api/admin/boards/b2/invitations').send({ targetUserId: 'u3', role: 'observer', expiresAt: new Date(Date.now() + 86400000).toISOString() });
+    expect(created.status).toBe(201);
+    db.prepare("UPDATE users SET username = 'renamed-recipient' WHERE id = 'u3'").run();
+    expect((await target.post('/api/auth/board-invitations/accept').send({ token: created.body.token })).status).toBe(200);
+    const session = await target.get('/api/auth/session');
+    expect(session.body.appState.boards.map((board: { id: string }) => board.id)).toContain('b2');
+    expect(session.body.permissions.workspaceAdminGrants).toEqual([]);
+    expect(session.body.permissions.boardAdminGrants).toEqual([]);
+    expect((await target.post('/api/admin/boards/b2/invitations').send({})).status).toBe(403);
+    expect((await target.patch('/api/boards/b2/star')).status).toBe(403);
+  });
+
 });

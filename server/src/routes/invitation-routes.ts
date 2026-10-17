@@ -2,13 +2,36 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
-import { canManageBoardInvitations } from '../rbac/policies';
-import { createBoardInvitation, listPendingBoardInvitations, revokeBoardInvitation } from '../db/invitation-repositories';
+import { canAcceptBoardInvitations, canManageBoardInvitations } from '../rbac/policies';
+import { acceptBoardInvitation, createBoardInvitation, listPendingBoardInvitations, revokeBoardInvitation } from '../db/invitation-repositories';
 import { audit } from '../audit/audit-log';
+import { setSessionCookie } from '../auth/session';
 
 const invitationBody = z.object({ targetUserId: z.string().min(1).max(100), role: z.enum(['member', 'observer']), expiresAt: z.iso.datetime() }).strict();
 const invitationParams = z.object({ boardId: z.string().min(1).max(100), invitationId: z.string().uuid().optional() }).strict();
 const invitationQuery = z.object({ status: z.literal('pending').default('pending'), page: z.coerce.number().int().min(1).max(100000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20) }).strict();
+const acceptBody = z.object({ token: z.string().regex(/^bi_[a-f0-9]{64}$/) }).strict();
+
+export function createRecipientInvitationRoutes(db: Database.Database) {
+  const router = Router();
+  router.post('/board-invitations/accept', requireAuth, (request: AuthenticatedRequest, response) => {
+    const actor = request.auth;
+    if (!actor) return;
+    if (!canAcceptBoardInvitations(actor)) { response.status(403).json({ message: 'Password change required.' }); return; }
+    const parsed = acceptBody.safeParse(request.body);
+    if (!parsed.success) { response.status(400).json({ code: 'INVITATION_INVALID', message: 'Invalid invitation request.' }); return; }
+    try {
+      const result = acceptBoardInvitation(db, actor.user.id, parsed.data.token);
+      if (result.status === 'unavailable') response.status(404).json({ code: 'INVITATION_UNAVAILABLE', message: 'Invitation unavailable.' });
+      else if (result.status === 'member') response.status(409).json({ code: 'MEMBERSHIP_ALREADY_EXISTS', message: 'Board membership already exists.' });
+      else {
+        if (result.sessionId) setSessionCookie(request, response, result.sessionId);
+        response.set('Cache-Control', 'no-store').json({ boardId: result.boardId, membershipRole: result.membershipRole, alreadyAccepted: result.alreadyAccepted });
+      }
+    } catch { response.status(500).json({ message: 'Unable to accept invitation.' }); }
+  });
+  return router;
+}
 
 function authorize(db: Database.Database, request: AuthenticatedRequest, response: Response, action: string) {
   const actor = request.auth;

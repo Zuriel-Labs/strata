@@ -25,6 +25,10 @@ export function canManageBoardInvitations(db: Database.Database, actor: AuthCont
     && canManageUserBoard(db, actor, boardId);
 }
 
+export function canAcceptBoardInvitations(actor: AuthContextValue) {
+  return actor.user.active && !actor.user.mustChangePassword;
+}
+
 export const invitationIssuerAuthoritySql = `EXISTS (SELECT 1 FROM users issuer
   JOIN boards scope_board ON scope_board.id = board_invitations.board_id
   WHERE issuer.id = board_invitations.issuer_user_id AND issuer.active = 1 AND (

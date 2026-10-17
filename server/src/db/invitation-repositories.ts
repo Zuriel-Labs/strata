@@ -3,6 +3,41 @@ import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
 import type { BoardRole } from '../types';
 import { invitationIssuerAuthoritySql } from '../rbac/policies';
+import { createSession, deleteSessionsForUser } from './repositories';
+
+export function acceptBoardInvitation(db: Database.Database, userId: string, token: string) {
+  return db.transaction(() => {
+    const unavailable = () => {
+      audit(db, { actorUserId: userId, scopeType: 'auth', action: 'board.invitation_accept', outcome: 'failure', metadata: { reason: 'unavailable' } });
+      return { status: 'unavailable' as const };
+    };
+    const invitation = db.prepare(`SELECT id, board_id AS boardId, role, expires_at AS expiresAt,
+      accepted_at AS acceptedAt, revoked_at AS revokedAt FROM board_invitations WHERE token_hash = ? AND target_user_id = ?`)
+      .get(hashBoardInvitationToken(token), userId) as { id: string; boardId: string; role: BoardRole; expiresAt: string; acceptedAt: string | null; revokedAt: string | null } | undefined;
+    if (!invitation || invitation.revokedAt || Date.parse(invitation.expiresAt) <= Date.now()) return unavailable();
+    if (!db.prepare(`SELECT 1 FROM board_invitations WHERE id = ? AND ${invitationIssuerAuthoritySql}`).get(invitation.id)) {
+      db.prepare("UPDATE board_invitations SET revoked_at = ?, revocation_reason = 'issuer_authority_lost' WHERE id = ?").run(new Date().toISOString(), invitation.id);
+      return unavailable();
+    }
+    const membership = db.prepare('SELECT role FROM board_memberships WHERE user_id = ? AND board_id = ?').get(userId, invitation.boardId) as { role: BoardRole } | undefined;
+    if (invitation.acceptedAt) {
+      if (!membership) {
+        db.prepare("UPDATE board_invitations SET revoked_at = ?, revocation_reason = 'membership_removed' WHERE id = ?").run(new Date().toISOString(), invitation.id);
+        return unavailable();
+      }
+      return { status: 'accepted' as const, boardId: invitation.boardId, membershipRole: membership.role, alreadyAccepted: true, sessionId: null };
+    }
+    if (membership) return { status: 'member' as const };
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO board_memberships (id, user_id, board_id, role, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), userId, invitation.boardId, invitation.role, now);
+    db.prepare('UPDATE board_invitations SET accepted_at = ? WHERE id = ?').run(now, invitation.id);
+    deleteSessionsForUser(db, userId);
+    const session = createSession(db, userId);
+    audit(db, { actorUserId: userId, targetUserId: userId, scopeType: 'board', scopeId: invitation.boardId, action: 'board.invitation_accept', outcome: 'success', metadata: { invitationId: invitation.id, role: invitation.role } });
+    return { status: 'accepted' as const, boardId: invitation.boardId, membershipRole: invitation.role, alreadyAccepted: false, sessionId: session.id };
+  })();
+}
 
 export function listPendingBoardInvitations(db: Database.Database, boardId: string, page: number, pageSize: number) {
   const where = `board_id = @boardId AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > @now AND ${invitationIssuerAuthoritySql}`;

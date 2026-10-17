@@ -124,4 +124,25 @@ describe('board invitation lifecycle', () => {
     expect((await agent.get('/api/admin/boards/b3/invitations')).status).toBe(403);
   });
 
+  it('accepts only for the bound recipient, rotates sessions and retries without a second membership', async () => {
+    const app = createApp(db);
+    const issuer = request.agent(app);
+    const target = request.agent(app);
+    const old = request.agent(app);
+    expect((await issuer.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' })).status).toBe(200);
+    for (const agent of [target, old]) expect((await agent.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' })).status).toBe(200);
+    const created = await issuer.post('/api/admin/boards/b1/invitations').send({ targetUserId: 'u2', role: 'observer', expiresAt: new Date(Date.now() + 86400000).toISOString() });
+    expect(created.status).toBe(201);
+    const accepted = await target.post('/api/auth/board-invitations/accept').send({ token: created.body.token });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toEqual({ boardId: 'b1', membershipRole: 'observer', alreadyAccepted: false });
+    expect(accepted.headers['set-cookie']).toBeDefined();
+    expect((await old.get('/api/auth/session')).status).toBe(401);
+    expect((await target.get('/api/auth/session')).status).toBe(200);
+    const retry = await target.post('/api/auth/board-invitations/accept').send({ token: created.body.token });
+    expect(retry.body).toEqual({ boardId: 'b1', membershipRole: 'observer', alreadyAccepted: true });
+    expect(db.prepare("SELECT id FROM board_memberships WHERE user_id = 'u2' AND board_id = 'b1'").all()).toHaveLength(1);
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'board.invitation_accept' AND outcome = 'success'").all()).toHaveLength(1);
+  });
+
 });

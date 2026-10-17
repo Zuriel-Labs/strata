@@ -26,6 +26,10 @@ function AppInner() {
     <div className="h-screen w-screen flex overflow-hidden" data-theme={themePreference} style={{ background: 'var(--bg)', color: 'var(--text-primary)', fontFamily: 'var(--font)' }}>
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Header />
+        {auth.error && <div role="alert" className="px-4 py-2 text-sm flex items-center gap-3" style={{ background: 'var(--bg-secondary)' }}>
+          <span>Connection interrupted. Content may be out of date.</span>
+          <button className="underline shrink-0 focus-visible:outline focus-visible:outline-2" onClick={() => void auth.refresh()}>Retry connection</button>
+        </div>}
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 flex flex-col overflow-hidden">
             {!board ? (

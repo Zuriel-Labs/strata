@@ -11,6 +11,14 @@ vi.mock('../services/invitations', () => ({ acceptBoardInvitation: vi.fn(), crea
 vi.mock('../services/admin', () => ({ fetchEligibleBoardUsers: vi.fn() }));
 beforeEach(() => vi.clearAllMocks());
 
+it('keeps invitation help associated with each Home instance', () => {
+  render(<><AcceptBoardInvitation /><AcceptBoardInvitation /></>);
+  const fields = screen.getAllByLabelText('Invitation code');
+  const helpIds = fields.map(field => field.getAttribute('aria-describedby'));
+  expect(new Set(helpIds).size).toBe(2);
+  for (const id of helpIds) expect(document.getElementById(id ?? '')).toHaveTextContent('Paste a code issued to your existing account.');
+});
+
 it('accepts a code in memory, clears it and refreshes the recipient’s access', async () => {
   const user = userEvent.setup();
   vi.mocked(invitations.acceptBoardInvitation).mockResolvedValue({ boardId: 'b1', membershipRole: 'observer', alreadyAccepted: false });

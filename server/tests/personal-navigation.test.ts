@@ -70,4 +70,51 @@ describe('personal navigation', () => {
     expect((await request(app).get('/api/auth/navigation?kind=recent')).status).toBe(401);
   });
 
+  it('uses stable bounded pages with actor- and kind-bound cursors', async () => {
+    const agent = request.agent(createApp(db));
+    await agent.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
+    for (const id of ['b1', 'b3']) await agent.put(`/api/auth/navigation/boards/${id}/star`).send({ starred: true });
+    db.prepare('UPDATE user_board_navigation SET starred_at = ?').run('2026-10-01T00:00:00.000Z');
+    const first = await agent.get('/api/auth/navigation?kind=starred&limit=1');
+    expect(first.body.items.map((item: { boardId: string }) => item.boardId)).toEqual(['b1']);
+    const cursor = first.body.nextCursor;
+    expect(typeof cursor).toBe('string');
+    const second = await agent.get('/api/auth/navigation').query({ kind: 'starred', limit: 1, cursor });
+    expect(second.body.items.map((item: { boardId: string }) => item.boardId)).toEqual(['b3']);
+    expect(second.body.nextCursor).toBeNull();
+    for (const query of [{ kind: 'recent', cursor }, { kind: 'starred', cursor: 'bad' }, { kind: 'starred', limit: 51 }, { kind: 'starred', limit: 0 }, { kind: 'starred', userId: 'u4' }]) {
+      expect((await agent.get('/api/auth/navigation').query(query)).body.code).toBe('NAVIGATION_INVALID');
+    }
+    const other = request.agent(createApp(db));
+    await other.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' });
+    expect((await other.get('/api/auth/navigation').query({ kind: 'starred', cursor })).status).toBe(400);
+  });
+
+  it('retains only 50 recent references while preserving older stars', async () => {
+    const agent = request.agent(createApp(db));
+    await agent.post('/api/auth/login').send({ username: 'alex', password: 'WorkspaceAdmin123!' });
+    const insert = db.prepare("INSERT INTO boards (id, title, workspace_id, visibility, color, labels_json, created_at) VALUES (?, 'Synthetic board', 'w1', 'public', '#123456', '[]', ?)");
+    for (let n = 0; n < 52; n++) {
+      const id = `history-${String(n).padStart(3, '0')}`;
+      insert.run(id, '2026-10-01T00:00:00.000Z');
+      if (n === 0) await agent.put(`/api/auth/navigation/boards/${id}/star`).send({ starred: true });
+      expect((await agent.put(`/api/auth/navigation/boards/${id}/visit`).send({})).status).toBe(204);
+      db.prepare('UPDATE user_board_navigation SET last_visited_at = ? WHERE board_id = ?').run(`2026-10-01T00:00:${String(n).padStart(2, '0')}.000Z`, id);
+    }
+    expect(db.prepare('SELECT COUNT(*) AS count FROM user_board_navigation WHERE user_id = ? AND last_visited_at IS NOT NULL').get('u2')).toEqual({ count: 50 });
+    expect((await agent.get('/api/auth/navigation?kind=starred')).body.items[0]).toMatchObject({ boardId: 'history-000', starred: true, lastVisitedAt: null });
+    expect((await agent.get('/api/auth/navigation?kind=recent&limit=50')).body.items).toHaveLength(50);
+  });
+
+  it('keeps personal star retries idempotent and rolls back on audit failure', async () => {
+    const agent = request.agent(createApp(db));
+    await agent.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' });
+    for (let n = 0; n < 2; n++) expect((await agent.put('/api/auth/navigation/boards/b2/star').send({ starred: true })).status).toBe(200);
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'auth.navigation_star'").all()).toHaveLength(1);
+    db.exec("CREATE TRIGGER fail_navigation_audit BEFORE INSERT ON audit_events WHEN NEW.action = 'auth.navigation_star' BEGIN SELECT RAISE(ABORT, 'Synthetic navigation failure'); END;");
+    expect((await agent.put('/api/auth/navigation/boards/b2/star').send({ starred: false })).status).toBe(500);
+    expect((await agent.get('/api/auth/navigation?kind=starred')).body.items[0].starred).toBe(true);
+    for (const body of [{ starred: 'true' }, { starred: true, userId: 'u3' }]) expect((await agent.put('/api/auth/navigation/boards/b2/star').send(body)).status).toBe(400);
+  });
+
 });

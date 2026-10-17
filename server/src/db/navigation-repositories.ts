@@ -1,5 +1,29 @@
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
+import { personalNavigationAccessSql } from '../rbac/policies';
+
+export interface NavigationCursor { userId: string; kind: 'recent' | 'starred'; timestamp: string; boardId: string }
+
+export function listPersonalBoardNavigation(db: Database.Database, userId: string, kind: 'recent' | 'starred', limit: number, cursor?: NavigationCursor) {
+  const orderColumn = kind === 'recent' ? 'last_visited_at' : 'starred_at';
+  const rows = db.prepare(`SELECT boards.id AS boardId, boards.workspace_id AS workspaceId, boards.title, boards.color,
+    n.starred, n.last_visited_at AS lastVisitedAt, n.${orderColumn} AS timestamp
+    FROM user_board_navigation n JOIN boards ON boards.id = n.board_id
+    WHERE n.user_id = @userId AND n.${orderColumn} IS NOT NULL
+      AND ${kind === 'starred' ? 'n.starred = 1 AND' : ''} ${personalNavigationAccessSql}
+      AND (@timestamp IS NULL OR n.${orderColumn} < @timestamp OR (n.${orderColumn} = @timestamp AND boards.id > @boardId))
+    ORDER BY n.${orderColumn} DESC, boards.id ASC LIMIT @limit`)
+    .all({ userId, timestamp: cursor?.timestamp ?? null, boardId: cursor?.boardId ?? null, limit: limit + 1 }) as Array<{
+      boardId: string; workspaceId: string; title: string; color: string; starred: number; lastVisitedAt: string | null; timestamp: string;
+    }>;
+  const visible = rows.slice(0, limit);
+  const last = visible.at(-1);
+  return {
+    items: visible.map(({ timestamp, ...row }) => { void timestamp; return { ...row, starred: Boolean(row.starred) }; }),
+    nextCursor: rows.length > limit && last
+      ? Buffer.from(JSON.stringify({ userId, kind, timestamp: last.timestamp, boardId: last.boardId })).toString('base64url') : null,
+  };
+}
 
 export function setPersonalBoardStar(db: Database.Database, userId: string, boardId: string, starred: boolean) {
   db.transaction(() => {

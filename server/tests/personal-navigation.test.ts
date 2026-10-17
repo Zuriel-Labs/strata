@@ -34,4 +34,21 @@ describe('personal navigation', () => {
     expect(db.prepare('SELECT starred FROM boards WHERE id = ?').get('b1')).toEqual(shared);
   });
 
+  it('lists only the actor’s accessible stars and filters revocation immediately', async () => {
+    const app = createApp(db);
+    const member = request.agent(app);
+    await member.post('/api/auth/login').send({ username: 'priya', password: 'Member12345!' });
+    await member.put('/api/auth/navigation/boards/b1/star').send({ starred: true });
+    const list = await member.get('/api/auth/navigation?kind=starred&limit=1').timeout({ response: 2000 });
+    expect(list.status).toBe(200);
+    expect(list.body.items).toEqual([{ boardId: 'b1', workspaceId: 'w1', ...db.prepare('SELECT title, color FROM boards WHERE id = ?').get('b1') as { title: string; color: string }, starred: true, lastVisitedAt: null }]);
+    expect(list.body.nextCursor).toBeNull();
+    const other = request.agent(app);
+    await other.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' });
+    expect((await other.get('/api/auth/navigation?kind=starred').timeout({ response: 2000 })).body.items).toEqual([]);
+    db.prepare('DELETE FROM board_memberships WHERE user_id = ? AND board_id = ?').run('u3', 'b1');
+    expect((await member.get('/api/auth/navigation?kind=starred').timeout({ response: 2000 })).body.items).toEqual([]);
+    expect((await member.put('/api/auth/navigation/boards/b1/star').send({ starred: false })).body.code).toBe('DESTINATION_UNAVAILABLE');
+  });
+
 });

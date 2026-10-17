@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { AuthContextValue } from '../types';
-import { getBoardById, userHasAccessToBoard, userHasAccessToWorkspace } from '../db/repositories';
+import { userHasAccessToBoard, userHasAccessToWorkspace } from '../db/repositories';
 import { canManageBoard, canManageWorkspace, isSystemAdmin } from './permissions';
 
 export function canManageUserPlatform(actor: AuthContextValue) {
@@ -19,10 +19,17 @@ export function canManageUserBoard(db: Database.Database, actor: AuthContextValu
   return canManageBoard(db, actor, boardId);
 }
 
+// Applied before pagination so inaccessible references cannot disclose metadata or consume a page.
+export const personalNavigationAccessSql = `EXISTS (SELECT 1 FROM users actor
+  WHERE actor.id = @userId AND actor.active = 1 AND actor.must_change_password = 0 AND (
+    actor.platform_role = 'system_admin'
+    OR EXISTS (SELECT 1 FROM board_memberships m WHERE m.user_id = actor.id AND m.board_id = boards.id)
+    OR EXISTS (SELECT 1 FROM board_admin_grants g WHERE g.user_id = actor.id AND g.board_id = boards.id)
+    OR EXISTS (SELECT 1 FROM workspace_admin_grants g WHERE g.user_id = actor.id AND g.workspace_id = boards.workspace_id)))`;
+
 export function canUsePersonalBoardNavigation(db: Database.Database, actor: AuthContextValue, boardId: string) {
-  const board = getBoardById(db, boardId);
-  return actor.user.active && !actor.user.mustChangePassword && board !== null
-    && userHasAccessToBoard(db, actor.user.id, board.id, board.workspaceId, actor.user);
+  return Boolean(db.prepare(`SELECT 1 FROM boards WHERE boards.id = @boardId AND ${personalNavigationAccessSql}`)
+    .get({ userId: actor.user.id, boardId }));
 }
 
 export function canSetDefaultSelection(db: Database.Database, actor: AuthContextValue, workspaceId: string | null, boardId: string | null) {

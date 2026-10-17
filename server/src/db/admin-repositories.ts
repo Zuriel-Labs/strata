@@ -162,10 +162,24 @@ export function validateAssignments(db: Database.Database, input: AssignmentInpu
   check('workspaces',input.workspaceAdminWorkspaceIds); check('boards',[...new Set([...input.boardAdminBoardIds,...input.boardMemberships.map(item=>item.boardId)])]);
 }
 
-export function replaceAssignments(db: Database.Database, actorId:string, userId:string, input:AssignmentInput) {
-  db.prepare('DELETE FROM workspace_admin_grants WHERE user_id=?').run(userId); db.prepare('DELETE FROM board_admin_grants WHERE user_id=?').run(userId); db.prepare('DELETE FROM board_memberships WHERE user_id=?').run(userId);
-  const now=new Date().toISOString(); const wg=db.prepare('INSERT INTO workspace_admin_grants (id,user_id,workspace_id,granted_by_user_id,created_at) VALUES (?,?,?,?,?)'); const bg=db.prepare('INSERT INTO board_admin_grants (id,user_id,board_id,granted_by_user_id,created_at) VALUES (?,?,?,?,?)'); const bm=db.prepare('INSERT INTO board_memberships (id,user_id,board_id,role,created_at) VALUES (?,?,?,?,?)');
-  input.workspaceAdminWorkspaceIds.forEach(id=>wg.run(randomUUID(),userId,id,actorId,now)); input.boardAdminBoardIds.forEach(id=>bg.run(randomUUID(),userId,id,actorId,now)); input.boardMemberships.forEach(item=>bm.run(randomUUID(),userId,item.boardId,item.role,now));
+export function replaceAssignments(db: Database.Database, actorId: string, userId: string, input: AssignmentInput) {
+  db.transaction(() => {
+    const now = new Date().toISOString();
+    const workspaceGrant = db.prepare('INSERT OR IGNORE INTO workspace_admin_grants (id, user_id, workspace_id, granted_by_user_id, created_at) VALUES (?, ?, ?, ?, ?)');
+    const boardGrant = db.prepare('INSERT OR IGNORE INTO board_admin_grants (id, user_id, board_id, granted_by_user_id, created_at) VALUES (?, ?, ?, ?, ?)');
+    const membership = db.prepare(`INSERT INTO board_memberships (id, user_id, board_id, role, created_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, board_id) DO UPDATE SET role = excluded.role`);
+    // Install replacement authority first so an unchanged effective scope never disappears mid-transaction.
+    input.workspaceAdminWorkspaceIds.forEach(id => workspaceGrant.run(randomUUID(), userId, id, actorId, now));
+    input.boardAdminBoardIds.forEach(id => boardGrant.run(randomUUID(), userId, id, actorId, now));
+    input.boardMemberships.forEach(item => membership.run(randomUUID(), userId, item.boardId, item.role, now));
+    db.prepare('DELETE FROM workspace_admin_grants WHERE user_id = ? AND workspace_id NOT IN (SELECT value FROM json_each(?))')
+      .run(userId, JSON.stringify(input.workspaceAdminWorkspaceIds));
+    db.prepare('DELETE FROM board_admin_grants WHERE user_id = ? AND board_id NOT IN (SELECT value FROM json_each(?))')
+      .run(userId, JSON.stringify(input.boardAdminBoardIds));
+    db.prepare('DELETE FROM board_memberships WHERE user_id = ? AND board_id NOT IN (SELECT value FROM json_each(?))')
+      .run(userId, JSON.stringify(input.boardMemberships.map(item => item.boardId)));
+  })();
 }
 
 export function createManagedUser(db:Database.Database, actor:UserRecord, input:ManagedUserInput) {

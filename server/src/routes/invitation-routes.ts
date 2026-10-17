@@ -1,25 +1,49 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageBoardInvitations } from '../rbac/policies';
-import { createBoardInvitation } from '../db/invitation-repositories';
+import { createBoardInvitation, listPendingBoardInvitations, revokeBoardInvitation } from '../db/invitation-repositories';
 import { audit } from '../audit/audit-log';
 
 const invitationBody = z.object({ targetUserId: z.string().min(1).max(100), role: z.enum(['member', 'observer']), expiresAt: z.iso.datetime() }).strict();
+const invitationParams = z.object({ boardId: z.string().min(1).max(100), invitationId: z.string().uuid().optional() }).strict();
+const invitationQuery = z.object({ status: z.literal('pending').default('pending'), page: z.coerce.number().int().min(1).max(100000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20) }).strict();
+
+function authorize(db: Database.Database, request: AuthenticatedRequest, response: Response, action: string) {
+  const actor = request.auth;
+  if (!actor) { response.status(401).json({ message: 'Authentication required.' }); return null; }
+  const params = invitationParams.safeParse(request.params);
+  if (!params.success) { response.status(400).json({ code: 'INVITATION_INVALID', message: 'Invalid invitation request.' }); return null; }
+  const { boardId } = params.data;
+  if (!canManageBoardInvitations(db, actor, boardId)) {
+    audit(db, { actorUserId: actor.user.id, scopeType: 'board', scopeId: boardId, action, outcome: 'failure', metadata: { reason: 'forbidden' } });
+    response.status(403).json({ message: 'Forbidden.' });
+    return null;
+  }
+  return { actor, ...params.data };
+}
 
 export function createAdminInvitationRoutes(db: Database.Database) {
   const router = Router();
   router.use(requireAuth);
+  router.get('/boards/:boardId/invitations', (request: AuthenticatedRequest, response) => {
+    const scope = authorize(db, request, response, 'board.invitation_list');
+    if (!scope) return;
+    const query = invitationQuery.safeParse(request.query);
+    if (!query.success) { response.status(400).json({ code: 'INVITATION_INVALID', message: 'Invalid invitation request.' }); return; }
+    response.set('Cache-Control', 'no-store').json(listPendingBoardInvitations(db, scope.boardId, query.data.page, query.data.pageSize));
+  });
+  router.delete('/boards/:boardId/invitations/:invitationId', (request: AuthenticatedRequest, response) => {
+    const scope = authorize(db, request, response, 'board.invitation_revoke');
+    if (!scope?.invitationId) return;
+    revokeBoardInvitation(db, scope.actor.user.id, scope.boardId, scope.invitationId);
+    response.status(204).send();
+  });
   router.post('/boards/:boardId/invitations', (request: AuthenticatedRequest, response) => {
-    const actor = request.auth;
-    if (!actor) return;
-    const boardId = String(request.params.boardId);
-    if (!canManageBoardInvitations(db, actor, boardId)) {
-      audit(db, { actorUserId: actor.user.id, scopeType: 'board', scopeId: boardId, action: 'board.invitation_create', outcome: 'failure', metadata: { reason: 'forbidden' } });
-      response.status(403).json({ message: 'Forbidden.' });
-      return;
-    }
+    const scope = authorize(db, request, response, 'board.invitation_create');
+    if (!scope) return;
+    const { actor, boardId } = scope;
     const parsed = invitationBody.safeParse(request.body);
     const now = Date.now();
     if (!parsed.success || Date.parse(parsed.data.expiresAt) <= now || Date.parse(parsed.data.expiresAt) > now + 7 * 86400000) {

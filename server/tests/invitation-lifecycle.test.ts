@@ -105,4 +105,23 @@ describe('board invitation lifecycle', () => {
     expect(JSON.stringify(audited)).not.toContain(created.body.token);
   });
 
+  it('lists only bounded invitation metadata and revokes idempotently without changing memberships', async () => {
+    const agent = request.agent(createApp(db));
+    expect((await agent.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' })).status).toBe(200);
+    const created = await agent.post('/api/admin/boards/b1/invitations').send({ targetUserId: 'u2', role: 'member', expiresAt: new Date(Date.now() + 86400000).toISOString() });
+    expect(created.status).toBe(201);
+    const listed = await agent.get('/api/admin/boards/b1/invitations?status=pending&page=1&pageSize=1');
+    expect(listed.status).toBe(200);
+    expect(listed.body.items).toHaveLength(1);
+    expect(listed.body.items[0]).toMatchObject({ id: created.body.invitation.id, targetUserId: 'u2', status: 'pending' });
+    expect(JSON.stringify(listed.body)).not.toMatch(/token|hash/);
+    const memberships = db.prepare('SELECT * FROM board_memberships ORDER BY id').all();
+    for (let n = 0; n < 2; n++) expect((await agent.delete(`/api/admin/boards/b1/invitations/${created.body.invitation.id}`)).status).toBe(204);
+    expect((await agent.get('/api/admin/boards/b1/invitations')).body.items).toEqual([]);
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'board.invitation_revoke'").all()).toHaveLength(1);
+    expect(db.prepare('SELECT * FROM board_memberships ORDER BY id').all()).toEqual(memberships);
+    expect((await agent.get('/api/admin/boards/b1/invitations?pageSize=51')).status).toBe(400);
+    expect((await agent.get('/api/admin/boards/b3/invitations')).status).toBe(403);
+  });
+
 });

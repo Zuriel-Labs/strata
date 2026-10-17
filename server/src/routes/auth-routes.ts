@@ -3,12 +3,13 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
 import { clearSessionCookie, createUserSession, destroyUserSession, SESSION_COOKIE } from '../auth/session';
-import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey, userHasAccessToBoard, userHasAccessToWorkspace } from '../db/repositories';
+import { buildSessionPayload, consumePasswordReset, deleteRecoveryKey, getRecoveryKeyByUserId, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey } from '../db/repositories';
 import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
 import { hashRecoveryKey, verifyRecoveryKey } from '../auth/recovery-keys';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { UserRecord } from '../types';
+import { canSetDefaultSelection } from '../rbac/policies';
 
 const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
 const passwordChangeSchema = z.object({ currentPassword: z.string().min(1), nextPassword: z.string().min(10), confirmPassword: z.string().min(1) });
@@ -187,40 +188,38 @@ export function createAuthRoutes(db: Database.Database) {
   router.patch('/preferences', requireAuth, (request: AuthenticatedRequest, response) => {
     const parsed = preferencesUpdateSchema.safeParse(request.body);
     if (!parsed.success || !request.auth) {
-      response.status(400).json({ message: parsed.success ? 'Invalid preferences payload.' : buildValidationMessage(parsed.error, 'Invalid preferences payload.') });
+      response.status(400).json({ code: 'PREFERENCES_INVALID', message: parsed.success ? 'Invalid preferences payload.' : buildValidationMessage(parsed.error, 'Invalid preferences payload.') });
       return;
     }
 
     const user = request.auth.user;
+    const defaultWorkspaceId = parsed.data.defaultWorkspaceId === undefined ? user.defaultWorkspaceId : parsed.data.defaultWorkspaceId;
+    const defaultBoardId = defaultWorkspaceId === null ? null
+      : parsed.data.defaultBoardId !== undefined ? parsed.data.defaultBoardId
+      : defaultWorkspaceId !== user.defaultWorkspaceId ? null : user.defaultBoardId;
 
-    if (parsed.data.defaultWorkspaceId && !userHasAccessToWorkspace(db, user.id, parsed.data.defaultWorkspaceId, user)) {
-      response.status(400).json({ message: 'Invalid default workspace.' });
+    if (!canSetDefaultSelection(db, request.auth, defaultWorkspaceId, defaultBoardId)) {
+      response.status(400).json({ code: 'DEFAULT_SELECTION_INVALID', message: 'Invalid default selection.' });
       return;
     }
 
-    if (parsed.data.defaultBoardId) {
-      if (!parsed.data.defaultWorkspaceId) {
-        response.status(400).json({ message: 'Cannot set default board without a default workspace.' });
-        return;
+    const updated = db.transaction(() => {
+      const preferences = updateUserPreferences(db, user.id, {
+        themePreference: parsed.data.themePreference,
+        defaultWorkspaceId,
+        defaultBoardId,
+      });
+      if (preferences) {
+        audit(db, { actorUserId: preferences.id, scopeType: 'auth', action: 'auth.preferences_update', outcome: 'success', metadata: { themePreference: preferences.themePreference, defaultWorkspaceId: preferences.defaultWorkspaceId, defaultBoardId: preferences.defaultBoardId } });
       }
-      if (!userHasAccessToBoard(db, user.id, parsed.data.defaultBoardId, parsed.data.defaultWorkspaceId, user)) {
-        response.status(400).json({ message: 'Invalid default board.' });
-        return;
-      }
-    }
-
-    const updated = updateUserPreferences(db, user.id, {
-      themePreference: parsed.data.themePreference,
-      defaultWorkspaceId: parsed.data.defaultWorkspaceId,
-      defaultBoardId: parsed.data.defaultBoardId,
-    });
+      return preferences;
+    })();
 
     if (!updated) {
       response.status(404).json({ message: 'User not found.' });
       return;
     }
 
-    audit(db, { actorUserId: updated.id, scopeType: 'auth', action: 'auth.preferences_update', outcome: 'success', metadata: { themePreference: updated.themePreference, defaultWorkspaceId: updated.defaultWorkspaceId, defaultBoardId: updated.defaultBoardId } });
     response.json({ user: buildSessionUser(updated) });
   });
 

@@ -161,10 +161,12 @@ export function userHasAccessToBoard(db: Database.Database, userId: string, boar
   }
   const row = db.prepare(`
     SELECT 1 AS id
-    WHERE EXISTS (SELECT 1 FROM board_memberships WHERE user_id = ? AND board_id = ?)
+    FROM boards
+    WHERE id = ? AND workspace_id = ?
+      AND (EXISTS (SELECT 1 FROM board_memberships WHERE user_id = ? AND board_id = ?)
        OR EXISTS (SELECT 1 FROM board_admin_grants WHERE user_id = ? AND board_id = ?)
-       OR EXISTS (SELECT 1 FROM workspace_admin_grants WHERE user_id = ? AND workspace_id = ?)
-  `).get(userId, boardId, userId, boardId, userId, workspaceId) as { id: number } | undefined;
+       OR EXISTS (SELECT 1 FROM workspace_admin_grants WHERE user_id = ? AND workspace_id = ?))
+  `).get(boardId, workspaceId, userId, boardId, userId, boardId, userId, workspaceId) as { id: number } | undefined;
   return row !== undefined;
 }
 

@@ -34,6 +34,7 @@ export function createIdentitySchema(db: Database.Database) {
       CREATE INDEX IF NOT EXISTS idx_invitations_board ON board_invitations(board_id, created_at DESC, id);
       CREATE INDEX IF NOT EXISTS idx_invitations_issuer ON board_invitations(issuer_user_id);
       CREATE INDEX IF NOT EXISTS idx_invitations_target ON board_invitations(target_user_id, board_id);
+      CREATE INDEX IF NOT EXISTS idx_invitations_terminal ON board_invitations(COALESCE(revoked_at, accepted_at, expires_at));
     `);
     createInvitationRevocationTriggers(db);
   })();

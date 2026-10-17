@@ -72,3 +72,10 @@ export function createBoardInvitation(db: Database.Database, issuerId: string, b
     return { status: 'created' as const, invitation: { id, boardId, targetUserId, role, expiresAt, status: 'pending' as const }, token };
   })();
 }
+
+export function purgeTerminalBoardInvitations(db: Database.Database, now = new Date()) {
+  const cutoff = new Date(now.getTime() - 30 * 86400000).toISOString();
+  return db.prepare(`DELETE FROM board_invitations WHERE id IN (
+    SELECT id FROM board_invitations WHERE COALESCE(revoked_at, accepted_at, expires_at) <= ?
+    ORDER BY COALESCE(revoked_at, accepted_at, expires_at), id LIMIT 1000)`).run(cutoff).changes;
+}

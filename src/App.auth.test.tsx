@@ -119,12 +119,14 @@ describe('App auth flows', () => {
     await user.clear(screen.getByLabelText('Initials'));
     await user.type(screen.getByLabelText('Initials'), 'AP');
     await user.click(screen.getByRole('button', { name: 'Save Profile' }));
+    expect(await screen.findByText('Profile updated.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close account menu' }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Open profile menu' })).toHaveTextContent('AP');
     });
 
-    await user.click(screen.getByRole('button', { name: 'Back to account menu' }));
+    await user.click(screen.getByRole('button', { name: 'Open profile menu' }));
     await user.click(screen.getByRole('button', { name: /^Preferences/ }));
     await user.click(screen.getByRole('radio', { name: /Light mode/ }));
     await user.click(screen.getByRole('button', { name: 'Save Preferences' }));

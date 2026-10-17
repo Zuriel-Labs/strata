@@ -135,9 +135,11 @@ test('mvp flow works end to end', async ({ page }) => {
   await page.getByLabel('Display name').fill('System Admin Prime');
   await page.getByLabel('Initials').fill('SP');
   await page.getByRole('button', { name: 'Save Profile' }).click();
+  await expect(page.getByText('Profile updated.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close account menu' }).click();
   await expect(page.getByRole('button', { name: 'Open profile menu' })).toHaveText('SP');
 
-  await page.getByRole('button', { name: 'Back to account menu' }).click();
+  await page.getByRole('button', { name: 'Open profile menu' }).click();
   await page.getByRole('button', { name: /^Preferences/ }).click();
   await page.getByRole('radio', { name: /Light mode/ }).check();
   await page.getByRole('button', { name: 'Save Preferences' }).click();

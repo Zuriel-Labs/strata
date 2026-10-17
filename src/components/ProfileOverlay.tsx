@@ -4,6 +4,7 @@ import { getContrastingTextColor } from '../lib/color';
 import { toast } from '../hooks/use-toast';
 import { generateRecoveryKey } from '../services/session';
 import type { ThemePreference } from '../types';
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 
 const PROFILE_COLOR_OPTIONS = [
   '#315ddc',
@@ -46,6 +47,9 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const sessionUserRef = useRef(sessionUser);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const lastViewRef = useRef<OverlayView>('profile');
 
   const previewColor = avatarColor || sessionUser?.color || PROFILE_COLOR_OPTIONS[0];
   const previewInitials = initials || sessionUser?.initials || 'SA';
@@ -76,20 +80,9 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
 
   useEffect(() => {
     if (!open) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || submitting) return;
-      if (view === 'menu') {
-        onClose();
-        return;
-      }
-      setNotice(null);
-      setView('menu');
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, open, submitting, view]);
+    const selector = view === 'menu' ? `[data-account-view="${lastViewRef.current}"]` : '[aria-label="Back to account menu"]';
+    contentRef.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [open, view]);
 
   if (!open || !sessionUser) return null;
 
@@ -99,6 +92,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
   };
 
   const openView = (nextView: OverlayView) => {
+    lastViewRef.current = nextView;
     setNotice(null);
     setView(nextView);
   };
@@ -227,6 +221,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
 
   const renderNotice = () => notice && (
     <div
+      role={notice.tone === 'error' ? 'alert' : 'status'}
       className="rounded-xl border px-3 py-3 text-sm"
       style={{
         background: notice.tone === 'success' ? 'rgba(50,196,141,0.12)' : 'rgba(255,107,107,0.12)',
@@ -266,20 +261,29 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
   );
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-start justify-center px-3 pt-12 sm:px-6 sm:pt-16"
-      style={{ background: 'var(--overlay-backdrop)' }}
-      onClick={event => {
-        if (event.target === event.currentTarget) closeOverlay();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Account menu"
-        className="w-full max-w-md overflow-hidden rounded-[28px] border shadow-2xl"
-        style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)' }}
+    <Dialog open={open} onOpenChange={nextOpen => { if (!nextOpen) closeOverlay(); }}>
+      <DialogContent
+        ref={contentRef}
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className="top-12 translate-y-0 w-[calc(100%-1.5rem)] max-w-md max-h-[calc(100dvh-4rem)] gap-0 overflow-y-auto rounded-[28px] p-0 shadow-2xl sm:top-16 sm:max-h-[calc(100dvh-5rem)]"
+        style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)', color: 'var(--text-primary)' }}
+        onOpenAutoFocus={() => {
+          returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }}
+        onCloseAutoFocus={event => {
+          event.preventDefault();
+          if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+        }}
+        onEscapeKeyDown={event => {
+          event.preventDefault();
+          if (submitting) return;
+          if (view === 'menu') closeOverlay();
+          else goBack();
+        }}
+        onPointerDownOutside={event => { if (submitting) event.preventDefault(); }}
       >
+        <DialogTitle className="sr-only">Account menu</DialogTitle>
         {view === 'menu' ? (
           <>
             <div className="flex items-start gap-4 border-b px-4 py-5 sm:px-5" style={{ borderColor: 'var(--border)' }}>
@@ -312,7 +316,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
 
               {renderNotice()}
 
-              <button type="button" onClick={() => openView('profile')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+              <button data-account-view="profile" type="button" onClick={() => openView('profile')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
                 <span>
                   <span className="block text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Profile</span>
                   <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>Display name, initials, and avatar color</span>
@@ -320,7 +324,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
                 <span aria-hidden="true" style={{ color: 'var(--text-secondary)' }}>&rarr;</span>
               </button>
 
-              <button type="button" onClick={() => openView('preferences')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+              <button data-account-view="preferences" type="button" onClick={() => openView('preferences')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
                 <span>
                   <span className="block text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Preferences</span>
                   <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>Theme selection and future personal options</span>
@@ -328,7 +332,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
                 <span aria-hidden="true" style={{ color: 'var(--text-secondary)' }}>&rarr;</span>
               </button>
 
-              <button type="button" onClick={() => openView('security')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
+              <button data-account-view="security" type="button" onClick={() => openView('security')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}>
                 <span>
                   <span className="block text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Security</span>
                   <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>Change your password</span>
@@ -636,7 +640,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
             </div>
           </>
         ) : null}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

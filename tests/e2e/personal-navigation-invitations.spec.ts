@@ -16,6 +16,22 @@ for (const width of [320, 768, 1440]) {
     expect(bounds?.x).toBeGreaterThanOrEqual(0);
     expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(width);
     expect(await home.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await home.getByRole('textbox', { name: 'Invitation code', exact: true }).fill(`bi_${'a'.repeat(64)}`);
+    const accept = home.getByRole('button', { name: 'Accept invitation', exact: true });
+    await accept.hover();
+    const contrast = await accept.evaluate(async element => {
+      await Promise.all(element.getAnimations().map((animation: { finished: Promise<unknown> }) => animation.finished));
+      const style = element.ownerDocument.defaultView!.getComputedStyle(element);
+      const luminance = (color: string) => {
+        const values = color.match(/[\d.]+/g)!.slice(0, 3).map(value => Number(value) / 255)
+          .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+        return values[0] * .2126 + values[1] * .7152 + values[2] * .0722;
+      };
+      const foreground = luminance(style.color), background = luminance(style.backgroundColor);
+      return (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+    await home.getByRole('textbox', { name: 'Invitation code', exact: true }).fill('');
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
     expect(await page.locator('html').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);

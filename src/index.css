@@ -15,7 +15,7 @@
 }
 .personal-navigation button { background: var(--bg-elevated); color: var(--text-primary); }
 .personal-navigation button[aria-pressed="true"] { background: var(--active-bg); color: var(--accent); }
-.personal-navigation button:hover:not(:disabled) { background: var(--bg-hover); }
+.personal-navigation button:not([type="submit"]):hover:not(:disabled) { background: var(--bg-hover); }
 .personal-navigation button[type="submit"] { background: var(--accent); color: var(--bg); }
 .personal-navigation :is(button, input, select, textarea):focus-visible {
   outline: 2px solid var(--accent);

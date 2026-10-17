@@ -28,7 +28,7 @@ export function AcceptBoardInvitation() {
   return <form aria-label="Accept a board invitation" className="space-y-3 border-t pt-4" onSubmit={event => { event.preventDefault(); void accept(); }}>
     <h3 className="font-semibold">Join a board</h3>
     <p id={helpId} className="text-sm opacity-70">Paste a code issued to your existing account. Codes expire within seven days.</p>
-    <label className="block text-sm">Invitation code<input type="password" autoComplete="off" spellCheck={false} required pattern="bi_[a-f0-9]{64}" maxLength={67} aria-describedby={helpId} value={token} disabled={pending} onChange={event => setToken(event.target.value)} className="block w-full mt-1 border rounded p-2 bg-background" /></label>
+    <label className="block text-sm">Invitation code<input type="text" autoComplete="off" spellCheck={false} required pattern="bi_[a-f0-9]{64}" maxLength={67} aria-describedby={helpId} value={token} disabled={pending} onChange={event => setToken(event.target.value)} className="block w-full mt-1 border rounded p-2 bg-background" /></label>
     <div className="flex flex-wrap gap-2"><Button type="submit" disabled={pending || !token.trim()}>{pending ? 'Accepting…' : 'Accept invitation'}</Button>{token && <Button type="button" variant="outline" disabled={pending} onClick={() => setToken('')}>Clear code</Button>}</div>
     {notice && <p role="status" className="text-sm">{notice}</p>}
     {error && <p role="alert" className="text-sm">{error}</p>}

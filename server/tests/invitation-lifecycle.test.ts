@@ -2,6 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase, type DatabaseHandle } from '../src/db/database';
+import request from 'supertest';
+import { createApp } from '../src/app';
 import { createSchema } from '../src/db/schema';
 import { getUserById } from '../src/db/repositories';
 import { replaceAssignments, updateManagedUser } from '../src/db/admin-repositories';
@@ -84,6 +86,23 @@ describe('board invitation lifecycle', () => {
     expect(db.prepare('SELECT revoked_at FROM board_invitations').get()).toEqual({ revoked_at: null });
     updateManagedUser(db, actor, 'u4', { platformRole: 'system_admin', workspaceAdminWorkspaceIds: [], boardAdminBoardIds: [], boardMemberships: [] });
     expect(db.prepare('SELECT revoked_at FROM board_invitations').get()).toEqual({ revoked_at: null });
+  });
+
+  it('issues a distinct one-time invitation for an existing account without granting membership', async () => {
+    const agent = request.agent(createApp(db));
+    expect((await agent.post('/api/auth/login').send({ username: 'marcus', password: 'BoardAdmin123!' })).status).toBe(200);
+    const expiresAt = new Date(Date.now() + 86400000).toISOString();
+    const created = await agent.post('/api/admin/boards/b1/invitations').send({ targetUserId: 'u2', role: 'observer', expiresAt });
+    expect(created.status).toBe(201);
+    expect(created.body.invitation).toMatchObject({ boardId: 'b1', targetUserId: 'u2', role: 'observer', expiresAt, status: 'pending' });
+    expect(created.body.token).toMatch(/^bi_[a-f0-9]{64}$/);
+    expect(db.prepare("SELECT id FROM board_memberships WHERE user_id = 'u2' AND board_id = 'b1'").get()).toBeUndefined();
+    const stored = db.prepare('SELECT * FROM board_invitations').all();
+    expect(stored).toHaveLength(1);
+    expect(JSON.stringify(stored)).not.toContain(created.body.token);
+    const audited = db.prepare("SELECT * FROM audit_events WHERE action = 'board.invitation_create'").all();
+    expect(audited).toHaveLength(1);
+    expect(JSON.stringify(audited)).not.toContain(created.body.token);
   });
 
 });

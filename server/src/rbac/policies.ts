@@ -19,6 +19,12 @@ export function canManageUserBoard(db: Database.Database, actor: AuthContextValu
   return canManageBoard(db, actor, boardId);
 }
 
+export function canManageBoardInvitations(db: Database.Database, actor: AuthContextValue, boardId: string) {
+  return actor.user.active && !actor.user.mustChangePassword
+    && Boolean(db.prepare('SELECT 1 FROM boards WHERE id = ?').get(boardId))
+    && canManageUserBoard(db, actor, boardId);
+}
+
 export const invitationIssuerAuthoritySql = `EXISTS (SELECT 1 FROM users issuer
   JOIN boards scope_board ON scope_board.id = board_invitations.board_id
   WHERE issuer.id = board_invitations.issuer_user_id AND issuer.active = 1 AND (

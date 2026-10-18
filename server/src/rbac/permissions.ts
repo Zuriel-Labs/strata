@@ -61,5 +61,6 @@ export function canArchiveBoardContent(db: Database.Database, auth: AuthContextV
 }
 
 export function canEditBoardCards(db: Database.Database, auth: AuthContextValue, boardId: string) {
-  return canManageBoard(db, auth, boardId) || hasBoardMemberRole(auth, boardId);
+  const template = db.prepare('SELECT is_template FROM boards WHERE id = ?').pluck().get(boardId);
+  return canManageBoard(db, auth, boardId) || (!template && hasBoardMemberRole(auth, boardId));
 }

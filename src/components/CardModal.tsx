@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { AlignLeft, CheckSquare, Clock3, Copy, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
 import { uid } from '../data';
-import { createCardCommentApi, deleteCardApi, deleteCardCommentApi, duplicateCardApi, updateBoardLabelsApi, updateCardApi, updateCardCommentApi, moveCardApi } from '../services/data';
+import { createCardCommentApi, deleteCardCommentApi, duplicateCardApi, updateBoardLabelsApi, updateCardApi, updateCardCommentApi, moveCardApi } from '../services/data';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
 import type { Attachment, Checklist, RichTextDocument } from '../types';
@@ -9,6 +9,8 @@ import { toast } from '../hooks/use-toast';
 import { RichTextEditor } from './RichTextEditor';
 import { RichTextRenderer } from './RichTextRenderer';
 import { LabelEditor } from './LabelEditor';
+import { ContentOperationDialog, type ContentOperationDialogProps } from './ContentOperationDialog';
+import { Button } from './ui/button';
 import { normalizeDateOnly } from '../lib/date-only';
 
 type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
@@ -86,9 +88,8 @@ export function CardModal() {
   const [labelQuery, setLabelQuery] = useState('');
   const [labelAssignmentPendingId, setLabelAssignmentPendingId] = useState<string | null>(null);
   const [labelAssignmentError, setLabelAssignmentError] = useState('');
-  const [deleteConfirmation, setDeleteConfirmation] = useState('');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deletePending, setDeletePending] = useState(false);
+  const [operation, setOperation] = useState<ContentOperationDialogProps['kind'] | null>(null);
+  const [archivePending, setArchivePending] = useState(false);
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [duplicateError, setDuplicateError] = useState('');
   const [duplicateStatus, setDuplicateStatus] = useState('');
@@ -134,14 +135,15 @@ export function CardModal() {
     ? Math.round((completedChecklistItems / totalChecklistItems) * 100)
     : 0;
   const currentUser = state.users.find(user => user.id === state.currentUserId) ?? state.users[0] ?? null;
-  const canEditCard = auth.canEditBoardCards(card.boardId);
-  const canDeleteCard = auth.canManageBoard(card.boardId);
+  const canEditCard = auth.canEditBoardCards(card.boardId) && !card.archived && !list?.archived;
+  const canCollaborate = canEditCard && !state.boards.find(board => board.id === card.boardId)?.isTemplate;
+  const canDeleteCard = auth.canArchiveBoardContent(card.boardId) && !card.archived && !list?.archived;
   const canManageLabels = auth.canManageBoardLabels(card.boardId);
   const hiddenSectionButtons = canEditCard ? [
     { key: 'members' as const, label: 'Members', icon: Users, visible: card.memberIds.length > 0 || revealedSections.members },
     { key: 'dueDate' as const, label: 'Dates', icon: Clock3, visible: Boolean(card.dueDate) || revealedSections.dueDate },
     { key: 'attachments' as const, label: 'Attachment', icon: Paperclip, visible: card.attachments.length > 0 || revealedSections.attachments },
-  ].filter(section => !section.visible) : [];
+  ].filter(section => !section.visible && (section.key !== 'members' || canCollaborate)) : [];
 
   const close = () => dispatch({ type: 'SET_ACTIVE_CARD', payload: null });
   const closeLabelPicker = () => {
@@ -202,31 +204,6 @@ export function CardModal() {
       variant: 'destructive',
     });
     await auth.refresh();
-  };
-
-  const closeDeleteDialog = () => {
-    setDeleteDialogOpen(false);
-    setDeleteConfirmation('');
-    setDeletePending(false);
-  };
-
-  const handleDeleteCard = async () => {
-    if (!canDeleteCard || deletePending || deleteConfirmation !== 'DELETE') return;
-
-    setDeletePending(true);
-
-    try {
-      await deleteCardApi(card.id);
-      dispatch({ type: 'DELETE_CARD', payload: card.id });
-      closeDeleteDialog();
-    } catch (error) {
-      setDeletePending(false);
-      toast({
-        title: 'Card not deleted',
-        description: error instanceof Error ? error.message : 'The card could not be deleted.',
-        variant: 'destructive',
-      });
-    }
   };
 
   const handleDuplicateCard = async () => {
@@ -568,7 +545,7 @@ export function CardModal() {
         {labelPickerOpen && (
           <div data-testid="labels-panel-backdrop" className="absolute inset-0 z-10" onClick={closeLabelPicker} aria-hidden="true" />
         )}
-        <div className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-5" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-5" style={{ borderColor: 'var(--border)' }}>
           <select
             aria-label="Card list"
             value={card.listId}
@@ -582,7 +559,7 @@ export function CardModal() {
             ))}
           </select>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {canEditCard && (
               <button
                 type="button"
@@ -596,20 +573,16 @@ export function CardModal() {
                 <Copy size={18} />
               </button>
             )}
-            {canDeleteCard && (
-              <button
-                aria-label="Delete card"
-                onClick={() => {
-                  setDeleteDialogOpen(true);
-                  setDeleteConfirmation('');
-                }}
-                className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
-                style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}
-              >
-                <Trash2 size={18} />
-              </button>
-            )}
-            {canEditCard && <button
+            {!card.archived && !list?.archived && board?.lifecycleState !== 'closed' && state.workspaces.find(workspace => workspace.id === board?.workspaceId)?.lifecycleState !== 'closed' && <Button size="sm" variant="outline" onClick={() => setOperation('card_copy')}>Copy with options</Button>}
+            {canEditCard && <Button size="sm" variant="outline" onClick={() => setOperation('card_move')}>Transfer card</Button>}
+            {canDeleteCard && !card.archived && <Button size="sm" variant="outline" disabled={archivePending} onClick={async () => {
+              setArchivePending(true);
+              try { const updated = await updateCardApi(card.id, { archived: true }); dispatch({ type: 'APPLY_CARD_FROM_API', payload: updated }); close(); await auth.refresh(); }
+              catch (failure) { toast({ title: 'Card not archived', description: failure instanceof Error ? failure.message : 'Unable to archive card.', variant: 'destructive' }); }
+              finally { setArchivePending(false); }
+            }}>Archive card</Button>}
+            {auth.canManageBoard(card.boardId) && card.archived && <Button size="sm" variant="destructive" onClick={() => setOperation('delete')}>Delete archived card</Button>}
+            {canCollaborate && <button
               aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
               onClick={handleToggleWatch}
               className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80"
@@ -785,7 +758,7 @@ export function CardModal() {
                   <button
                     key={member.id}
                     type="button"
-                    disabled={!canEditCard}
+                    disabled={!canCollaborate}
                     onClick={() => handleMemberChange(card.memberIds.filter(id => id !== member.id))}
                     className="inline-flex min-h-[44px] items-center rounded-full px-3 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-default disabled:opacity-100"
                     style={{ background: member.color }}
@@ -794,7 +767,7 @@ export function CardModal() {
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 text-[11px] font-bold">{member.initials}</span>
                   </button>
                 ))}
-                {canEditCard && availableMembers.length > 0 && (
+                {canCollaborate && availableMembers.length > 0 && (
                   <select
                     aria-label="Add member"
                     value=""
@@ -1253,7 +1226,7 @@ export function CardModal() {
 
           <section>
             <SectionHeading icon={MessageSquare} title="Comments and activity" />
-            {canEditCard && <div className="mb-4 flex gap-3">
+            {canCollaborate && <div className="mb-4 flex gap-3">
               <AvatarBadge initials={currentUser?.initials ?? '??'} color={currentUser?.color ?? '#6366f1'} />
               <div className="flex-1">
                 <textarea
@@ -1313,10 +1286,10 @@ export function CardModal() {
                         <>
                           <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>{entry.text}</p>
                           <div className="mt-1 flex flex-wrap gap-3">
-                            {canEditCard && entry.userId === state.currentUserId && (
+                            {canCollaborate && entry.userId === state.currentUserId && (
                               <button type="button" aria-label={`Edit comment ${entry.text}`} disabled={commentPending || Boolean(deletingCommentId)} onClick={() => beginCommentEdit(entry.id, entry.text)} className="min-h-[40px] text-xs font-semibold disabled:opacity-50" style={{ color: 'var(--accent)' }}>Edit</button>
                             )}
-                            {canDeleteCard && (
+                            {canDeleteCard && canCollaborate && (
                               <button type="button" aria-label={`Delete comment ${entry.text}`} disabled={commentPending || Boolean(deletingCommentId)} onClick={() => void handleDeleteComment(entry.id)} className="min-h-[40px] text-xs font-semibold disabled:opacity-50" style={{ color: '#ef4444' }}>{deletingCommentId === entry.id ? 'Deleting…' : 'Delete'}</button>
                             )}
                           </div>
@@ -1349,43 +1322,8 @@ export function CardModal() {
             </div>
           </section>
         </div>
-        {deleteDialogOpen && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center px-4" style={{ background: 'rgba(5, 7, 12, 0.78)' }}>
-            <div className="w-full max-w-md rounded-2xl border p-5" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)' }}>
-              <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Delete card</h3>
-              <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Card <strong style={{ color: 'var(--text-primary)' }}>{card.title}</strong> will be permanently deleted. Type <strong style={{ color: 'var(--text-primary)' }}>DELETE</strong> to enable confirmation.
-              </p>
-              <input
-                autoFocus
-                value={deleteConfirmation}
-                onChange={event => setDeleteConfirmation(event.target.value)}
-                placeholder="Type DELETE to confirm"
-                className="mt-4 w-full rounded-lg border px-3 min-h-[44px] text-sm outline-none"
-                style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              />
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeDeleteDialog}
-                  className="rounded-xl px-4 min-h-[44px] text-sm font-semibold"
-                  style={{ background: '#2563eb', color: '#eff6ff' }}
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { void handleDeleteCard(); }}
-                  disabled={deleteConfirmation !== 'DELETE' || deletePending}
-                  className="rounded-xl px-4 min-h-[44px] text-sm font-semibold"
-                  style={{ background: deleteConfirmation === 'DELETE' ? '#dc2626' : '#7f1d1d', color: '#fff5f5', opacity: deletePending ? 0.75 : 1 }}
-                >
-                  YES
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {operation && <ContentOperationDialog kind={operation} resourceType={operation === 'delete' ? 'card' : undefined} sourceId={card.id} onClose={() => setOperation(null)} onComplete={() => { if (operation === 'delete' || operation === 'card_move') close(); }} />}
+
       </div>
     </div>
   );

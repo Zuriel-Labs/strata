@@ -22,9 +22,10 @@ function AppInner() {
   const themePreference = auth.session?.user.themePreference ?? 'dark';
   const [visitError, setVisitError] = useState<string | null>(null);
   const boardId = board?.id;
+  const boardInactive = board?.lifecycleState === 'closed' || board?.isTemplate || state.workspaces.find(workspace => workspace.id === board?.workspaceId)?.lifecycleState === 'closed';
   const refresh = auth.refresh;
   useEffect(() => {
-    if (!boardId) return;
+    if (!boardId || boardInactive) return;
     let cancelled = false;
     void visitBoard(boardId).then(() => { if (!cancelled) setVisitError(null); }).catch(async failure => {
       if (cancelled) return;
@@ -32,7 +33,7 @@ function AppInner() {
       if (failure instanceof ApiError && [401, 404].includes(failure.status)) await refresh();
     });
     return () => { cancelled = true; };
-  }, [boardId, refresh]);
+  }, [boardId, boardInactive, refresh]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themePreference;
@@ -46,6 +47,7 @@ function AppInner() {
           <span>Connection interrupted. Content may be out of date.</span>
           <button className="underline shrink-0 focus-visible:outline focus-visible:outline-2" onClick={() => void auth.refresh()}>Retry connection</button>
         </div>}
+        {boardInactive && <p role="status" className="px-4 py-2 text-sm">{board?.isTemplate ? 'Private template. Create an independent copy to start a board.' : 'Closed content is read-only. Reopen its workspace and board to make changes.'}</p>}
         {visitError && <p role="status" className="px-4 py-1 text-sm">{visitError}</p>}
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 flex flex-col overflow-hidden">

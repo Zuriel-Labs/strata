@@ -5,7 +5,7 @@ import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware'
 import { canAcceptBoardInvitations, canManageBoardInvitations } from '../rbac/policies';
 import { acceptBoardInvitation, createBoardInvitation, listPendingBoardInvitations, revokeBoardInvitation } from '../db/invitation-repositories';
 import { audit } from '../audit/audit-log';
-import { setSessionCookie } from '../auth/session';
+import { getAuthContextFromRequest, setSessionCookie } from '../auth/session';
 
 const invitationBody = z.object({ targetUserId: z.string().min(1).max(100), role: z.enum(['member', 'observer']), expiresAt: z.iso.datetime() }).strict();
 const invitationParams = z.object({ boardId: z.string().min(1).max(100), invitationId: z.string().uuid().optional() }).strict();
@@ -15,8 +15,8 @@ const acceptBody = z.object({ token: z.string().regex(/^bi_[a-f0-9]{64}$/) }).st
 export function createRecipientInvitationRoutes(db: Database.Database) {
   const router = Router();
   router.post('/board-invitations/accept', requireAuth, (request: AuthenticatedRequest, response) => {
-    const actor = request.auth;
-    if (!actor) return;
+    const actor = request.auth ? getAuthContextFromRequest(db, request.auth.session.id) : null;
+    if (!actor) { response.status(401).json({ message: 'Authentication required.' }); return; }
     if (!canAcceptBoardInvitations(actor)) { response.status(403).json({ message: 'Password change required.' }); return; }
     const parsed = acceptBody.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ code: 'INVITATION_INVALID', message: 'Invalid invitation request.' }); return; }

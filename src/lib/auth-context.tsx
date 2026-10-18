@@ -44,10 +44,17 @@ export function canManageBoardForSession(session: SessionPayload | null, boardId
   return board ? (session.permissions.workspaceAdminGrants ?? []).some(grant => grant.workspaceId === board.workspaceId) : false;
 }
 
+export function isBoardActiveForSession(session: SessionPayload | null, boardId: string | null) {
+  const board = session?.appState.boards.find(candidate => candidate.id === boardId);
+  return Boolean(board && board.lifecycleState !== 'closed' && session?.appState.workspaces.find(workspace => workspace.id === board.workspaceId)?.lifecycleState !== 'closed');
+}
+
 export function canEditBoardCardsForSession(session: SessionPayload | null, boardId: string | null) {
   if (!boardId || !session) return false;
+  if (!isBoardActiveForSession(session, boardId)) return false;
+  const board = session.appState.boards.find(candidate => candidate.id === boardId);
   return canManageBoardForSession(session, boardId)
-    || session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'member');
+    || (!board?.isTemplate && session.permissions.boardMemberships.some(membership => membership.boardId === boardId && membership.role === 'member'));
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -184,9 +191,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessDenied,
     canManageWorkspace: workspaceId => canManageWorkspaceForSession(session, workspaceId),
     canManageBoard: boardId => canManageBoardForSession(session, boardId),
-    canManageAutomation: boardId => canManageBoardForSession(session, boardId),
-    canManageBoardLabels: boardId => canManageBoardForSession(session, boardId),
-    canArchiveBoardContent: boardId => canManageBoardForSession(session, boardId),
+    canManageAutomation: boardId => isBoardActiveForSession(session, boardId) && canManageBoardForSession(session, boardId),
+    canManageBoardLabels: boardId => isBoardActiveForSession(session, boardId) && canManageBoardForSession(session, boardId),
+    canArchiveBoardContent: boardId => isBoardActiveForSession(session, boardId) && canManageBoardForSession(session, boardId),
     canEditBoardCards: boardId => canEditBoardCardsForSession(session, boardId),
   }), [accessDenied, adminOpen, bootstrapFn, error, login, logout, pendingSession, refresh, session, status, updatePassword, updatePreferences, updateProfile]);
 

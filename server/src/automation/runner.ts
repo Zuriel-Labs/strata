@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isListActive } from '../rbac/lifecycle';
 import type Database from 'better-sqlite3';
 import type { AutomationRule, Card } from '../../../src/types';
 import { createAuditEvent, getMaxCardPosition, listActiveCardsForAutomation, listScheduledAutomationRules, setAutomationRuleLastRunAt, updateCard } from '../db/repositories';
@@ -64,7 +65,7 @@ function applyRuleToCard(db: Database.Database, rule: AutomationRule, card: Card
     return true;
   }
 
-  if (rule.action === 'move_to_list' && rule.actionConfig.listId && card.listId !== rule.actionConfig.listId) {
+  if (rule.action === 'move_to_list' && rule.actionConfig.listId && isListActive(db, rule.actionConfig.listId) && card.listId !== rule.actionConfig.listId) {
     updateCard(db, card.id, {
       listId: rule.actionConfig.listId,
       position: getMaxCardPosition(db, rule.actionConfig.listId) + 1,
@@ -88,9 +89,10 @@ export function runScheduledAutomations(db: Database.Database, now = new Date())
   const rules = listScheduledAutomationRules(db);
   for (const rule of rules) {
     if (!shouldRunRule(rule, now)) continue;
+    db.transaction(() => {
     const cards = listActiveCardsForAutomation(db, rule.boardId, rule.conditions);
     let affectedCards = 0;
-    for (const card of cards) {
+    for (const card of cards.filter(card => isListActive(db, card.listId))) {
       if (applyRuleToCard(db, rule, card)) {
         affectedCards += 1;
       }
@@ -103,6 +105,7 @@ export function runScheduledAutomations(db: Database.Database, now = new Date())
       outcome: 'success',
       metadata: { ruleId: rule.id, affectedCards, trigger: rule.trigger },
     });
+    })();
   }
 }
 

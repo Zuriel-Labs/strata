@@ -4,10 +4,10 @@ import { AppProvider, initialState } from '../store';
 import { ArchiveItems } from './ArchiveItems';
 import { getArchivedBoardItems } from '../lib/archive-items';
 
-const { deleteListApiMock, authState } = vi.hoisted(() => ({
-  deleteListApiMock: vi.fn(),
+const { deleteListApiMock, previewMock, commitMock, authState } = vi.hoisted(() => ({
+  deleteListApiMock: vi.fn(), previewMock: vi.fn(), commitMock: vi.fn(),
   authState: {
-    canArchiveBoardContent: vi.fn(() => true),
+    canArchiveBoardContent: vi.fn(() => true), canManageWorkspace: vi.fn(() => true), canManageBoard: vi.fn(() => true), canEditBoardCards: vi.fn(() => true), refresh: vi.fn(async () => {}),
   },
 }));
 
@@ -15,6 +15,8 @@ vi.mock('../services/data', async () => {
   const actual = await vi.importActual<typeof import('../services/data')>('../services/data');
   return { ...actual, deleteListApi: deleteListApiMock };
 });
+
+vi.mock('../services/content', () => ({ previewContentOperation: previewMock, commitContentOperation: commitMock }));
 
 vi.mock('../lib/auth-context', () => ({ useAuth: () => authState }));
 
@@ -30,6 +32,8 @@ function archivedState() {
 
 describe('ArchiveItems', () => {
   beforeEach(() => {
+    previewMock.mockResolvedValue({ planHash: 'plan', counts: { lists: 1, cards: 2 }, warnings: [], unresolvedMappings: [], expiresAt: '2099-01-01T00:00:00Z' });
+    commitMock.mockResolvedValue({});
     deleteListApiMock.mockReset();
     deleteListApiMock.mockResolvedValue({ success: true, deletedCardCount: 2 });
     authState.canArchiveBoardContent.mockReturnValue(true);
@@ -50,10 +54,13 @@ describe('ArchiveItems', () => {
     expect(screen.getByText(/Implement OAuth2 login flow/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Delete archived list Backlog' }));
-    expect(screen.getByRole('alertdialog')).toHaveTextContent(/permanently delete/i);
-    await user.click(screen.getByRole('button', { name: 'Confirm delete archived list' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(/permanently delete/i);
+    await user.click(screen.getByRole('button', { name: 'Preview impact' }));
+    await user.type(screen.getByLabelText('Type DELETE to confirm'), 'DELETE');
+    await user.click(screen.getByRole('button', { name: 'Delete permanently' }));
 
-    expect(deleteListApiMock).toHaveBeenCalledWith('l1');
+    expect(commitMock).toHaveBeenCalledWith(expect.objectContaining({ kind: 'delete', sourceId: 'l1', confirmation: 'DELETE', planHash: 'plan' }), expect.any(String));
+    expect(deleteListApiMock).not.toHaveBeenCalled();
     expect(screen.queryByText(/Backlog/)).not.toBeInTheDocument();
   });
 

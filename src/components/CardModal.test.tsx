@@ -9,6 +9,8 @@ const fetchMock = vi.fn();
 const authState = {
   canEditBoardCards: vi.fn(() => true),
   canManageBoard: vi.fn(() => true),
+  canManageWorkspace: vi.fn(() => true),
+  canArchiveBoardContent: vi.fn(() => true),
   canManageBoardLabels: vi.fn(() => true),
   refresh: vi.fn(async () => {}),
 };
@@ -56,6 +58,7 @@ describe('CardModal', () => {
     authState.canEditBoardCards.mockReturnValue(true);
     authState.canManageBoard.mockReset();
     authState.canManageBoard.mockReturnValue(true);
+    authState.canArchiveBoardContent.mockReturnValue(true);
     authState.canManageBoardLabels.mockReset();
     authState.canManageBoardLabels.mockReturnValue(true);
     authState.refresh.mockReset();
@@ -122,11 +125,13 @@ describe('CardModal', () => {
     await user.selectOptions(screen.getByLabelText('Card list'), 'l2');
     expect(screen.getByLabelText('Card list')).toHaveValue('l2');
     expect(screen.getByText('In list', { exact: false })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Delete card')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archive card' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Delete card')).not.toBeInTheDocument();
   });
 
   it('hides the card delete control for non-board-admin roles', () => {
     authState.canManageBoard.mockReturnValue(false);
+    authState.canArchiveBoardContent.mockReturnValue(false);
 
     render(
       <AppProvider initialAppState={buildState('c5')}>
@@ -186,6 +191,7 @@ describe('CardModal', () => {
   it('keeps card content readable while hiding or disabling every mutation for read-only roles', () => {
     authState.canEditBoardCards.mockReturnValue(false);
     authState.canManageBoard.mockReturnValue(false);
+    authState.canArchiveBoardContent.mockReturnValue(false);
     authState.canManageBoardLabels.mockReturnValue(false);
 
     render(<AppProvider initialAppState={buildState('c5', {
@@ -734,6 +740,7 @@ describe('CardModal', () => {
   it('lets a Member edit only their own comments and exposes no delete action', async () => {
     const user = userEvent.setup();
     authState.canManageBoard.mockReturnValue(false);
+    authState.canArchiveBoardContent.mockReturnValue(false);
     const state = buildState('c5', {
       comments: [
         { id: 'cm-own', userId: initialState.currentUserId, text: 'Own draft', createdAt: '2026-08-25T00:00:00.000Z' },
@@ -779,24 +786,20 @@ describe('CardModal', () => {
     expect(screen.queryByText('Remove this')).not.toBeInTheDocument();
   });
 
-  it('requires DELETE confirmation before deleting a card', async () => {
+  it('requires archived state, preview and DELETE confirmation before deleting a card', async () => {
     const user = userEvent.setup();
-    render(
-      <AppProvider initialAppState={buildState('c5')}>
-        <CardModal />
-      </AppProvider>,
-    );
-
-    await user.click(screen.getByLabelText('Delete card'));
-    const yesButton = screen.getByRole('button', { name: 'YES' });
-
-    expect(yesButton).toBeDisabled();
-    await user.type(screen.getByPlaceholderText('Type DELETE to confirm'), 'DELETE');
-    expect(yesButton).toBeEnabled();
-    await user.click(yesButton);
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/cards/c5', expect.objectContaining({ method: 'DELETE' }));
-    });
+    fetchMock.mockImplementation(async (path: RequestInfo | URL) => Response.json(String(path).endsWith('/preview')
+      ? { planHash: 'plan', counts: { cards: 1 }, warnings: [], unresolvedMappings: [], expiresAt: '2099-01-01T00:00:00Z' } : {}));
+    render(<AppProvider initialAppState={buildState('c5', { archived: true })}><CardModal /></AppProvider>);
+    expect(screen.queryByRole('button', { name: 'Archive card' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete archived card' }));
+    const confirm = screen.getByRole('button', { name: 'Delete permanently' });
+    expect(confirm).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Preview impact' }));
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText('Type DELETE to confirm'), 'DELETE');
+    await user.click(confirm);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/content-operations', expect.objectContaining({ method: 'POST' })));
+    expect(fetchMock.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(false);
   });
 });

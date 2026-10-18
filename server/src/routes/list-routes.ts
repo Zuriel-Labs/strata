@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { createList, updateList, archiveList, restoreList, deleteArchivedList, moveList, sortListCards, getListById, getMaxListPosition, createAuditEvent } from '../db/repositories';
+import { createList, updateList, archiveList, restoreList, moveList, sortListCards, getListById, getMaxListPosition, createAuditEvent } from '../db/repositories';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canArchiveBoardContent, canManageBoard } from '../rbac/permissions';
 
@@ -39,8 +39,10 @@ export function createListRoutes(db: Database.Database) {
     }
     const id = randomUUID();
     const position = getMaxListPosition(db, parsed.data.boardId) + 1;
-    createList(db, id, parsed.data.title, parsed.data.boardId, position);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: parsed.data.boardId, action: 'list.create', outcome: 'success' });
+    db.transaction(() => {
+      createList(db, id, parsed.data.title, parsed.data.boardId, position);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: parsed.data.boardId, action: 'list.create', outcome: 'success' });
+    })();
     response.status(201).json({ id, title: parsed.data.title, boardId: parsed.data.boardId, position, archived: false });
   });
 
@@ -52,8 +54,11 @@ export function createListRoutes(db: Database.Database) {
     if (!canManageBoard(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     const parsed = updateListSchema.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ message: 'Invalid payload.' }); return; }
-    updateList(db, listId, parsed.data.title);
-    response.json({ ...list, title: parsed.data.title });
+    db.transaction(() => {
+      updateList(db, listId, parsed.data.title);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.update', outcome: 'success' });
+    })();
+    response.json(getListById(db, listId));
   });
 
   // Sort active cards in a list
@@ -80,8 +85,10 @@ export function createListRoutes(db: Database.Database) {
     const list = getListById(db, listId);
     if (!list) { response.status(404).json({ message: 'List not found.' }); return; }
     if (!canArchiveBoardContent(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
-    archiveList(db, listId);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.archive', outcome: 'success' });
+    if (!list.archived) db.transaction(() => {
+      archiveList(db, listId);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.archive', outcome: 'success' });
+    })();
     response.json({ success: true });
   });
 
@@ -91,8 +98,10 @@ export function createListRoutes(db: Database.Database) {
     const list = getListById(db, listId);
     if (!list) { response.status(404).json({ message: 'List not found.' }); return; }
     if (!canArchiveBoardContent(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
-    restoreList(db, listId);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.restore', outcome: 'success' });
+    if (list.archived) db.transaction(() => {
+      restoreList(db, listId);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.restore', outcome: 'success' });
+    })();
     response.json({ success: true });
   });
 
@@ -104,23 +113,7 @@ export function createListRoutes(db: Database.Database) {
     if (!canArchiveBoardContent(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     if (!list.archived) { response.status(400).json({ message: 'Only archived lists can be permanently deleted.' }); return; }
 
-    try {
-      const deletedCardCount = db.transaction(() => {
-        const count = deleteArchivedList(db, listId);
-        createAuditEvent(db, {
-          actorUserId: request.auth!.user.id,
-          scopeType: 'board',
-          scopeId: list.boardId,
-          action: 'list.delete',
-          outcome: 'success',
-          metadata: { listId, deletedCardCount: count },
-        });
-        return count;
-      })();
-      response.json({ success: true, deletedCardCount });
-    } catch {
-      response.status(500).json({ message: 'Unable to permanently delete list.' });
-    }
+    response.status(409).json({ code: 'PREVIEW_REQUIRED', message: 'Use a fresh content-operation preview and typed confirmation for permanent deletion.' });
   });
 
   // Move list
@@ -131,7 +124,10 @@ export function createListRoutes(db: Database.Database) {
     if (!canManageBoard(db, request.auth!, list.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
     const parsed = moveListSchema.safeParse(request.body);
     if (!parsed.success) { response.status(400).json({ message: 'Invalid payload.' }); return; }
-    moveList(db, listId, list.boardId, parsed.data.toPosition);
+    db.transaction(() => {
+      moveList(db, listId, list.boardId, parsed.data.toPosition);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: list.boardId, action: 'list.move', outcome: 'success' });
+    })();
     response.json({ success: true });
   });
 

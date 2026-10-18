@@ -68,8 +68,10 @@ export function createBoardRoutes(db: Database.Database) {
       response.status(409).json({ code: 'LABEL_LIMIT_EXCEEDED', message: `Boards can have at most ${maxLabelsPerBoard} labels.`, details: { maxLabelsPerBoard, currentLabelCount: 0 } });
       return;
     }
-    createBoard(db, id, parsed.data.title, parsed.data.workspaceId, 'workspace', parsed.data.color, JSON.stringify(labels));
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: id, action: 'board.create', outcome: 'success' });
+    db.transaction(() => {
+      createBoard(db, id, parsed.data.title, parsed.data.workspaceId, 'workspace', parsed.data.color, JSON.stringify(labels));
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: id, action: 'board.create', outcome: 'success' });
+    })();
 
     const board = getBoardById(db, id);
     response.status(201).json(board);
@@ -162,9 +164,11 @@ export function createBoardRoutes(db: Database.Database) {
       return;
     }
 
-    updateBoardTitle(db, boardId, parsed.data.title);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.update', outcome: 'success' });
-    response.json({ ...board, title: parsed.data.title });
+    db.transaction(() => {
+      updateBoardTitle(db, boardId, parsed.data.title);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.update', outcome: 'success' });
+    })();
+    response.json(getBoardById(db, boardId));
   });
 
   router.delete('/:boardId', requireAuth, (request: AuthenticatedRequest, response) => {
@@ -179,9 +183,7 @@ export function createBoardRoutes(db: Database.Database) {
       return;
     }
 
-    db.prepare('DELETE FROM boards WHERE id = ?').run(boardId);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: boardId, action: 'board.delete', outcome: 'success' });
-    response.json({ success: true });
+    response.status(409).json({ code: 'PREVIEW_REQUIRED', message: 'Use a fresh content-operation preview and typed confirmation for permanent deletion.' });
   });
 
   return router;

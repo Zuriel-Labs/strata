@@ -35,6 +35,11 @@ vi.mock('../lib/auth-context', () => ({
 }));
 
 describe('BoardView', () => {
+  it('offers personal collapse with an expanded state and a complete card count', () => {
+    render(<AppProvider initialAppState={initialState}><BoardView /></AppProvider>);
+    const toggle = screen.getByRole('button', { name: 'Collapse Backlog (2 cards)' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
   beforeEach(() => {
     createListApiMock.mockReset();
     moveCardApiMock.mockReset();
@@ -138,7 +143,8 @@ describe('BoardView', () => {
     expect(document.querySelector('[data-list-drag-handle]')).not.toBeInTheDocument();
   });
 
-  it('lets a card collaborator move and create cards without exposing list administration', () => {
+  it('lets a card collaborator copy a list without exposing list administration', async () => {
+    const user = userEvent.setup();
     canManageBoardMock.mockReturnValue(false);
     canArchiveMock.mockReturnValue(false);
 
@@ -151,7 +157,11 @@ describe('BoardView', () => {
     expect(screen.getByText('Migrate to Node 20 LTS').closest('[data-card-id="c6"]')).toHaveAttribute('data-drag-activator', 'card');
     expect(screen.getAllByRole('button', { name: /add a card/i }).length).toBeGreaterThan(0);
     expect(document.querySelector('[data-list-drag-handle]')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'List actions for Backlog' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'List actions for Backlog' }));
+    expect(screen.getByRole('button', { name: 'Copy list' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move list' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'List color' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive list' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add another list/i })).not.toBeInTheDocument();
   });
 

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { CardDuplicateValidationError, CardMoveValidationError, createCard, updateCard, deleteCard, duplicateCard, getCardById, getMaxCardPosition, createAuditEvent, getBoardById, moveCard } from '../db/repositories';
+import { compactActivePositions, CardDuplicateValidationError, CardMoveValidationError, createCard, updateCard, duplicateCard, getCardById, getMaxCardPosition, createAuditEvent, getBoardById, moveCard } from '../db/repositories';
 import { applyRealtimeAutomations, becameChecklistComplete } from '../automation/realtime';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canArchiveBoardContent, canEditBoardCards, canManageBoard } from '../rbac/permissions';
@@ -90,10 +90,12 @@ export function createCardRoutes(db: Database.Database) {
     }
     const id = randomUUID();
     const position = getMaxCardPosition(db, parsed.data.listId) + 1;
-    createCard(db, id, parsed.data.title, parsed.data.listId, parsed.data.boardId, position, request.auth!.user.id);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: parsed.data.boardId, action: 'card.create', outcome: 'success' });
-    const createdCard = getCardById(db, id);
-    const card = createdCard ? applyRealtimeAutomations(db, createdCard, 'card_created', request.auth!.user.id) : null;
+    const card = db.transaction(() => {
+      createCard(db, id, parsed.data.title, parsed.data.listId, parsed.data.boardId, position, request.auth!.user.id);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: parsed.data.boardId, action: 'card.create', outcome: 'success' });
+      const createdCard = getCardById(db, id);
+      return createdCard ? applyRealtimeAutomations(db, createdCard, 'card_created', request.auth!.user.id) : null;
+    })();
     response.status(201).json(card);
   });
 
@@ -131,14 +133,18 @@ export function createCardRoutes(db: Database.Database) {
       throw error;
     }
     const shouldRunChecklistAutomations = parsed.data.checklists !== undefined && becameChecklistComplete(card.checklists, parsed.data.checklists as typeof card.checklists);
-    updateCard(db, cardId, updates);
-    if (requiresArchivePermission) {
-      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: card.boardId, action: parsed.data.archived ? 'card.archive' : 'card.restore', outcome: 'success' });
-    }
-    const updatedCard = getCardById(db, cardId);
-    const updated = updatedCard && shouldRunChecklistAutomations
-      ? applyRealtimeAutomations(db, updatedCard, 'checklist_complete', request.auth!.user.id)
-      : updatedCard;
+    const updated = db.transaction(() => {
+      updateCard(db, cardId, requiresArchivePermission && parsed.data.archived === false ? { ...updates, position: getMaxCardPosition(db, card.listId) + 1 } : updates);
+      if (requiresArchivePermission) {
+        db.prepare('UPDATE cards SET archived_by_list_id = NULL WHERE id = ?').run(cardId);
+        if (parsed.data.archived === false) compactActivePositions(db, 'cards', 'list_id', card.listId);
+        createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: card.boardId, action: parsed.data.archived ? 'card.archive' : 'card.restore', outcome: 'success' });
+      }
+      const updatedCard = getCardById(db, cardId);
+      return updatedCard && shouldRunChecklistAutomations
+        ? applyRealtimeAutomations(db, updatedCard, 'checklist_complete', request.auth!.user.id)
+        : updatedCard;
+    })();
     response.json(updated);
   });
 
@@ -153,7 +159,10 @@ export function createCardRoutes(db: Database.Database) {
 
     let movedCard;
     try {
-      movedCard = moveCard(db, card, parsed.data.toListId, parsed.data.toPosition, request.auth!.user.id);
+      movedCard = db.transaction(() => {
+        const moved = moveCard(db, card, parsed.data.toListId, parsed.data.toPosition, request.auth!.user.id);
+        return moved ? applyRealtimeAutomations(db, moved, 'card_moved', request.auth!.user.id, { toListId: parsed.data.toListId }) : null;
+      })();
     } catch (error) {
       if (error instanceof CardMoveValidationError) {
         response.status(400).json({ message: error.message });
@@ -162,8 +171,7 @@ export function createCardRoutes(db: Database.Database) {
       response.status(500).json({ message: 'Unable to move card.' });
       return;
     }
-    const updated = movedCard ? applyRealtimeAutomations(db, movedCard, 'card_moved', request.auth!.user.id, { toListId: parsed.data.toListId }) : null;
-    response.json(updated);
+    response.json(movedCard);
   });
 
   // Duplicate an active card and its reusable content as one atomic operation.
@@ -270,9 +278,7 @@ export function createCardRoutes(db: Database.Database) {
     const card = getCardById(db, cardId);
     if (!card) { response.status(404).json({ message: 'Card not found.' }); return; }
     if (!canManageBoard(db, request.auth!, card.boardId)) { response.status(403).json({ message: 'Access denied.' }); return; }
-    deleteCard(db, cardId);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: card.boardId, action: 'card.delete', outcome: 'success' });
-    response.status(204).send();
+    response.status(409).json({ code: 'PREVIEW_REQUIRED', message: 'Use a fresh content-operation preview and typed confirmation for permanent deletion.' });
   });
 
   return router;

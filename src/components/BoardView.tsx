@@ -11,6 +11,9 @@ import { completeInsertionPosition } from '../lib/card-order';
 import { sortCardsByTitle, type CardSortDirection } from '../lib/card-sort';
 import { useToast } from '../hooks/use-toast';
 import { compareDateOnlyToToday, differenceInCalendarDays, formatDateOnly, sameDateOnly, todayDateOnly } from '../lib/date-only';
+import { ContentOperationDialog, type ContentOperationDialogProps } from './ContentOperationDialog';
+import { ListPresentationDialog } from './ListPresentationDialog';
+import { setListCollapsed } from '../services/content';
 import { locateCardInsertion, locateListInsertion } from '../lib/drag-preview';
 
 type BoardDragOverEvent = Parameters<NonNullable<ComponentProps<typeof DragDropProvider>['onDragOver']>>[0];
@@ -212,13 +215,19 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
   const [editingTitle, setEditingTitle] = useState(false);
   const [listTitle, setListTitle] = useState(list.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [operation, setOperation] = useState<ContentOperationDialogProps['kind'] | null>(null);
+  const [presentationOpen, setPresentationOpen] = useState(false);
+  const [collapsePending, setCollapsePending] = useState(false);
+  const [mutationPending, setMutationPending] = useState(false);
+  const renamePending = useRef(false);
   const [sortPending, setSortPending] = useState<CardSortDirection | null>(null);
   const [sortStatus, setSortStatus] = useState('');
   const canEditCards = auth.canEditBoardCards(list.boardId);
   const canArchiveContent = auth.canArchiveBoardContent(list.boardId);
-  const canMoveList = auth.canManageBoard(list.boardId);
+  const boardClosed = state.boards.find(board => board.id === list.boardId)?.lifecycleState === 'closed' || state.workspaces.find(workspace => workspace.id === state.boards.find(board => board.id === list.boardId)?.workspaceId)?.lifecycleState === 'closed';
+  const canMoveList = !boardClosed && auth.canManageBoard(list.boardId);
   const { toast } = useToast();
-  const { ref: cardsDropRef, isDropTarget: isCardDropTarget } = useDroppable({ id: list.id, type: 'card-list', accept: 'card', disabled: !canEditCards });
+  const { ref: cardsDropRef, isDropTarget: isCardDropTarget } = useDroppable({ id: list.id, type: 'card-list', accept: 'card', disabled: !canEditCards || Boolean(list.collapsed) });
   const {
     ref: listRef,
     handleRef: listHandleRef,
@@ -249,6 +258,17 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
       setNewTitle('');
       setAddingCard(false);
     });
+  };
+
+  const saveTitle = async () => {
+    if (renamePending.current) return;
+    const title = listTitle.trim();
+    if (!title) { setSortStatus('A list title is required.'); return; }
+    if (title === list.title) { setEditingTitle(false); return; }
+    renamePending.current = true;
+    try { const saved = await updateListApi(list.id, { title }); dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: saved.title, revision: saved.revision } }); setEditingTitle(false); }
+    catch (failure) { setSortStatus(failure instanceof Error ? failure.message : 'List name was not saved.'); }
+    finally { renamePending.current = false; }
   };
 
   const sortCards = (direction: CardSortDirection) => {
@@ -283,7 +303,7 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
       className="w-72 shrink-0 rounded-xl flex flex-col max-h-full border transition-[border-color,box-shadow,opacity,transform] duration-200"
       style={{
         background: isCardDropTarget ? 'var(--list-hover-bg)' : 'var(--list-bg)',
-        borderColor: isListDropTarget ? 'var(--accent)' : 'transparent',
+        borderColor: isListDropTarget ? 'var(--accent)' : list.color ?? 'transparent',
         boxShadow: isListDropTarget ? '0 0 0 2px color-mix(in srgb, var(--accent) 24%, transparent)' : undefined,
         opacity: isListDragSource || isPreviewPlaceholder ? 0.2 : 1,
       }}
@@ -291,7 +311,7 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
       {/* List header */}
       <div
         className="flex min-h-[52px] items-center justify-between rounded-t-xl border-b"
-        style={{ background: isListDragSource || isListDropTarget ? 'var(--active-bg)' : 'transparent', borderColor: 'var(--border)' }}
+        style={{ background: isListDragSource || isListDropTarget ? 'var(--active-bg)' : list.color ? `color-mix(in srgb, ${list.color} 20%, transparent)` : 'transparent', borderColor: 'var(--border)' }}
       >
         <div
           ref={editingTitle ? undefined : listHandleRef}
@@ -304,8 +324,8 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
               onPointerDown={event => event.stopPropagation()}
               value={listTitle}
               onChange={e => setListTitle(e.target.value)}
-              onBlur={() => { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); }}
-              onKeyDown={e => { if (e.key === 'Enter') { dispatch({ type: 'UPDATE_LIST', payload: { id: list.id, title: listTitle } }); updateListApi(list.id, { title: listTitle }); setEditingTitle(false); } }}
+              onBlur={() => { void saveTitle(); }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); void saveTitle(); } if (e.key === 'Escape') setEditingTitle(false); }}
               className="min-w-0 flex-1 bg-transparent text-xs font-bold uppercase tracking-widest outline-none"
               style={{ color: 'var(--text-primary)' }}
             />
@@ -323,16 +343,24 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
             </h3>
           )}
         </div>
+        <button type="button" className="min-h-[44px] min-w-[36px] shrink-0" disabled={collapsePending} aria-expanded={!list.collapsed} aria-label={`${list.collapsed ? 'Expand' : 'Collapse'} ${list.title} (${state.cards.filter(card => card.listId === list.id && !card.archived).length} cards)`} onPointerDown={event => event.stopPropagation()} onClick={async () => {
+          setCollapsePending(true);
+          try { await setListCollapsed(list.id, !list.collapsed); dispatch({ type: 'SET_LIST_COLLAPSED', payload: { listId: list.id, collapsed: !list.collapsed } }); }
+          catch (failure) { setSortStatus(failure instanceof Error ? failure.message : 'Personal collapse was not saved.'); }
+          finally { setCollapsePending(false); }
+        }}>{list.collapsed ? '▸' : '▾'}</button>
         <div className="relative mr-2 shrink-0">
-          {(canMoveList || canArchiveContent) && <button type="button" disabled={Boolean(sortPending)} aria-label={`List actions for ${list.title}`} aria-expanded={menuOpen} onPointerDown={event => event.stopPropagation()} onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
+          {<button type="button" disabled={Boolean(sortPending) || mutationPending} aria-label={`List actions for ${list.title}`} aria-expanded={menuOpen} onPointerDown={event => event.stopPropagation()} onClick={() => setMenuOpen(!menuOpen)} className="w-8 h-8 rounded-md flex items-center justify-center text-sm hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }}>⋯</button>}
           {menuOpen && (
             <div aria-busy={Boolean(sortPending)} className="absolute right-0 top-full mt-1 w-40 rounded-lg shadow-xl border z-50 py-1" style={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)' }}>
+              {!boardClosed && <button type="button" className="w-full text-left px-3 min-h-[44px] text-xs" onClick={() => { setMenuOpen(false); setOperation('list_copy'); }}>Copy list</button>}
+              {canMoveList && <><button type="button" className="w-full text-left px-3 min-h-[44px] text-xs" onClick={() => { setMenuOpen(false); setOperation('list_move'); }}>Move list</button><button type="button" className="w-full text-left px-3 min-h-[44px] text-xs" onClick={() => { setMenuOpen(false); setPresentationOpen(true); }}>List color</button></>}
               {canMoveList && <>
                 <button type="button" disabled={Boolean(sortPending)} onClick={() => sortCards('asc')} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Sort A to Z</button>
                 <button type="button" disabled={Boolean(sortPending)} onClick={() => sortCards('desc')} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Sort Z to A</button>
               </>}
               {canMoveList && canArchiveContent && <div role="separator" className="my-1 border-t" style={{ borderColor: 'var(--border)' }} />}
-              {canArchiveContent && <button type="button" disabled={Boolean(sortPending)} onClick={() => { dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); void archiveListApi(list.id); setMenuOpen(false); }} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Archive list</button>}
+              {canArchiveContent && <button type="button" disabled={Boolean(sortPending)} onClick={async () => { setMutationPending(true); try { await archiveListApi(list.id); dispatch({ type: 'ARCHIVE_LIST', payload: list.id }); setMenuOpen(false); await auth.refresh(); } catch (failure) { setSortStatus(failure instanceof Error ? failure.message : 'List was not archived.'); } finally { setMutationPending(false); } }} className="w-full text-left px-3 min-h-[44px] flex items-center text-xs hover:opacity-70 disabled:opacity-50" style={{ color: 'var(--text-secondary)' }}>Archive list</button>}
             </div>
           )}
           <div className="sr-only" aria-live="polite" aria-atomic="true">{sortStatus}</div>
@@ -340,12 +368,12 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
       </div>
 
       {/* Cards */}
-      <div ref={cardsDropRef} className="flex-1 overflow-y-auto px-2 pb-2 pt-2 min-h-[40px]">
+      <div ref={cardsDropRef} hidden={Boolean(list.collapsed)} className="flex-1 overflow-y-auto px-2 pb-2 pt-2 min-h-[40px]">
         {cards.map((card, index) => <CardItem key={card.id} card={card} index={index} group={list.id} canReorder={canEditCards} shouldSuppressOpen={shouldSuppressOpen} isPreviewPlaceholder={activeCardId === card.id} />)}
       </div>
 
       {/* Add card */}
-      <div className="px-2 pb-2">
+      <div hidden={Boolean(list.collapsed)} className="px-2 pb-2">
         {canEditCards && (addingCard ? (
           <div>
             <input
@@ -377,6 +405,8 @@ function ListColumn({ list, cards, index, shouldSuppressOpen, activeCardId, isPr
           </button>
         ))}
       </div>
+      {operation && <ContentOperationDialog kind={operation} sourceId={list.id} onClose={() => setOperation(null)} />}
+      {presentationOpen && <ListPresentationDialog listId={list.id} onClose={() => setPresentationOpen(false)} />}
     </div>
   );
 }
@@ -399,7 +429,8 @@ export function BoardView() {
   const cardPreviewGroupsRef = useRef<Record<string, string[]> | null>(null);
   const listPreviewIdsRef = useRef<string[] | null>(null);
   const suppressOpenCardId = useRef<string | null>(null);
-  const canManageBoard = auth.canManageBoard(state.currentBoardId);
+  const boardClosed = state.boards.find(board => board.id === state.currentBoardId)?.lifecycleState === 'closed' || state.workspaces.find(workspace => workspace.id === state.currentWorkspaceId)?.lifecycleState === 'closed';
+  const canManageBoard = !boardClosed && auth.canManageBoard(state.currentBoardId);
 
   const lists = state.lists
     .filter(l => l.boardId === state.currentBoardId && !l.archived)

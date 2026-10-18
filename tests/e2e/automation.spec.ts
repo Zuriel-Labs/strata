@@ -65,7 +65,7 @@ test('automation rules can be created and executed in the browser', async ({ pag
   await form.getByRole('button', { name: 'Create Rule' }).click();
   await expect(page.getByText('Complete cards in automation done')).toBeVisible();
 
-  await page.getByRole('button', { name: '✕' }).first().click();
+  await page.getByRole('button', { name: 'Close navigation' }).click();
 
   await page.getByRole('button', { name: '+ Add a card' }).first().click();
   await page.getByPlaceholder('Card title…').fill('Automation browser verification');
@@ -119,7 +119,7 @@ test('card-created automations can label and route cards in the browser', async 
   await form.getByRole('button', { name: 'Create Rule' }).click();
   await expect(page.getByText(`Route created cards ${suffix}`)).toBeVisible();
 
-  await page.getByRole('button', { name: '✕' }).first().click();
+  await page.getByRole('button', { name: 'Close navigation' }).click();
 
   const addCardButtons = page.getByRole('button', { name: '+ Add a card' });
   await addCardButtons.nth((await addCardButtons.count()) - 2).click();
@@ -153,7 +153,7 @@ test('date-time automations update visible cards after the scheduled time', asyn
   await form.getByRole('button', { name: 'Create Rule' }).click();
   await expect(page.getByText(`Timed urgent label ${suffix}`)).toBeVisible();
 
-  await page.getByRole('button', { name: '✕' }).first().click();
+  await page.getByRole('button', { name: 'Close navigation' }).click();
   await page.getByText('Evaluate state management options').click();
 
   await expect.poll(async () => {

@@ -121,6 +121,8 @@ export interface RichTextDocument extends RichTextNode {
 }
 
 export interface Card {
+  archivedByListId?: string | null;
+  revision?: number;
   id: string;
   title: string;
   description: string;
@@ -142,6 +144,9 @@ export interface Card {
 }
 
 export interface List {
+  revision?: number;
+  color?: string | null;
+  collapsed?: boolean;
   id: string;
   title: string;
   boardId: string;
@@ -163,6 +168,9 @@ export interface AutomationRule {
 }
 
 export interface Board {
+  revision?: number;
+  lifecycleState?: 'active' | 'closed';
+  isTemplate?: boolean;
   id: string;
   title: string;
   workspaceId: string;
@@ -181,6 +189,8 @@ export interface BoardLabelCollection {
 }
 
 export interface Workspace {
+  revision?: number;
+  lifecycleState?: 'active' | 'closed';
   id: string;
   name: string;
   description: string;
@@ -375,6 +385,7 @@ export interface AppState {
 }
 
 export type Action =
+  | { type: 'SET_LIST_COLLAPSED'; payload: { listId: string; collapsed: boolean } }
   | { type: 'HYDRATE_FROM_SESSION'; payload: AppState }
   | { type: 'SET_CURRENT_WORKSPACE'; payload: string | null }
   | { type: 'SET_CURRENT_BOARD'; payload: string | null }
@@ -389,7 +400,7 @@ export type Action =
   | { type: 'SET_FILTER_MEMBERS'; payload: string[] }
   | { type: 'SET_FILTER_DUE'; payload: 'all' | 'overdue' | 'week' | 'month' | 'none' }
   | { type: 'ADD_LIST'; payload: { boardId: string; title: string } }
-  | { type: 'UPDATE_LIST'; payload: { id: string; title: string } }
+  | { type: 'UPDATE_LIST'; payload: { id: string; title: string; revision?: number } }
   | { type: 'ARCHIVE_LIST'; payload: string }
   | { type: 'RESTORE_LIST'; payload: string }
   | { type: 'DELETE_LIST'; payload: string }

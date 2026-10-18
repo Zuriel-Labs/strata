@@ -2,8 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useAppState, useDispatch } from '../store';
 import { useAuth } from '../lib/auth-context';
-import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/admin';
-import { createBoardApi, deleteBoardApi, updateBoardApi } from '../services/data';
+import { createWorkspace, updateWorkspace } from '../services/admin';
+import { createBoardApi, updateBoardApi } from '../services/data';
 import { useSharedBoardStar } from '../hooks/use-shared-board-star';
 import type { AutomationRule, Board, Workspace } from '../types';
 import { createAutomationRuleApi, updateAutomationRuleApi, deleteAutomationRuleApi } from '../services/data';
@@ -17,6 +17,10 @@ import {
   triggerLabels,
 } from './automation-rule-form';
 import { ArchiveItems } from './ArchiveItems';
+import { ContentOperationDialog } from './ContentOperationDialog';
+import { CollectionManager } from './CollectionManager';
+import { BoardActions, LifecycleButton } from './LifecycleControls';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 
 type NavTab = 'workspaces' | 'boards' | 'automations' | 'archive';
 type DeleteTarget = { kind: 'workspace' | 'board'; id: string; name: string };
@@ -37,9 +41,6 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(state.currentWorkspaceId);
   const [selectedAutomationBoardId, setSelectedAutomationBoardId] = useState<string | null>(state.currentBoardId);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [deleteConfirmation, setDeleteConfirmation] = useState('');
-  const [deletePending, setDeletePending] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const tabs = useMemo<{ key: NavTab; label: string; icon: React.ReactNode }[]>(() => [
     ...(canOpenNavigation ? [{ key: 'workspaces' as const, label: 'Workspaces', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> }] : []),
@@ -62,44 +63,18 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
   const canManageWorkspace = auth.canManageWorkspace(selectedWorkspace?.id ?? null);
   const boardColors = ['#6366f1', '#0891b2', '#059669', '#ea580c', '#dc2626', '#7c3aed', '#be185d'];
 
-  const closeDeleteDialog = () => {
-    setDeleteTarget(null);
-    setDeleteConfirmation('');
-    setDeletePending(false);
-    setDeleteError(null);
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget || deletePending || deleteConfirmation !== 'DELETE') return;
-
-    setDeletePending(true);
-    setDeleteError(null);
-
-    try {
-      if (deleteTarget.kind === 'workspace') {
-        await deleteWorkspace(deleteTarget.id);
-      } else {
-        await deleteBoardApi(deleteTarget.id);
-      }
-      closeDeleteDialog();
-      await auth.refresh();
-    } catch (error) {
-      setDeletePending(false);
-      setDeleteError(error instanceof Error ? error.message : `Unable to delete ${deleteTarget.kind}.`);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center px-4 pt-4 sm:pt-16" style={{ background: 'rgba(6, 9, 14, 0.6)' }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div data-testid="management-dialog" className="h-[min(42rem,80vh)] max-h-[calc(100vh-2rem)] w-full max-w-2xl rounded-2xl border shadow-2xl flex flex-col overflow-hidden" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)' }}>
+    <Dialog open onOpenChange={value => { if (!value) onClose(); }}>
+      <DialogContent showCloseButton={false} data-testid="management-dialog" className="h-[min(42rem,85dvh)] max-h-[calc(100dvh-1.5rem)] w-[calc(100%-1.5rem)] max-w-3xl rounded-2xl flex flex-col overflow-hidden p-0 gap-0" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+        <DialogDescription className="sr-only">Manage workspace and board lifecycle, collections, automations and archives.</DialogDescription>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
-          <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Management</h2>
-          <button className="w-8 h-8 rounded-md flex items-center justify-center text-sm transition-colors" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }} onClick={onClose}>✕</button>
+          <DialogTitle className="text-sm font-bold">Management</DialogTitle>
+          <button aria-label="Close navigation" className="w-8 h-8 rounded-md flex items-center justify-center text-sm transition-colors" style={{ color: 'var(--text-muted)', background: 'var(--active-bg)' }} onClick={onClose}>✕</button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b px-4 shrink-0" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex border-b px-4 shrink-0 overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
           {tabs.map(tab => (
             <button
               key={tab.key}
@@ -127,8 +102,6 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
               onRequestDeleteWorkspace={workspace => {
                 setSelectedWorkspaceId(workspace.id);
                 setDeleteTarget({ kind: 'workspace', id: workspace.id, name: workspace.name });
-                setDeleteConfirmation('');
-                setDeleteError(null);
               }}
             />
           )}
@@ -148,8 +121,6 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
               canManageWorkspace={canManageWorkspace}
               onRequestDeleteBoard={board => {
                 setDeleteTarget({ kind: 'board', id: board.id, name: board.title });
-                setDeleteConfirmation('');
-                setDeleteError(null);
               }}
             />
           )}
@@ -167,46 +138,9 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
             <ArchiveContent />
           )}
         </div>
-      </div>
-      {deleteTarget && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(6, 9, 14, 0.72)' }}>
-          <div className="w-full max-w-md rounded-2xl border p-5" style={{ background: 'var(--modal-bg)', borderColor: 'var(--border)' }}>
-            <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Delete {deleteTarget.kind}</h3>
-            <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {deleteTarget.kind === 'workspace' ? 'Workspace' : 'Board'} <strong style={{ color: 'var(--text-primary)' }}>{deleteTarget.name}</strong> will be permanently deleted. Type <strong style={{ color: 'var(--text-primary)' }}>DELETE</strong> to enable confirmation.
-            </p>
-            <input
-              autoFocus
-              value={deleteConfirmation}
-              onChange={event => setDeleteConfirmation(event.target.value)}
-              placeholder="Type DELETE to confirm"
-              className="mt-4 w-full rounded-lg border px-3 min-h-[44px] text-sm outline-none"
-              style={{ background: 'var(--input-bg)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-            />
-            {deleteError && <p className="mt-3 text-xs" style={{ color: '#ffb4b4' }}>{deleteError}</p>}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeDeleteDialog}
-                className="rounded-xl px-4 min-h-[44px] text-sm font-semibold"
-                style={{ background: '#2563eb', color: '#eff6ff' }}
-              >
-                CANCEL
-              </button>
-              <button
-                type="button"
-                onClick={() => { void handleDelete(); }}
-                disabled={deleteConfirmation !== 'DELETE' || deletePending}
-                className="rounded-xl px-4 min-h-[44px] text-sm font-semibold"
-                style={{ background: deleteConfirmation === 'DELETE' ? '#dc2626' : '#7f1d1d', color: '#fff5f5', opacity: deletePending ? 0.75 : 1 }}
-              >
-                YES
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </DialogContent>
+      {deleteTarget && <ContentOperationDialog kind="delete" resourceType={deleteTarget.kind} sourceId={deleteTarget.id} onClose={() => setDeleteTarget(null)} />}
+    </Dialog>
   );
 }
 
@@ -269,11 +203,8 @@ function WorkspacesContent({
       dispatch({
         type: 'UPDATE_WORKSPACE_FROM_API',
         payload: {
-          id: result.id,
-          name: result.name,
-          description: result.description,
+          ...result,
           memberIds: workspace.memberIds,
-          visibility: result.visibility as Workspace['visibility'],
         },
       });
       resetWorkspaceRename();
@@ -316,7 +247,7 @@ function WorkspacesContent({
         const isEditing = editingWorkspaceId === w.id;
         return (
           <div key={w.id} className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {isEditing ? (
                 <div className="flex min-h-[52px] flex-1 items-center gap-3 rounded-xl border px-4" style={{ background: 'var(--card-bg)', borderColor: 'var(--accent)' }}>
                   <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: '#6366f1' }}>
@@ -348,7 +279,7 @@ function WorkspacesContent({
                 <button
                   type="button"
                   onClick={() => beginWorkspaceRename(w)}
-                  disabled={!canEdit}
+                  disabled={!canEdit || w.lifecycleState === 'closed'}
                   className="flex min-h-[52px] flex-1 items-center gap-3 rounded-xl px-4 text-left transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/15 disabled:cursor-default disabled:opacity-80"
                   style={{
                     background: 'transparent',
@@ -365,7 +296,8 @@ function WorkspacesContent({
                   </div>
                 </button>
               )}
-              {canEdit && (
+              {canEdit && <LifecycleButton kind="workspace" id={w.id} />}
+              {canEdit && w.lifecycleState === 'closed' && (
                 <button
                   type="button"
                   aria-label={`Delete workspace ${w.name}`}
@@ -498,6 +430,7 @@ function BoardsContent({
 
   return (
     <div className="space-y-4">
+      {currentWs && <CollectionManager key={currentWs.id} workspaceId={currentWs.id} />}
       {currentWs && (
         <p className="text-sm font-bold tracking-wide" style={{ color: 'var(--text-primary)' }}>
           Workspace:{' '}
@@ -673,7 +606,7 @@ function BoardRow({
           <button
             type="button"
             onClick={onStartEdit}
-            disabled={!canEdit}
+            disabled={!canEdit || board.lifecycleState === 'closed'}
             className="flex-1 flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-left transition-all hover:bg-white/10 hover:ring-1 hover:ring-white/15 disabled:cursor-default disabled:opacity-80"
             style={{
               background: 'transparent',
@@ -695,7 +628,7 @@ function BoardRow({
         >
           {board.starred ? '★' : '☆'}
         </button>}
-        {onDelete && (
+        {onDelete && board.lifecycleState === 'closed' && (
           <button
             type="button"
             aria-label={`Delete board ${board.title}`}
@@ -707,6 +640,7 @@ function BoardRow({
           </button>
         )}
       </div>
+      <BoardActions boardId={board.id} />
       {renameError && <p className="pl-3 text-xs" style={{ color: '#ffb4b4' }}>{renameError}</p>}
       {renameSaving && <p className="pl-3 text-[11px]" style={{ color: 'var(--text-muted)' }}>Saving board name…</p>}
     </div>

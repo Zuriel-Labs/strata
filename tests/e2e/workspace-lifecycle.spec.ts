@@ -172,7 +172,7 @@ test('previews board audience changes and transfers the same graph between works
   const dialog = page.getByRole('dialog', { name: 'Move board', exact: true });
   await dialog.getByLabel('Destination workspace', { exact: true }).selectOption(workspace.id);
   await dialog.getByRole('button', { name: 'Preview impact' }).click();
-  await expect(dialog.getByRole('region', { name: 'Impact preview' })).toContainText('administrators Lost: Alex Chen');
+  await expect(dialog.getByText(/^administrators Lost:/)).toContainText('Alex Chen');
   await dialog.getByRole('button', { name: 'Confirm move' }).click();
   await expect(page.getByLabel('Username')).toBeVisible();
   await page.getByLabel('Username').fill('admin');

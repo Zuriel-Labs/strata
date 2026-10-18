@@ -1,5 +1,5 @@
 name: "Bug Report"
-description: Report something that isn't working correctly.
+description: Define a reproducible defect and the observable corrected behavior.
 title: "[Bug] "
 labels: ["bug", "type:bug"]
 body:
@@ -57,3 +57,14 @@ body:
           required: true
         - label: "I can reproduce the bug with a fresh install"
           required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Acceptance and Regression Checks"
+      placeholder: |
+        With these prerequisites, these reproduction steps produce this corrected result:
+        Permission, invalid input and recovery cases:
+        Regression checks and PM testing steps:
+    validations:
+      required: true

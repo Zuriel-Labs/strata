@@ -84,6 +84,13 @@ Do not claim a command passed unless you ran it and inspected its exit status. I
 
 ## 4. Work Intake and Planning
 
+### Actionable Issue contract
+
+- Every Issue defines an implementable feature/capability (`type:feature`) or a reproducible defect (`type:bug`). Use exactly one of those type labels and accurate implementation area labels. A historical Blueprint title is a design convention, not a documentation-only deliverable or an exception to implementation.
+- State the affected actor and current behavior, intended working outcome, in-scope workflows, concrete behavior/data/API/permission rules, dependencies, failure/recovery behavior, measurable acceptance criteria, regression coverage and PM testing steps. Mark genuine external prerequisites explicitly; do not present unresolved product choices as implementation-ready.
+- A blueprint carries design direction from idea through implementation and verification. The selected Issue owns the working feature or fix through PM Testing. Specifications, coverage/disposition tables, placeholders, disabled scaffolding and plans alone cannot satisfy feature or bug acceptance criteria. Preserve existing behavior and original source evidence.
+- Approved repository Issues execute through PM Testing when the PM says work, start, initiate, complete, finish, implement, resume or equivalent. Research, specify, plan, implement and verify within scope without repeat plan/spec/slice approvals. Generic execution intent never grants merge/Production approval or resumes an explicitly paused Issue without PM direction.
+
 Before changing code:
 
 1. Read the relevant implementation, tests, contracts/specifications, and recent Git state.

@@ -23,6 +23,11 @@
   <h2>Authority</h2>
   <p>The canonical repository is <code>Zuriel-Labs/strata</code> and the canonical GitHub Project is the private Zuriel-Labs <code>Strata</code> Project #2. The PM is <code>brimdor</code>. Strata intentionally has no branch protection or repository ruleset; the workflow and evidence remain mandatory even though GitHub does not enforce them server-side.</p>
 
+  <h2>Actionable Issue contract</h2>
+  <p>Every Issue is an implementable feature or capability (<code>type:feature</code>) or a reproducible defect (<code>type:bug</code>), with accurate implementation area labels. Blueprint is a design convention carrying full direction from idea to implementation, not a documentation-only type.</p>
+  <p>The Issue states the actor/current behavior, intended working outcome, workflows, concrete behavior/data/API/permission rules, dependencies, failure/recovery behavior, measurable acceptance criteria, regression coverage and PM testing steps. Explicitly identify unresolved external prerequisites; do not claim those choices are ready. The selected Issue owns the working capability or fix through PM Testing. A specification, idea, coverage table, placeholder, disabled scaffold or plan alone cannot establish completion.</p>
+  <p>Work, start, initiate, complete, finish, implement, resume and equivalent execution requests carry approved Issue scope through research, specification, planning, implementation, verification, remediation, PR, exact-head CI and verified Canary to PM Testing without repeated plan/spec/slice approvals. Preserve explicit pauses, scope boundaries, the one-active-Issue rule and candidate-specific merge/Production approval. Read-only and plan-only requests retain their stated scope.</p>
+
   <h2>Project schema</h2>
   <table>
     <tbody>

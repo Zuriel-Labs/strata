@@ -74,6 +74,9 @@ export function auditProjectState({ project, fieldData, itemData, openIssues, op
     const typeLabels = labelNames.filter((name) => name.startsWith("type:"));
     const areaLabels = labelNames.filter((name) => name.startsWith("area:"));
     if (typeLabels.length !== 1) errors.push(`Issue #${issue.number} must have exactly one type label`);
+    if (typeLabels.length === 1 && !["type:feature", "type:bug"].includes(typeLabels[0])) {
+      errors.push(`Issue #${issue.number} must use type:feature or type:bug`);
+    }
     if (areaLabels.length < 1) errors.push(`Issue #${issue.number} must have at least one area label`);
     if (ACTIVE.has(item.status)) {
       const assignees = issue.assignees.map((assignee) => assignee.login);

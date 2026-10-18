@@ -7,6 +7,8 @@ description: "Select or implement one Strata GitHub Issue while enforcing the si
 
 Read `AGENTS.md`, `.agents/strata-pipeline-policy.html`, the live Project, all active cards, the Issue, open PRs, Git state, and relevant code before acting.
 
+Apply the shared Actionable Issue contract. Blueprint naming does not change feature/bug delivery into documentation work. Complete the actual capability or fix through PM Testing; a specification, proposal, disposition table or plan is not completion. Work, start, initiate, complete, finish, implement, resume and equivalent requests authorize approved Issue execution through that handoff without repeated planning approval. Preserve explicit pause, single-active-Issue and exact-candidate merge/Production gates.
+
 ## Selection gate
 
 - If more than one card is active, stop and report the conflict without changing code or metadata.

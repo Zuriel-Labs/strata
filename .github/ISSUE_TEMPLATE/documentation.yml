@@ -1,7 +1,7 @@
-name: "Documentation"
+name: "Documentation Bug"
 description: Report missing, unclear, or incorrect documentation.
 title: "[Docs] "
-labels: ["documentation", "type:maintenance", "area:documentation"]
+labels: ["documentation", "type:bug", "area:documentation"]
 body:
   - type: markdown
     attributes:

@@ -25,7 +25,7 @@ function issue(number, status = "In Progress") {
 function openIssue(number) {
   return {
     number,
-    labels: [{ name: "type:maintenance" }, { name: "area:workflow" }],
+    labels: [{ name: "type:bug" }, { name: "area:workflow" }],
     assignees: [{ login: "brimdor" }],
   };
 }
@@ -39,6 +39,25 @@ test("accepts one fully governed active Issue", () => {
     openPrs: [],
   });
   assert.deepEqual(errors, []);
+});
+
+test("requires an actionable feature or bug classification for open Issues", () => {
+  for (const type of ["type:feature", "type:bug", "type:maintenance", "type:security", "type:blueprint"]) {
+    const candidate = openIssue(47);
+    candidate.labels[0].name = type;
+    const errors = auditProjectState({
+      project: { title: "Strata", public: false, closed: false },
+      fieldData: fields,
+      itemData: { items: [issue(47)] },
+      openIssues: [candidate],
+      openPrs: [],
+    });
+    if (["type:feature", "type:bug"].includes(type)) {
+      assert.deepEqual(errors, []);
+    } else {
+      assert.ok(errors.some((error) => error.includes("type:feature or type:bug")), type);
+    }
+  }
 });
 
 test("rejects stale Project identity and multiple active Issues", () => {

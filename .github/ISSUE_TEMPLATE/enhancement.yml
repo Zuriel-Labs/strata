@@ -1,5 +1,5 @@
 name: "Enhancement"
-description: Improve an existing feature or part of the application.
+description: Define a concrete, implementable Strata feature or capability update.
 title: "[Enhancement] "
 labels: ["enhancement", "type:feature"]
 body:
@@ -46,3 +46,17 @@ body:
         - label: "High — significant UX improvement"
         - label: "Medium — worthwhile quality of life fix"
         - label: "Low — polish and refinement"
+
+  - type: textarea
+    id: delivery
+    attributes:
+      label: "Implementation and Acceptance Criteria"
+      description: "Define the working capability to deliver. A blueprint or plan alone is not completion."
+      placeholder: |
+        Actor and prerequisites:
+        Exact actions and expected results:
+        Data/API/permission rules and failure recovery:
+        Dependencies and genuine blockers:
+        Regression coverage and PM testing steps:
+    validations:
+      required: true

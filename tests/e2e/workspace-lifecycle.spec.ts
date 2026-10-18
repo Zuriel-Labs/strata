@@ -178,6 +178,7 @@ test('previews board audience changes and transfers the same graph between works
   await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Password').fill('ChangeThisNow123!');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open profile menu' })).toBeVisible();
   const state = (await bootstrap(page)).appState;
   expect(state.boards.find((item: { id: string }) => item.id === board.id).workspaceId).toBe(workspace.id);
   expect(state.lists.find((item: { id: string }) => item.id === list.id).boardId).toBe(board.id);

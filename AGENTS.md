@@ -38,6 +38,8 @@ This is the operating contract for autonomous and human-assisted agents working 
 - `On Hold` is inactive and may be used only when the PM explicitly requests it.
 - Keep Status, Priority, Impact, Effort, labels, assignee, Issue state, branch, and PR reference aligned. Active Issues are assigned only to `brimdor`; Backlog Issues are open and unassigned; Done Issues are closed.
 - Backlog work is selected by the PM. Without an Issue number and with no active Issue, recommend the top three Backlog Issues and wait for selection.
+- Repository GitHub Issues are already approved scope. Work, start, initiate, complete, finish, implement, resume and equivalent execution requests all authorize carrying the selected Issue through the verified PM Testing handoff. Research and spec-driven planning remain agent-owned work; do not request repeated blueprint, spec, plan, task-list or slice-selection approval for that scope.
+- Continue autonomously through implementation, QA, remediation, PR/CI and Canary verification to numbered PM testing steps. Resolve routine implementation choices from Issue scope and evidence. Genuine blockers and separate exact-candidate merge/Production, spending or real-data destruction gates remain in force; execution verbs do not grant those approvals. Read-only, discussion-only and plan-only requests retain their stated scope.
 
 ### Required workflow skills
 

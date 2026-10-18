@@ -7,6 +7,8 @@ description: "Perform complete agent QA for the active Strata Issue, remediate a
 
 Read `AGENTS.md`, `.agents/strata-pipeline-policy.html`, the active Issue, PR diff and history, acceptance criteria, current Canary state, and relevant test guidance.
 
+This is the automatic continuation of an approved Issue execution request. Complete QA, remediation and Canary verification through PM Testing without another PM request to enter this skill. Follow the shared Approved Issue execution contract; the PM's next routine approval is for the verified current candidate, not permission to begin review.
+
 1. Require the Issue to be the sole active card in In Progress. Keep it In Progress throughout agent QA and Canary preparation.
 2. Review correctness, regressions, security, privacy, authorization, error paths, data migration, operations, accessibility, responsive behavior, and repository instructions in proportion to the diff.
 3. Run focused tests, `npm run check`, `git diff --check`, migration rehearsal when applicable, and relevant Playwright coverage. Use Browser hands-on testing against a local instance for every affected flow at relevant desktop, tablet, and phone widths. This local browser QA is the required application-behavior gate.

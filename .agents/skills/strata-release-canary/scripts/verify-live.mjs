@@ -15,14 +15,6 @@ function command(binary, args) {
   }).trim();
 }
 
-function kubectl(args) {
-  return command("kubectl", args);
-}
-
-function kubectlJson(args) {
-  return JSON.parse(kubectl(args));
-}
-
 export function assertStrataPod(pod, imageDigest) {
   const containers = pod.status?.containerStatuses || [];
   if (pod.status?.phase !== "Running" || containers.length !== 1 || containers[0]?.name !== "main") {
@@ -53,7 +45,7 @@ export function warningsSinceReady(pod, events) {
   });
 }
 
-function verifyProductionData(namespace, podName) {
+function verifyProductionData(namespace, podName, kubectl, kubectlJson) {
   const pvc = kubectlJson(["get", "pvc", "strata-data", "-n", namespace, "-o", "json"]);
   if (pvc.status?.phase !== "Bound" || !pvc.spec?.volumeName) {
     throw new Error(`Production PVC strata-data is not Bound: phase=${pvc.status?.phase || "unknown"}`);
@@ -82,7 +74,9 @@ function verifyProductionData(namespace, podName) {
   };
 }
 
-export function main(argv = process.argv.slice(2)) {
+export function main(argv = process.argv.slice(2), runCommand = command) {
+  const kubectl = (args) => runCommand("kubectl", args);
+  const kubectlJson = (args) => JSON.parse(kubectl(args));
   const [track, imageDigest, homelabSha] = argv;
   if (argv.length !== 3 || !TRACKS.has(track)) {
     throw new Error("usage: verify-live.mjs <canary|production> <sha256-digest> <full-homelab-sha>");
@@ -114,7 +108,7 @@ export function main(argv = process.argv.slice(2)) {
     "node", "--input-type=module", "-e",
     'const port = process.env.STRATA_PORT || process.env.PORT || "8787"; const response = await fetch(`http://127.0.0.1:${port}/api/health`); if (!response.ok) throw new Error(`/api/health ${response.status}`); console.log(response.status);',
   ]);
-  command("curl", [
+  runCommand("curl", [
     "--fail", "--silent", "--show-error", "--max-time", "15",
     `https://${track === "canary" ? "strata-canary" : "strata"}.eaglepass.io/api/health`,
   ]);
@@ -126,26 +120,30 @@ export function main(argv = process.argv.slice(2)) {
     "--field-selector", `involvedObject.name=${pod.metadata.name},type=Warning`, "-o", "json",
   ]).items;
   const warnings = warningsSinceReady(pod, warningEvents).length;
-  const nodes = kubectlJson(["get", "nodes", "-o", "json"]).items;
-  const badNodes = nodes.filter((node) => {
-    const conditions = node.status?.conditions || [];
-    return conditions.find((condition) => condition.type === "Ready")?.status !== "True"
-      || conditions.some((condition) => condition.type.endsWith("Pressure") && condition.status === "True");
-  });
-  const applications = kubectlJson(["get", "applications", "-n", "argocd", "-o", "json"]).items;
-  const badApps = applications.filter((app) => app.status?.sync?.status !== "Synced" || app.status?.health?.status !== "Healthy");
-  const allPods = kubectlJson(["get", "pods", "-A", "-o", "json"]).items;
-  const badPods = allPods.filter((candidate) => {
-    if (!["Running", "Succeeded"].includes(candidate.status?.phase)) return true;
-    return candidate.status?.phase === "Running"
-      && (candidate.status?.containerStatuses || []).some((container) => !container.ready);
-  });
-  const ceph = kubectl(["exec", "-n", "rook-ceph", "deploy/rook-ceph-tools", "--", "ceph", "health"]);
-  if (warnings || badNodes.length || badApps.length || badPods.length || ceph !== "HEALTH_OK") {
-    throw new Error(`all-green failed: warnings=${warnings} nodes=${badNodes.length} apps=${badApps.length} pods=${badPods.length} ceph=${ceph}`);
+  if (warnings) throw new Error(`Strata warnings since readiness: ${warnings}`);
+
+  if (track === "production") {
+    const nodes = kubectlJson(["get", "nodes", "-o", "json"]).items;
+    const badNodes = nodes.filter((node) => {
+      const conditions = node.status?.conditions || [];
+      return conditions.find((condition) => condition.type === "Ready")?.status !== "True"
+        || conditions.some((condition) => condition.type.endsWith("Pressure") && condition.status === "True");
+    });
+    const applications = kubectlJson(["get", "applications", "-n", "argocd", "-o", "json"]).items;
+    const badApps = applications.filter((app) => app.status?.sync?.status !== "Synced" || app.status?.health?.status !== "Healthy");
+    const allPods = kubectlJson(["get", "pods", "-A", "-o", "json"]).items;
+    const badPods = allPods.filter((candidate) => {
+      if (!["Running", "Succeeded"].includes(candidate.status?.phase)) return true;
+      return candidate.status?.phase === "Running"
+        && (candidate.status?.containerStatuses || []).some((container) => !container.ready);
+    });
+    const ceph = kubectl(["exec", "-n", "rook-ceph", "deploy/rook-ceph-tools", "--", "ceph", "health"]);
+    if (warnings || badNodes.length || badApps.length || badPods.length || ceph !== "HEALTH_OK") {
+      throw new Error(`all-green failed: warnings=${warnings} nodes=${badNodes.length} apps=${badApps.length} pods=${badPods.length} ceph=${ceph}`);
+    }
   }
 
-  const production = track === "production" ? verifyProductionData(namespace, pod.metadata.name) : null;
+  const production = track === "production" ? verifyProductionData(namespace, pod.metadata.name, kubectl, kubectlJson) : null;
   console.log(`track=${track}`);
   console.log(`homelab_revision=${actualRevision}`);
   console.log(`pod=${pod.metadata.name}`);

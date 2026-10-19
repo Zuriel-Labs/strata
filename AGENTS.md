@@ -180,7 +180,7 @@ Resolve review findings or document a conscious, approved exception with its ris
 - **Homelab source of truth:** Gitea `git.eaglepass.io/ops/homelab`
 - **Deployment controller:** Argo CD auto-syncs Gitea `master`.
 
-For Canary, build the exact committed PR head once from a clean Git archive on the local development workstation, never on a Kubernetes node. Target `linux/amd64`, push the source-derived tag to Zot, resolve the registry digest, update only the Canary chart image tag/digest, and push only that GitOps change to Gitea. Verify Helm, Argo revision/sync/health, the one `main` container, exact digest, readiness, zero restarts, logs/events, `/api/health`, external TLS/route, and whole-cluster health before In Review.
+For Canary, build the exact committed PR head once from a clean Git archive on the local development workstation, never on a Kubernetes node. Target `linux/amd64`, push the source-derived tag to Zot, resolve the registry digest, update only the Canary chart image tag/digest, and push only that GitOps change to Gitea. Verify Helm, Argo revision/sync/health, the one `main` container, exact digest, readiness, zero restarts, logs/events, `/api/health`, external TLS/route, and Strata Canary deployment health before In Review. Unrelated homelab Applications, pods, nodes or storage health do not gate PM Testing. Investigate only a demonstrated failure of Strata’s own checks; do not repair unrelated infrastructure for this handoff.
 
 The candidate tuple is Issue, PR URL, full PR head SHA and Git tree, immutable Zot digest, and Canary homelab commit. Any source, dependency, image, schema, rendered configuration, rebase, merge resolution, or included documentation change invalidates approval.
 

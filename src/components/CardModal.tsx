@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { AlignLeft, CheckSquare, Clock3, Copy, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Tag, Trash2, Users, X } from 'lucide-react';
+import { AlignLeft, CheckSquare, Clock3, Download, Eye, EyeOff, MessageSquare, Paperclip, Plus, Settings2, Tag, Trash2, Users, X } from 'lucide-react';
 import { uid } from '../data';
 import { createCardCommentApi, deleteCardCommentApi, duplicateCardApi, updateBoardLabelsApi, updateCardApi, updateCardCommentApi, moveCardApi } from '../services/data';
 import { useAppState, useDispatch } from '../store';
@@ -11,6 +11,7 @@ import { RichTextRenderer } from './RichTextRenderer';
 import { LabelEditor } from './LabelEditor';
 import { ContentOperationDialog, type ContentOperationDialogProps } from './ContentOperationDialog';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from './ui/dialog';
 import { normalizeDateOnly } from '../lib/date-only';
 
 type OptionalSectionKey = 'members' | 'labels' | 'dueDate' | 'attachments';
@@ -138,6 +139,8 @@ export function CardModal() {
   const canEditCard = auth.canEditBoardCards(card.boardId) && !card.archived && !list?.archived;
   const canCollaborate = canEditCard && !state.boards.find(board => board.id === card.boardId)?.isTemplate;
   const canDeleteCard = auth.canArchiveBoardContent(card.boardId) && !card.archived && !list?.archived;
+  const canCopyCard = !card.archived && !list?.archived && board?.lifecycleState !== 'closed' && state.workspaces.find(workspace => workspace.id === board?.workspaceId)?.lifecycleState !== 'closed';
+  const canPermanentlyDeleteCard = auth.canManageBoard(card.boardId) && card.archived;
   const canManageLabels = auth.canManageBoardLabels(card.boardId);
   const hiddenSectionButtons = canEditCard ? [
     { key: 'members' as const, label: 'Members', icon: Users, visible: card.memberIds.length > 0 || revealedSections.members },
@@ -560,28 +563,29 @@ export function CardModal() {
           </select>
 
           <div className="flex flex-wrap items-center gap-2">
-            {canEditCard && (
-              <button
-                type="button"
-                aria-label="Duplicate card"
-                title="Duplicate card"
-                disabled={duplicatePending}
-                onClick={() => void handleDuplicateCard()}
-                className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-50"
-                style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}
-              >
-                <Copy size={18} />
-              </button>
-            )}
-            {!card.archived && !list?.archived && board?.lifecycleState !== 'closed' && state.workspaces.find(workspace => workspace.id === board?.workspaceId)?.lifecycleState !== 'closed' && <Button size="sm" variant="outline" onClick={() => setOperation('card_copy')}>Copy with options</Button>}
-            {canEditCard && <Button size="sm" variant="outline" onClick={() => setOperation('card_move')}>Transfer card</Button>}
-            {canDeleteCard && !card.archived && <Button size="sm" variant="outline" disabled={archivePending} onClick={async () => {
-              setArchivePending(true);
-              try { const updated = await updateCardApi(card.id, { archived: true }); dispatch({ type: 'APPLY_CARD_FROM_API', payload: updated }); close(); await auth.refresh(); }
-              catch (failure) { toast({ title: 'Card not archived', description: failure instanceof Error ? failure.message : 'Unable to archive card.', variant: 'destructive' }); }
-              finally { setArchivePending(false); }
-            }}>Archive card</Button>}
-            {auth.canManageBoard(card.boardId) && card.archived && <Button size="sm" variant="destructive" onClick={() => setOperation('delete')}>Delete archived card</Button>}
+            {(canCopyCard || canEditCard || canDeleteCard || canPermanentlyDeleteCard) && <Dialog key={card.id}>
+              <DialogTrigger asChild>
+                <button type="button" aria-label="Manage current card" title="Manage current card" className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 focus-visible:outline focus-visible:outline-2" style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}><Settings2 size={16} /></button>
+              </DialogTrigger>
+              <DialogContent className="w-[calc(100%-1.5rem)] max-w-sm max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-xl p-4" style={{ background: 'var(--modal-bg)', color: 'var(--text-primary)', borderColor: 'var(--border)' }}>
+                <DialogTitle className="text-base">Card management</DialogTitle>
+                <DialogDescription className="break-words">{card.title}</DialogDescription>
+                <div className="flex min-w-0 flex-col gap-2">
+                  {canEditCard && <Button size="sm" variant="outline" disabled={duplicatePending} onClick={() => void handleDuplicateCard()}>Duplicate card</Button>}
+                  {canCopyCard && <Button size="sm" variant="outline" onClick={() => setOperation('card_copy')}>Copy with options</Button>}
+                  {canEditCard && <Button size="sm" variant="outline" onClick={() => setOperation('card_move')}>Transfer card</Button>}
+                  {canDeleteCard && !card.archived && <Button size="sm" variant="outline" disabled={archivePending} onClick={async () => {
+                    setArchivePending(true);
+                    try { const updated = await updateCardApi(card.id, { archived: true }); dispatch({ type: 'APPLY_CARD_FROM_API', payload: updated }); close(); await auth.refresh(); }
+                    catch (failure) { toast({ title: 'Card not archived', description: failure instanceof Error ? failure.message : 'Unable to archive card.', variant: 'destructive' }); }
+                    finally { setArchivePending(false); }
+                  }}>Archive card</Button>}
+                  {canPermanentlyDeleteCard && <Button size="sm" variant="destructive" onClick={() => setOperation('delete')}>Delete archived card</Button>}
+                  {duplicateError && <p role="alert" className="text-sm text-red-400">{duplicateError}</p>}
+                  {operation && <ContentOperationDialog kind={operation} resourceType={operation === 'delete' ? 'card' : undefined} sourceId={card.id} onClose={() => setOperation(null)} onComplete={() => { if (operation === 'delete' || operation === 'card_move') close(); }} />}
+                </div>
+              </DialogContent>
+            </Dialog>}
             {canCollaborate && <button
               aria-label={card.watching ? 'Stop watching card' : 'Watch card'}
               onClick={handleToggleWatch}
@@ -602,7 +606,6 @@ export function CardModal() {
         </div>
 
         <div className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6">
-          {duplicateError && <p role="alert" className="mb-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">{duplicateError}</p>}
           {duplicateStatus && <p role="status" className="mb-3 rounded-md px-3 py-2 text-sm" style={{ background: 'var(--active-bg)', color: 'var(--text-secondary)' }}>{duplicateStatus}</p>}
           <div className="mb-5 min-w-0">
             {titleEditing ? (
@@ -1322,7 +1325,6 @@ export function CardModal() {
             </div>
           </section>
         </div>
-        {operation && <ContentOperationDialog kind={operation} resourceType={operation === 'delete' ? 'card' : undefined} sourceId={card.id} onClose={() => setOperation(null)} onComplete={() => { if (operation === 'delete' || operation === 'card_move') close(); }} />}
 
       </div>
     </div>

@@ -61,7 +61,9 @@ test('Board Members collaborate on cards while administrators moderate comments 
   }).toEqual([second.id, first.id]);
 
   await page.locator(`[data-card-id="${first.id}"]`).click();
+  await page.getByRole('button', { name: 'Manage current card' }).click();
   await expect(page.getByRole('button', { name: 'Duplicate card' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Edit description' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add checklist' })).toBeVisible();
   await expect(page.getByLabel('Watch card')).toBeVisible();
@@ -79,6 +81,7 @@ test('Board Members collaborate on cards while administrators moderate comments 
   await expect(page.getByText(editedCommentText, { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: `Delete comment ${editedCommentText}` })).toHaveCount(0);
 
+  await page.getByRole('button', { name: 'Manage current card' }).click();
   await page.getByRole('button', { name: 'Duplicate card' }).click();
   await expect(page.getByText('Card duplicated', { exact: true })).toBeVisible();
   await expect(page.locator('button').filter({ hasText: `Member first ${suffix} (copy)` }).last()).toBeVisible();

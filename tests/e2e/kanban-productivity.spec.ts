@@ -376,6 +376,7 @@ test('round-trips rich descriptions, manages labels in-card, and duplicates an i
   await expect(page.getByRole('heading', { name: 'Checklists' })).toBeVisible();
   await expect(page.getByText('Verify launch')).toBeVisible();
 
+  await page.getByRole('button', { name: 'Manage current card' }).click();
   await page.getByRole('button', { name: 'Duplicate card' }).click();
   await expect(page.getByRole('button', { name: `${sourceTitle} (copy)`, exact: true })).toBeVisible();
   await expect(page.getByTestId('rich-text-description').locator('strong').first()).toContainText('Launch plan');
@@ -444,7 +445,9 @@ test('exposes card collaboration but not list administration to a Board Member',
   await expect(page.getByRole('button', { name: 'Archive list', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'List actions for Backlog' }).click();
   await page.locator('[data-card-id="c1"]').click();
+  await page.getByRole('button', { name: 'Manage current card' }).click();
   await expect(page.getByRole('button', { name: 'Duplicate card' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Edit description' })).toBeVisible();
   await expect(page.getByText('Lint & typecheck')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add checklist' })).toBeVisible();

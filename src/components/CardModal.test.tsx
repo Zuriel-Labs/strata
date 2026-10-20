@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CardModal } from './CardModal';
 import { AppProvider, initialState } from '../store';
@@ -69,6 +69,31 @@ describe('CardModal', () => {
     vi.unstubAllGlobals();
   });
 
+  it('groups card actions behind one icon and names the current card in management', async () => {
+    const user = userEvent.setup();
+    render(<AppProvider initialAppState={buildState('c5')}><CardModal /></AppProvider>);
+    const trigger = screen.getByRole('button', { name: 'Manage current card' });
+    expect(trigger).toHaveTextContent('');
+    for (const name of ['Duplicate card', 'Copy with options', 'Transfer card', 'Archive card']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    await user.click(trigger);
+    const management = screen.getByRole('dialog', { name: 'Card management' });
+    expect(within(management).getByText('Evaluate state management options')).toBeInTheDocument();
+    for (const name of ['Duplicate card', 'Copy with options', 'Transfer card', 'Archive card']) {
+      expect(within(management).getByRole('button', { name })).toBeInTheDocument();
+    }
+    await user.click(within(management).getByRole('button', { name: 'Copy with options' }));
+    expect(screen.getByRole('dialog', { name: 'Copy card' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Copy card' })).not.toBeInTheDocument();
+    expect(within(management).getByRole('button', { name: 'Copy with options' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Card management' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('shows default sections first and reveals optional sections on demand', async () => {
     const user = userEvent.setup();
     render(
@@ -125,6 +150,8 @@ describe('CardModal', () => {
     await user.selectOptions(screen.getByLabelText('Card list'), 'l2');
     expect(screen.getByLabelText('Card list')).toHaveValue('l2');
     expect(screen.getByText('In list', { exact: false })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Manage current card' }));
+    expect(screen.getByRole('dialog', { name: 'Card management' })).toHaveTextContent('Refine state management decision');
     expect(screen.getByRole('button', { name: 'Archive card' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Delete card')).not.toBeInTheDocument();
   });
@@ -158,6 +185,7 @@ describe('CardModal', () => {
     }));
 
     render(<AppProvider initialAppState={state}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Manage current card' }));
     await user.click(screen.getByRole('button', { name: 'Duplicate card' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/cards/c5/duplicate', expect.objectContaining({ method: 'POST' })));
@@ -171,6 +199,7 @@ describe('CardModal', () => {
     fetchMock.mockImplementation(() => new Promise<Response>(resolve => { resolveRequest = resolve; }));
     render(<AppProvider initialAppState={buildState('c5')}><CardModal /></AppProvider>);
 
+    await user.click(screen.getByRole('button', { name: 'Manage current card' }));
     const duplicateButton = screen.getByRole('button', { name: 'Duplicate card' });
     await user.click(duplicateButton);
     expect(duplicateButton).toBeDisabled();
@@ -178,14 +207,21 @@ describe('CardModal', () => {
 
     resolveRequest?.(new Response(JSON.stringify({ message: 'Duplicate unavailable' }), { status: 500, headers: { 'Content-Type': 'application/json' } }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Duplicate unavailable');
-    expect(screen.getByRole('button', { name: 'Evaluate state management options' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Card management' })).toHaveTextContent('Evaluate state management options');
     expect(screen.getByRole('button', { name: 'Duplicate card' })).toBeEnabled();
   });
 
-  it('does not expose card duplication to read-only roles', () => {
+  it('keeps read-only card management limited to configurable copying', async () => {
+    const user = userEvent.setup();
     authState.canEditBoardCards.mockReturnValue(false);
+    authState.canArchiveBoardContent.mockReturnValue(false);
+    authState.canManageBoard.mockReturnValue(false);
     render(<AppProvider initialAppState={buildState('c5')}><CardModal /></AppProvider>);
+    await user.click(screen.getByRole('button', { name: 'Manage current card' }));
     expect(screen.queryByRole('button', { name: 'Duplicate card' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Transfer card' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive card' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy with options' })).toBeInTheDocument();
   });
 
   it('keeps card content readable while hiding or disabling every mutation for read-only roles', () => {
@@ -792,6 +828,7 @@ describe('CardModal', () => {
       ? { planHash: 'plan', counts: { cards: 1 }, warnings: [], unresolvedMappings: [], expiresAt: '2099-01-01T00:00:00Z' } : {}));
     render(<AppProvider initialAppState={buildState('c5', { archived: true })}><CardModal /></AppProvider>);
     expect(screen.queryByRole('button', { name: 'Archive card' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Manage current card' }));
     await user.click(screen.getByRole('button', { name: 'Delete archived card' }));
     const confirm = screen.getByRole('button', { name: 'Delete permanently' });
     expect(confirm).toBeDisabled();

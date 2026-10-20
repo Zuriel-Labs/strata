@@ -26,6 +26,47 @@ async function bootstrap(page: Page) {
   return response.json();
 }
 
+for (const width of [320, 768, 1440]) test(`manages the named card through a compact overlay at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 900 });
+  await signIn(page);
+  const { card } = await fixture(page);
+  await page.locator(`[data-card-id="${card.id}"]`).click();
+  const trigger = page.getByRole('button', { name: 'Manage current card' });
+  await expect(trigger).toHaveText('');
+  for (const name of ['Duplicate card', 'Copy with options', 'Transfer card', 'Archive card']) {
+    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+  }
+  await page.screenshot({ path: testInfo.outputPath('card-toolbar.png'), animations: 'disabled' });
+  await trigger.click();
+  const manager = page.getByRole('dialog', { name: 'Card management', exact: true });
+  await expect(manager.getByText(card.title, { exact: true })).toBeVisible();
+  const bounds = await manager.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+  expect(await manager.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('card-management.png'), animations: 'disabled' });
+  await page.keyboard.press('Tab');
+  expect(await manager.evaluate(element => element.contains(element.ownerDocument.activeElement))).toBe(true);
+  await manager.getByRole('button', { name: 'Copy with options' }).click();
+  const copy = page.getByRole('dialog', { name: 'Copy card', exact: true });
+  await expect(copy.getByLabel('Copy title')).toHaveValue(`${card.title} (copy)`);
+  await copy.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(manager.getByRole('button', { name: 'Copy with options' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await manager.getByRole('button', { name: 'Duplicate card', exact: true }).click();
+  await expect(manager).toHaveCount(0);
+  await expect(page.getByRole('button', { name: `${card.title} (copy)`, exact: true }).and(page.locator('button'))).toBeVisible();
+  await trigger.click();
+  await expect(manager.getByText(`${card.title} (copy)`, { exact: true })).toBeVisible();
+  await manager.getByRole('button', { name: 'Archive card', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Close card' })).toHaveCount(0);
+  const state = (await bootstrap(page)).appState;
+  expect(state.cards.find((item: { id: string }) => item.id === card.id).archived).toBe(false);
+  expect(state.cards.find((item: { title: string }) => item.title === `${card.title} (copy)`).archived).toBe(true);
+});
+
 for (const width of [320, 768, 1440]) test(`copies through a focused responsive dialog and retains a recoverable draft at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 900 });
   await signIn(page);
@@ -127,6 +168,7 @@ test('moves cards and complete lists across boards through explicit mapping prev
   await page.reload();
   await page.locator('header select').filter({ has: page.locator(`option[value="${board.id}"]`) }).selectOption(board.id);
   await page.locator(`[data-card-id="${card.id}"]`).click();
+  await page.getByRole('button', { name: 'Manage current card' }).click();
   await page.getByRole('button', { name: 'Transfer card', exact: true }).click();
   let dialog = page.getByRole('dialog', { name: 'Move card', exact: true });
   await dialog.getByLabel('Destination board', { exact: true }).selectOption(destination.id);

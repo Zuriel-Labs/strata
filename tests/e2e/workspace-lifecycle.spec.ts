@@ -30,6 +30,20 @@ for (const width of [320, 768, 1440]) test(`copies through a focused responsive 
   await page.setViewportSize({ width, height: 900 });
   await signIn(page);
   const { board } = await fixture(page);
+  await expect(page.getByRole('button', { name: 'Copy board', exact: true })).toHaveCount(0);
+  const managerTrigger = page.getByRole('button', { name: 'Manage current board' });
+  const headerBounds = await page.locator('header').boundingBox();
+  expect(headerBounds!.height).toBeLessThanOrEqual(160);
+  await page.screenshot({ path: testInfo.outputPath('board-toolbar.png'), animations: 'disabled' });
+  await managerTrigger.click();
+  const manager = page.getByRole('dialog', { name: 'Board management', exact: true });
+  await expect(manager.getByText(board.title, { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('board-management.png'), animations: 'disabled' });
+  await page.keyboard.press('Tab');
+  expect(await manager.evaluate(element => element.contains(element.ownerDocument.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(managerTrigger).toBeFocused();
+  await managerTrigger.click();
   const trigger = page.getByRole('button', { name: 'Copy board', exact: true });
   await trigger.click();
   const dialog = page.getByRole('dialog', { name: 'Copy board', exact: true });
@@ -88,8 +102,15 @@ test('persists personal collapse and shared color, manages a collection, and rec
   await collections.getByLabel(board.title, { exact: true }).click();
   await expect(collections.getByLabel(board.title, { exact: true })).toBeChecked();
   await page.keyboard.press('Escape');
+  for (const name of ['Copy board', 'Transfer board', 'Convert to template', `Close board ${board.title}`]) {
+    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+  }
+  await page.getByRole('button', { name: 'Manage current board' }).click();
   await page.getByRole('button', { name: `Close board ${board.title}`, exact: true }).click();
+  await expect(page.getByRole('button', { name: `Reopen board ${board.title}`, exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Add a list', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Manage current board' }).click();
   expect((await page.request.post('/api/cards', { data: { boardId: board.id, listId: list.id, title: 'Blocked' } })).status()).toBe(409);
   await page.getByRole('button', { name: `Reopen board ${board.title}`, exact: true }).click();
   await expect(page.getByRole('button', { name: `Close board ${board.title}`, exact: true })).toBeVisible();
@@ -136,6 +157,7 @@ test('moves cards and complete lists across boards through explicit mapping prev
 test('creates a private template and independent instances through board copy', async ({ page }) => {
   await signIn(page);
   const { board } = await fixture(page);
+  await page.getByRole('button', { name: 'Manage current board' }).click();
   await page.getByRole('button', { name: 'Convert to template', exact: true }).click();
   await expect(page.getByText('Private template', { exact: true }).first()).toBeVisible();
   for (let index = 0; index < 2; index++) {
@@ -168,6 +190,7 @@ test('previews board audience changes and transfers the same graph between works
   const workspace = await (await page.request.post('/api/workspaces', { data: { name: `Transfer ${crypto.randomUUID()}` } })).json();
   await page.reload();
   await page.locator('header select').filter({ has: page.locator(`option[value="${board.id}"]`) }).selectOption(board.id);
+  await page.getByRole('button', { name: 'Manage current board' }).click();
   await page.getByRole('button', { name: 'Transfer board', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Move board', exact: true });
   await dialog.getByLabel('Destination workspace', { exact: true }).selectOption(workspace.id);

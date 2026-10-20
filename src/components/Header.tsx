@@ -6,7 +6,7 @@ import { markNotificationReadApi, markAllNotificationsReadApi, updateBoardLabels
 import { NavigationOverlay } from './NavigationOverlay';
 import { HomeNavigation } from './HomeNavigation';
 import { ProfileOverlay } from './ProfileOverlay';
-import { BoardActions } from './LifecycleControls';
+import { BoardManagement } from './LifecycleControls';
 import { BoardLabelsDialog } from './BoardLabelsDialog';
 
 export function Header() {
@@ -97,7 +97,7 @@ export function Header() {
         {/* Row 2: All actions */}
         <div className="min-h-10 flex flex-wrap items-center justify-between gap-2 px-3 py-1 border-t" style={{ borderColor: 'var(--border)' }}>
           {/* Home is available to every signed-in role. */}
-          <div className="flex flex-wrap items-center gap-1.5"><HomeNavigation />{board && <BoardActions boardId={board.id} />}
+          <div className="flex flex-wrap items-center gap-1.5"><HomeNavigation />{board && <BoardManagement key={board.id} boardId={board.id} />}
           {canOpenNavigation ? (
             <button aria-label="Open navigation" onClick={() => setNavOpen(true)} className="w-8 h-8 rounded-md flex items-center justify-center hover:opacity-70 transition-opacity shrink-0" style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>

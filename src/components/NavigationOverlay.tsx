@@ -19,11 +19,11 @@ import {
 import { ArchiveItems } from './ArchiveItems';
 import { ContentOperationDialog } from './ContentOperationDialog';
 import { CollectionManager } from './CollectionManager';
-import { BoardActions, LifecycleButton } from './LifecycleControls';
+import { LifecycleButton } from './LifecycleControls';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
 
 type NavTab = 'workspaces' | 'boards' | 'automations' | 'archive';
-type DeleteTarget = { kind: 'workspace' | 'board'; id: string; name: string };
+type DeleteTarget = { kind: 'workspace'; id: string; name: string };
 
 export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const state = useAppState();
@@ -119,9 +119,6 @@ export function NavigationOverlay({ open, onClose }: { open: boolean; onClose: (
               selectedWorkspaceId={selectedWorkspace?.id ?? null}
               onSelectWorkspace={workspaceId => setSelectedWorkspaceId(workspaceId)}
               canManageWorkspace={canManageWorkspace}
-              onRequestDeleteBoard={board => {
-                setDeleteTarget({ kind: 'board', id: board.id, name: board.title });
-              }}
             />
           )}
 
@@ -361,7 +358,7 @@ function WorkspacesContent({
 /* ── Boards Tab ── */
 
 function BoardsContent({
-  boards, currentWs, addingBoard, setAddingBoard, newBoardName, setNewBoardName, boardColors, workspaceOptions, selectedWorkspaceId, onSelectWorkspace, canManageWorkspace, onRequestDeleteBoard,
+  boards, currentWs, addingBoard, setAddingBoard, newBoardName, setNewBoardName, boardColors, workspaceOptions, selectedWorkspaceId, onSelectWorkspace, canManageWorkspace,
 }: {
   boards: Board[];
   currentWs: Workspace | undefined;
@@ -372,7 +369,6 @@ function BoardsContent({
   selectedWorkspaceId: string | null;
   onSelectWorkspace: (workspaceId: string) => void;
   canManageWorkspace: boolean;
-  onRequestDeleteBoard: (board: Board) => void;
 }) {
   const state = useAppState();
   const dispatch = useDispatch();
@@ -474,7 +470,6 @@ function BoardsContent({
                 onCancelEdit={resetBoardRename}
                 starPending={sharedStar.pending}
                 onToggleStar={() => { void sharedStar.toggle(b.id); }}
-                onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined}
               />
             ))}
           </div>
@@ -502,7 +497,6 @@ function BoardsContent({
               onCancelEdit={resetBoardRename}
               starPending={sharedStar.pending}
               onToggleStar={() => { void sharedStar.toggle(b.id); }}
-              onDelete={auth.canManageBoard(b.id) ? () => onRequestDeleteBoard(b) : undefined}
             />
           ))}
         </div>
@@ -559,7 +553,6 @@ function BoardRow({
   onCancelEdit,
   onToggleStar,
   starPending,
-  onDelete,
 }: {
   board: Board;
   isCurrent: boolean;
@@ -574,7 +567,6 @@ function BoardRow({
   onCancelEdit: () => void;
   onToggleStar: () => void;
   starPending: boolean;
-  onDelete?: () => void;
 }) {
   return (
     <div className="space-y-1">
@@ -628,19 +620,7 @@ function BoardRow({
         >
           {board.starred ? '★' : '☆'}
         </button>}
-        {onDelete && board.lifecycleState === 'closed' && (
-          <button
-            type="button"
-            aria-label={`Delete board ${board.title}`}
-            onClick={event => { event.stopPropagation(); onDelete(); }}
-            className="ml-1 flex h-10 w-10 items-center justify-center rounded-full"
-            style={{ color: '#ef4444', background: 'rgba(239,68,68,0.08)' }}
-          >
-            <Trash2 size={16} />
-          </button>
-        )}
       </div>
-      <BoardActions boardId={board.id} />
       {renameError && <p className="pl-3 text-xs" style={{ color: '#ffb4b4' }}>{renameError}</p>}
       {renameSaving && <p className="pl-3 text-[11px]" style={{ color: 'var(--text-muted)' }}>Saving board name…</p>}
     </div>

@@ -207,18 +207,12 @@ describe('NavigationOverlay automations', () => {
     expect(screen.getByText('Acme Engineering')).toBeInTheDocument();
   });
 
-  it('deletes a closed board only after preview and typed confirmation', async () => {
+  it('keeps closed-board deletion out of Management', async () => {
     const user = userEvent.setup();
     renderOverlay({ ...initialState, boards: initialState.boards.map(board => board.id === 'b1' ? { ...board, lifecycleState: 'closed' as const } : board) });
     await user.click(screen.getByRole('button', { name: 'Boards' }));
-    await user.click(screen.getByLabelText('Delete board Platform Sprint 24'));
-    expect(screen.getByRole('button', { name: 'Delete permanently' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Preview impact' }));
-    await user.type(screen.getByLabelText('Type DELETE to confirm'), 'DELETE');
-    await user.click(screen.getByRole('button', { name: 'Delete permanently' }));
-    await waitFor(() => expect(commitMock).toHaveBeenCalledWith(expect.objectContaining({ kind: 'delete', resourceType: 'board', sourceId: 'b1' }), expect.any(String)));
-    expect(deleteBoardApiMockInstance).not.toHaveBeenCalled();
-    expect(authState.refresh).toHaveBeenCalled();
+    expect(screen.queryByLabelText('Delete board Platform Sprint 24')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete closed board' })).not.toBeInTheDocument();
   });
 
   it('deletes a closed workspace only after preview and typed confirmation', async () => {

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Issue 75 — Browser installation</title>
+  <style>
+    :root { color-scheme: dark; background: #0b0f16; color: #f3f7fc; font: 16px/1.65 system-ui,sans-serif; }
+    body { max-width: 940px; margin: auto; padding: 36px 24px 80px; }
+    section { background: #121b2a; border: 1px solid #33465f; border-radius: 16px; padding: 24px; margin: 20px 0; }
+    h1,h2 { line-height: 1.25; } h2,a { color: #8aa4ff; } li,p { color: #c6d1e2; }
+    code { color: #f3f7fc; } pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Browser installation</h1>
+  <p>Approved scope: <a href="https://github.com/Zuriel-Labs/strata/issues/75">Issue #75</a>. Baseline: <code>64736bb5dd7b0b69fd3011d8172cc354d18116cc</code>.</p>
+  <section>
+    <h2>Objective and success criteria</h2>
+    <p>Users of supporting browsers can install Strata through the browser, recognize its icon, and reopen it in a standalone window. Existing tab use, login, logout, authorization and Board workflows continue to work.</p>
+    <ul>
+      <li>The document links a valid same-origin manifest. Manifest identity, scope and launch URL are <code>/</code>; display mode is <code>standalone</code>.</li>
+      <li>The app name is Strata. Real PNG assets include 192×192 and 512×512 install icons and a 180×180 Apple touch icon. A full-bleed background and centered layers keep the maskable artwork safe.</li>
+      <li>Assets work anonymously through the production Express static handler with the existing security headers. Missing assets remain 404, never the SPA document.</li>
+      <li>Desktop Chrome/Edge installation, close/relaunch and uninstall are verified where those browsers are available. Actual mobile-device installation is explicitly marked unverified when unavailable; viewport emulation is not installation proof.</li>
+    </ul>
+  </section>
+  <section>
+    <h2>Evidence and architecture</h2>
+    <p>The baseline <code>index.html</code> has no manifest link. Vite already copies a <code>public/</code> directory into <code>dist/</code>, and <code>server/src/app.ts</code> serves that directory before the SPA fallback. The Dockerfile copies <code>dist/</code> into the runtime image. No API, RBAC, audit or schema changes are needed.</p>
+    <p><a href="https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable">MDN installation guidance</a> documents manifest metadata, HTTPS, browser differences and standalone display. Service workers are optional for installation. Use static files and native installation; add no service worker, offline cache, dependency or custom install prompt.</p>
+    <p>Use the existing navy and blue/purple theme from <code>src/index.css</code> and <code>AuthScreen.tsx</code>. The new icon is an original geometric stack of three layers; its SVG is the editable master.</p>
+  </section>
+  <section>
+    <h2>Structure and style</h2>
+    <ul>
+      <li><code>index.html</code>: manifest, icon and theme metadata.</li>
+      <li><code>public/manifest.webmanifest</code> and <code>public/icons/</code>: deployable metadata and original artwork.</li>
+      <li><code>src/installability.test.ts</code>: source manifest and asset regression test.</li>
+      <li><code>tests/e2e/installability.spec.ts</code>: real-browser parsing, image decoding and normal tab behavior.</li>
+      <li><code>docs/installing-strata.html</code>: installation, launch, removal and browser limits.</li>
+    </ul>
+    <p>Follow existing indented HTML and JSON; tests use explicit TypeScript and named imports.</p>
+    <pre><code>&lt;link rel="manifest" href="/manifest.webmanifest" /&gt;</code></pre>
+  </section>
+  <section>
+    <h2>Plan and ordered tasks</h2>
+    <ol>
+      <li>Write one source regression test, run it RED, add the manifest, links and icons, then prove GREEN. Acceptance: required metadata and actual PNG dimensions are valid.</li>
+      <li>Add browser coverage and installation guidance. Acceptance: the browser parses the manifest and decodes its icons without breaking ordinary tab use. Verify production static serving and security headers during local QA.</li>
+      <li>Run the complete local checks, review the diff, commit the exact candidate, open the PR and deploy Canary through the existing pipeline. Acceptance: exact source/image/configuration evidence and numbered PM testing steps, with unavailable browser/device checks stated explicitly.</li>
+    </ol>
+    <p>Dependency order: manifest and icons precede browser checks; local gates and committed source precede image publication; healthy Canary precedes In Review. Risks: invalid icon metadata, SPA fallback hiding missing assets, browser-specific installation limits. Mitigate through binary/image checks, real requests and explicit test coverage limits.</p>
+  </section>
+  <section>
+    <h2>Commands and verification</h2>
+    <pre><code>npm run test -- src/installability.test.ts
+npm run test:e2e -- tests/e2e/installability.spec.ts
+npm run typecheck
+npm run check
+git diff --check</code></pre>
+    <p>The complete check includes skill alignment, pipeline fixtures, lint, unit/integration tests, typecheck, client/server builds and Chromium E2E. Use process-local output routing for disposable test artifacts. Inspect built Express responses and browser manifest diagnostics, then exercise login, Board access, refresh and logout. Preserve the standing private-repository no-Actions instruction: use exact-source local checks and skip workflow triggers.</p>
+  </section>
+  <section>
+    <h2>Boundaries and rollback</h2>
+    <ul>
+      <li>Always preserve authentication, RBAC, audit, CSP and data. Installation requires the same access as normal web use.</li>
+      <li>Separate exact-candidate approval is required for merge and Production. No native wrapper, app store, push notifications or offline editing is authorized by this Issue.</li>
+      <li>No migration or user-data mutation is part of the change. Rollback restores the previous GitOps image digest; no database rollback is needed.</li>
+    </ul>
+    <p>No unresolved product decision is required before implementation. Canary installation verification and actual device/browser availability remain runtime evidence to collect, not assumptions.</p>
+  </section>
+</body>
+</html>

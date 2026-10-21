@@ -75,14 +75,16 @@ test("rejects restarts and digest drift", () => {
 
 const revision = "a".repeat(40);
 
-function liveRunner({ warnings = [], unhealthy = false } = {}) {
+function liveRunner({ warnings = [], unhealthy = false, pvcPhase = "Bound", quickCheck = "ok", backupAt = new Date().toISOString() } = {}) {
   const calls = [];
   const run = (binary, args) => {
     const key = args.join(" ");
     calls.push([binary, ...args]);
     if (binary === "curl") return '{"ok":true}';
     if (args[0] === "logs") return "Strata API listening";
-    if (args[0] === "exec") return "200";
+    if (args[0] === "exec") return key.includes("better-sqlite3") ? quickCheck : "200";
+    if (args[1] === "pvc") return JSON.stringify({ metadata: { name: "strata-data" }, status: { phase: pvcPhase }, spec: { volumeName: "production-volume" } });
+    if (args[1] === "cronjob") return JSON.stringify({ spec: { suspend: false }, status: { lastSuccessfulTime: backupAt } });
     if (args[1] === "application") return JSON.stringify({ status: {
       sync: { revision, status: "Synced" }, health: { status: "Healthy" },
       operationState: { phase: "Succeeded" },
@@ -109,6 +111,21 @@ test("Canary still rejects Strata warnings and unhealthy containers", () => {
   assert.throws(() => main(["canary", digest, revision], liveRunner({ unhealthy: true }).run), /not ready/);
 });
 
-test("Production retains the existing whole-cluster gate", () => {
-  assert.throws(() => main(["production", digest, revision], liveRunner().run), /unrelated cluster query: get nodes/);
+test("Production closeout checks only Strata and its database and backup", () => {
+  const { run, calls } = liveRunner();
+  assert.equal(main(["production", digest, revision], run), 0);
+  assert.ok(calls.some(([, verb, resource, name]) => verb === "get" && resource === "pvc" && name === "strata-data"));
+  assert.ok(calls.some(([, verb, resource, name]) => verb === "get" && resource === "cronjob" && name === "strata-backup"));
+  assert.ok(calls.some(([, ...args]) => args.join(" ").includes("better-sqlite3")));
+});
+
+test("Production still rejects Strata warnings and unhealthy containers", () => {
+  assert.throws(() => main(["production", digest, revision], liveRunner({ warnings: [{}] }).run), /Strata warnings/);
+  assert.throws(() => main(["production", digest, revision], liveRunner({ unhealthy: true }).run), /not ready/);
+});
+
+test("Production still rejects an unbound PVC, failed SQLite integrity and stale backup", () => {
+  assert.throws(() => main(["production", digest, revision], liveRunner({ pvcPhase: "Pending" }).run), /PVC strata-data is not Bound/);
+  assert.throws(() => main(["production", digest, revision], liveRunner({ quickCheck: "corrupt" }).run), /SQLite quick_check failed/);
+  assert.throws(() => main(["production", digest, revision], liveRunner({ backupAt: new Date(Date.now() - 91 * 60 * 1000).toISOString() }).run), /backup is stale/);
 });

@@ -92,6 +92,18 @@ for (const [owner, content] of [
   rejectText(content, "whole-homelab green are the Canary runtime gates", owner);
   rejectText(content, "whole-cluster health before In Review", owner);
 }
+for (const [owner, content] of [
+  ["AGENTS.md", agents],
+  [".agents/strata-pipeline-policy.html", policy],
+  ["strata-release-production", productionRelease],
+  ["strata-close-issue", issueClosure],
+]) {
+  requireText(content, "Strata Production deployment health", owner);
+  rejectText(content, "whole cluster are green", owner);
+  rejectText(content, "whole cluster are verified green", owner);
+  rejectText(content, "whole-cluster health gate", owner);
+  rejectText(content, "every homelab all-green layer", owner);
+}
 requireText(productionRelease, "strata-data", ".agents/skills/strata-release-production/SKILL.md");
 requireText(productionRelease, "SQLite integrity", ".agents/skills/strata-release-production/SKILL.md");
 requireText(productionRelease, "Purge obsolete unreferenced Strata image manifests from Zot", ".agents/skills/strata-release-production/SKILL.md");

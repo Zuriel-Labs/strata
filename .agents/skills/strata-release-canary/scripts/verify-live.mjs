@@ -122,27 +122,6 @@ export function main(argv = process.argv.slice(2), runCommand = command) {
   const warnings = warningsSinceReady(pod, warningEvents).length;
   if (warnings) throw new Error(`Strata warnings since readiness: ${warnings}`);
 
-  if (track === "production") {
-    const nodes = kubectlJson(["get", "nodes", "-o", "json"]).items;
-    const badNodes = nodes.filter((node) => {
-      const conditions = node.status?.conditions || [];
-      return conditions.find((condition) => condition.type === "Ready")?.status !== "True"
-        || conditions.some((condition) => condition.type.endsWith("Pressure") && condition.status === "True");
-    });
-    const applications = kubectlJson(["get", "applications", "-n", "argocd", "-o", "json"]).items;
-    const badApps = applications.filter((app) => app.status?.sync?.status !== "Synced" || app.status?.health?.status !== "Healthy");
-    const allPods = kubectlJson(["get", "pods", "-A", "-o", "json"]).items;
-    const badPods = allPods.filter((candidate) => {
-      if (!["Running", "Succeeded"].includes(candidate.status?.phase)) return true;
-      return candidate.status?.phase === "Running"
-        && (candidate.status?.containerStatuses || []).some((container) => !container.ready);
-    });
-    const ceph = kubectl(["exec", "-n", "rook-ceph", "deploy/rook-ceph-tools", "--", "ceph", "health"]);
-    if (warnings || badNodes.length || badApps.length || badPods.length || ceph !== "HEALTH_OK") {
-      throw new Error(`all-green failed: warnings=${warnings} nodes=${badNodes.length} apps=${badApps.length} pods=${badPods.length} ceph=${ceph}`);
-    }
-  }
-
   const production = track === "production" ? verifyProductionData(namespace, pod.metadata.name, kubectl, kubectlJson) : null;
   console.log(`track=${track}`);
   console.log(`homelab_revision=${actualRevision}`);

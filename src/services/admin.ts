@@ -1,4 +1,4 @@
-import type { AdminDirectoryResponse, AdminResourcePage, AdminUserRecord, LabelPolicySettings, PageMeta } from '../types';
+import type { Workspace, AdminDirectoryResponse, AdminResourcePage, AdminUserRecord, LabelPolicySettings, PageMeta } from '../types';
 import { apiRequest } from './api';
 
 export interface ManagedUserInput {
@@ -107,7 +107,7 @@ export function createWorkspace(input: { name: string; description: string; visi
 }
 
 export function updateWorkspace(workspaceId: string, input: { name: string }) {
-  return apiRequest<{ id: string; name: string; description: string; visibility: string }>(`/api/workspaces/${workspaceId}`, {
+  return apiRequest<Workspace>(`/api/workspaces/${workspaceId}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
   });

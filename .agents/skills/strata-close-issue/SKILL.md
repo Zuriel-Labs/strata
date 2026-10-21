@@ -1,11 +1,13 @@
 ---
 name: strata-close-issue
-description: "Close an approved Strata Issue by validating the exact Canary candidate, squash-merging its PR, promoting the same digest to Production, verifying all-green, and completing Project metadata."
+description: "Close a Strata Issue only after exact candidate-specific PM approval to merge and deploy production: validate the candidate, squash-merge, promote the same digest, verify health and complete metadata. Generic work, start, initiate, complete or finish requests use strata-work-issue through PM Testing."
 ---
 
 # Close a Strata Issue
 
 Read `AGENTS.md`, `.agents/strata-pipeline-policy.html`, the sole active Issue, PR, approval message, candidate evidence, GitHub checks, and live Canary state.
+
+Generic requests to complete, finish, work, start or initiate an Issue route through `strata-work-issue` to PM Testing. They do not authorize this skill's merge, Production or closure actions without the exact approval required below.
 
 1. Require Status In Review and the exact phrase `Approved to merge and deploy production`, attributable to the PM through the Strata Discord/Issue synchronization record, for the current recorded head/tree, Zot digest, and Canary commit. Any mismatch or later change invalidates approval.
 2. Confirm the PR targets `main`, contains `Refs #<number>` without auto-close syntax, has successful `Quality / verify`, no unresolved review threads, and is mergeable. Strata intentionally has no branch protection. Make the branch current with `main` only through a reviewed change that is redeployed to Canary.

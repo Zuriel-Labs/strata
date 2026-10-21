@@ -34,10 +34,12 @@ export function createBootstrapRoutes(db: Database.Database) {
     }
     const id = randomUUID();
     const timestamp = new Date().toISOString();
-    db.prepare('INSERT INTO workspaces (id, name, description, visibility, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      id, parsed.data.name, parsed.data.description, parsed.data.visibility, timestamp,
-    );
-    createAuditEvent(db, { actorUserId: request.auth.user.id, scopeType: 'workspace', scopeId: id, action: 'workspace.create', outcome: 'success' });
+    db.transaction(() => {
+      db.prepare('INSERT INTO workspaces (id, name, description, visibility, created_at) VALUES (?, ?, ?, ?, ?)').run(
+        id, parsed.data.name, parsed.data.description, parsed.data.visibility, timestamp,
+      );
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'workspace', scopeId: id, action: 'workspace.create', outcome: 'success' });
+    })();
     response.status(201).json({ id, name: parsed.data.name, description: parsed.data.description, visibility: parsed.data.visibility });
   });
 
@@ -59,9 +61,11 @@ export function createBootstrapRoutes(db: Database.Database) {
       return;
     }
 
-    db.prepare('UPDATE workspaces SET name = ? WHERE id = ?').run(parsed.data.name, workspaceId);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'workspace', scopeId: workspaceId, action: 'workspace.update', outcome: 'success' });
-    response.json({ ...workspace, name: parsed.data.name });
+    db.transaction(() => {
+      db.prepare('UPDATE workspaces SET name = ? WHERE id = ?').run(parsed.data.name, workspaceId);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'workspace', scopeId: workspaceId, action: 'workspace.update', outcome: 'success' });
+    })();
+    response.json(getWorkspaceById(db, workspaceId));
   });
 
   router.delete('/:workspaceId', requireAuth, (request: AuthenticatedRequest, response) => {
@@ -76,9 +80,7 @@ export function createBootstrapRoutes(db: Database.Database) {
       return;
     }
 
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspaceId);
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'workspace', scopeId: workspaceId, action: 'workspace.delete', outcome: 'success' });
-    response.json({ success: true });
+    response.status(409).json({ code: 'PREVIEW_REQUIRED', message: 'Use a fresh content-operation preview and typed confirmation for permanent deletion.' });
   });
 
   return router;

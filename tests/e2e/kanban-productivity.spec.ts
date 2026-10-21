@@ -376,6 +376,7 @@ test('round-trips rich descriptions, manages labels in-card, and duplicates an i
   await expect(page.getByRole('heading', { name: 'Checklists' })).toBeVisible();
   await expect(page.getByText('Verify launch')).toBeVisible();
 
+  await page.getByRole('button', { name: 'Manage current card' }).click();
   await page.getByRole('button', { name: 'Duplicate card' }).click();
   await expect(page.getByRole('button', { name: `${sourceTitle} (copy)`, exact: true })).toBeVisible();
   await expect(page.getByTestId('rich-text-description').locator('strong').first()).toContainText('Launch plan');
@@ -439,9 +440,14 @@ test('exposes card collaboration but not list administration to a Board Member',
   const boardSelect = page.locator('header select').filter({ has: page.locator('option[value="b1"]') });
   if (await boardSelect.count()) await boardSelect.selectOption('b1');
 
-  await expect(page.getByRole('button', { name: 'List actions for Backlog' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'List actions for Backlog' }).click();
+  await expect(page.getByRole('button', { name: 'Copy list', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Archive list', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'List actions for Backlog' }).click();
   await page.locator('[data-card-id="c1"]').click();
+  await page.getByRole('button', { name: 'Manage current card' }).click();
   await expect(page.getByRole('button', { name: 'Duplicate card' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Edit description' })).toBeVisible();
   await expect(page.getByText('Lint & typecheck')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Add checklist' })).toBeVisible();
@@ -472,14 +478,17 @@ test('projects archived lists once and permits board administrators to delete th
   await expect(page.getByText(new RegExp(`Independent archive ${suffix}`))).toHaveCount(1);
 
   await page.getByRole('button', { name: `Delete archived list Archived parent ${suffix}` }).click();
-  await expect(page.getByText('This permanently deletes the archived list and every card it contains. This cannot be undone.')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Permanently delete list' })).toBeVisible();
+  await page.getByRole('button', { name: 'Preview impact' }).click();
+  await page.getByLabel('Type DELETE to confirm').fill('DELETE');
   await expect(page.getByRole('button', { name: 'Cancel' })).toBeInViewport();
-  await expect(page.getByRole('button', { name: 'Confirm delete archived list' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Delete permanently' })).toBeInViewport();
   const managementBounds = await page.getByTestId('management-dialog').boundingBox();
   expect(managementBounds).not.toBeNull();
   expect(managementBounds!.y + managementBounds!.height).toBeLessThanOrEqual(600);
-  await page.getByRole('button', { name: 'Confirm delete archived list' }).click();
+  await page.getByRole('button', { name: 'Delete permanently' }).click();
   await expect(page.getByText(new RegExp(`Archived parent ${suffix}`))).toHaveCount(0);
+  await signIn(page);
   expect((await page.request.get(`/api/cards/${archivedList.cardIds[0]}`)).status()).toBe(404);
 });
 

@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
 import type { BoardRole } from '../types';
+import { isBoardActive } from '../rbac/lifecycle';
 import { invitationIssuerAuthoritySql } from '../rbac/policies';
 import { createSession, deleteSessionsForUser } from './repositories';
 
@@ -19,6 +20,7 @@ export function acceptBoardInvitation(db: Database.Database, userId: string, tok
       db.prepare("UPDATE board_invitations SET revoked_at = ?, revocation_reason = 'issuer_authority_lost' WHERE id = ?").run(new Date().toISOString(), invitation.id);
       return unavailable();
     }
+    if (!isBoardActive(db, invitation.boardId) || db.prepare('SELECT is_template FROM boards WHERE id = ?').pluck().get(invitation.boardId)) return unavailable();
     const membership = db.prepare('SELECT role FROM board_memberships WHERE user_id = ? AND board_id = ?').get(userId, invitation.boardId) as { role: BoardRole } | undefined;
     if (invitation.acceptedAt) {
       if (!membership) {

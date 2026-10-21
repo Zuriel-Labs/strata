@@ -2,6 +2,7 @@
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { reviewedDelete } from './reviewed-delete';
 import { createDatabase, closeDatabase } from '../src/db/database';
 import { createApp } from '../src/app';
 
@@ -86,6 +87,7 @@ describe('board CRUD routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.title).toBe('Platform Launch');
+    expect(res.body.revision).toBe(1);
     const row = db.prepare('SELECT title FROM boards WHERE id = ?').get('b1') as { title: string };
     expect(row.title).toBe('Platform Launch');
   });
@@ -233,7 +235,7 @@ describe('board CRUD routes', () => {
     const list = await agent.post('/api/lists').send({ boardId: board.body.id, title: 'Disposable List' });
     const card = await agent.post('/api/cards').send({ boardId: board.body.id, listId: list.body.id, title: 'Disposable Card' });
 
-    const response = await agent.delete(`/api/boards/${board.body.id}`).send();
+    const response = await reviewedDelete(agent, db, 'board', board.body.id);
     expect(response.status).toBe(200);
 
     expect(db.prepare('SELECT id FROM boards WHERE id = ?').get(board.body.id)).toBeUndefined();
@@ -324,6 +326,7 @@ describe('workspace routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.name).toBe('Operations');
+    expect(response.body.revision).toBe(1);
     const row = db.prepare('SELECT name FROM workspaces WHERE id = ?').get('w1') as { name: string };
     expect(row.name).toBe('Operations');
   });
@@ -346,7 +349,7 @@ describe('workspace routes', () => {
     const workspace = await agent.post('/api/workspaces').send({ name: 'Disposable Workspace', description: '', visibility: 'private' });
     const board = await agent.post('/api/boards').send({ workspaceId: workspace.body.id, title: 'Workspace Board', color: '#10b981' });
 
-    const response = await agent.delete(`/api/workspaces/${workspace.body.id}`).send();
+    const response = await reviewedDelete(agent, db, 'workspace', workspace.body.id);
     expect(response.status).toBe(200);
 
     expect(db.prepare('SELECT id FROM workspaces WHERE id = ?').get(workspace.body.id)).toBeUndefined();
@@ -381,6 +384,7 @@ describe('list CRUD routes', () => {
     const res = await agent.patch(`/api/lists/${listId}`).send({ title: 'Renamed' });
     expect(res.status).toBe(200);
     expect(res.body.title).toBe('Renamed');
+    expect(res.body.revision).toBe(1);
   });
 
   it('archives and restores a list', async () => {
@@ -411,12 +415,12 @@ describe('list CRUD routes', () => {
     expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(listId)).toBeTruthy();
 
     await agent.post(`/api/lists/${listId}/archive`).send();
-    const deleted = await agent.delete(`/api/lists/${listId}`).send();
+    const deleted = await reviewedDelete(agent, db, 'list', listId);
     expect(deleted.status).toBe(200);
-    expect(deleted.body).toEqual({ success: true, deletedCardCount: 1 });
+    expect(deleted.body.counts.cards).toBe(1);
     expect(db.prepare('SELECT id FROM lists WHERE id = ?').get(listId)).toBeUndefined();
     expect(db.prepare('SELECT id FROM cards WHERE id = ?').get(child.body.id)).toBeUndefined();
-    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'list.delete' AND scope_id = 'b1'").all()).toHaveLength(1);
+    expect(db.prepare("SELECT id FROM audit_events WHERE action = 'content.delete' AND scope_id = 'b1'").all()).toHaveLength(1);
   });
 
   it('moves a list position', async () => {
@@ -694,12 +698,11 @@ describe('card CRUD routes', () => {
     const list = await agent.post('/api/lists').send({ boardId: 'b1', title: 'Del List' });
     const card = await agent.post('/api/cards').send({ boardId: 'b1', listId: list.body.id, title: 'Deletable' });
 
-    const res = await agent.delete(`/api/cards/${card.body.id}`).send();
-    expect(res.status).toBe(204);
+    const res = await reviewedDelete(agent, db, 'card', card.body.id);
+    expect(res.status).toBe(200);
 
     // Verify it's gone
-    const getRes = await agent.patch(`/api/cards/${card.body.id}`).send({ title: 'Ghost' });
-    expect(getRes.status).toBe(404);
+    expect(db.prepare('SELECT id FROM cards WHERE id = ?').get(card.body.id)).toBeUndefined();
   });
 
   it('returns 404 for non-existent card', async () => {

@@ -113,7 +113,7 @@ test('mvp flow works end to end', async ({ page }) => {
   await boardInput.press('Enter');
 
   // Close management overlay, then navigate from the header dropdown
-  await page.getByRole('button', { name: '✕' }).click();
+  await page.getByRole('button', { name: 'Close navigation' }).click();
   await boardSelect.selectOption({ label: 'E2E Test Board' });
   await expect(boardSelect.locator('option:checked')).toHaveText('E2E Test Board', { timeout: 5000 });
 

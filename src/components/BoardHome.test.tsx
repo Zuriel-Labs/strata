@@ -9,6 +9,7 @@ import { ApiError } from '../services/api';
 
 const refresh = vi.fn().mockResolvedValue(undefined);
 vi.mock('../lib/auth-context', () => ({ useAuth: () => ({ refresh }) }));
+vi.mock('../services/collections', () => ({ fetchCollections: vi.fn(async () => ({ items: [] })) }));
 vi.mock('../services/navigation', () => ({ fetchNavigation: vi.fn(), visitBoard: vi.fn(), setPersonalStar: vi.fn() }));
 function Harness() { const state = useAppState(); return <><BoardHome /><output>{state.currentBoardId ?? 'No board'}</output></>; }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(navigation.fetchNavigation).mockResolvedValue({ items: [], nextCursor: null }); vi.mocked(navigation.visitBoard).mockResolvedValue(undefined); });

@@ -317,6 +317,7 @@ function selectWorkspaces(db: Database.Database, workspaceIds: string[]) {
     description: String(row.description),
     memberIds: [],
     visibility: row.visibility as Workspace['visibility'],
+    lifecycleState: row.lifecycle_state as Workspace['lifecycleState'], revision: Number(row.revision),
   }));
 }
 
@@ -336,6 +337,7 @@ export function getWorkspaceById(db: Database.Database, workspaceId: string): Wo
     description: String(row.description),
     memberIds,
     visibility: row.visibility as Workspace['visibility'],
+    lifecycleState: row.lifecycle_state as Workspace['lifecycleState'], revision: Number(row.revision),
   };
 }
 
@@ -347,6 +349,7 @@ function selectBoards(db: Database.Database, boardIds: string[]) {
     title: String(row.title),
     workspaceId: String(row.workspace_id),
     visibility: row.visibility as Board['visibility'],
+    lifecycleState: row.lifecycle_state as Board['lifecycleState'], revision: Number(row.revision), isTemplate: Boolean(row.is_template),
     color: String(row.color),
     starred: asBool(Number(row.starred)),
     labels: parseJson<Board['labels']>(String(row.labels_json)),
@@ -363,6 +366,7 @@ function selectLists(db: Database.Database, boardIds: string[]) {
     boardId: String(row.board_id),
     position: Number(row.position),
     archived: asBool(Number(row.archived)),
+    revision: Number(row.revision), color: row.color ? String(row.color) : null,
   }));
 }
 
@@ -387,7 +391,7 @@ function selectCards(db: Database.Database, boardIds: string[]) {
     attachments: parseJson<Card['attachments']>(String(row.attachments_json)),
     watching: asBool(Number(row.watching)),
     archived: asBool(Number(row.archived)),
-    createdAt: String(row.created_at),
+    createdAt: String(row.created_at), revision: Number(row.revision), archivedByListId: row.archived_by_list_id ? String(row.archived_by_list_id) : null,
   }));
 }
 
@@ -457,7 +461,8 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
   const boardIds = getAccessibleBoardIds(db, user, workspaceAdminGrants, boardAdminGrants, boardMemberships);
   const workspaces = selectWorkspaces(db, workspaceIds);
   const boards = selectBoards(db, boardIds);
-  const lists = selectLists(db, boardIds);
+  const preferences = new Map((db.prepare('SELECT list_id AS listId, collapsed FROM user_list_preferences WHERE user_id = ?').all(user.id) as { listId: string; collapsed: number }[]).map(row => [row.listId, Boolean(row.collapsed)]));
+  const lists = selectLists(db, boardIds).map(list => ({ ...list, collapsed: preferences.get(list.id) ?? false }));
   const cards = selectCards(db, boardIds);
   const notifications = selectNotifications(db, user.id, boardIds);
   const automationRules = selectAutomationRules(db, boardIds);
@@ -474,20 +479,11 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     workspaceMemberMap.set(membership.workspaceId, list);
   }
 
-  let currentWorkspaceId: string | null;
-  let currentBoardId: string | null;
-
-  if (user.defaultWorkspaceId && workspaces.some(w => w.id === user.defaultWorkspaceId)) {
-    currentWorkspaceId = user.defaultWorkspaceId;
-    if (user.defaultBoardId && boards.some(b => b.id === user.defaultBoardId && b.workspaceId === currentWorkspaceId)) {
-      currentBoardId = user.defaultBoardId;
-    } else {
-      currentBoardId = boards.find(board => board.workspaceId === currentWorkspaceId)?.id ?? null;
-    }
-  } else {
-    currentWorkspaceId = workspaces[0]?.id ?? null;
-    currentBoardId = boards.find(board => board.workspaceId === currentWorkspaceId)?.id ?? boards[0]?.id ?? null;
-  }
+  const activeWorkspaces = workspaces.filter(workspace => workspace.lifecycleState !== 'closed');
+  const activeBoards = boards.filter(board => board.lifecycleState !== 'closed' && !board.isTemplate && activeWorkspaces.some(workspace => workspace.id === board.workspaceId));
+  const currentWorkspaceId = activeWorkspaces.find(workspace => workspace.id === user.defaultWorkspaceId)?.id ?? activeWorkspaces[0]?.id ?? null;
+  const currentBoardId = activeBoards.find(board => board.id === user.defaultBoardId && board.workspaceId === currentWorkspaceId)?.id
+    ?? activeBoards.find(board => board.workspaceId === currentWorkspaceId)?.id ?? null;
   const appState: AppState = {
     maxLabelsPerBoard: getMaxLabelsPerBoard(db),
     workspaces: workspaces.map(workspace => ({ ...workspace, memberIds: workspaceMemberMap.get(workspace.id) ?? [] })),
@@ -608,6 +604,7 @@ export function getBoardById(db: Database.Database, boardId: string): Board | nu
     title: String(row.title),
     workspaceId: String(row.workspace_id),
     visibility: row.visibility as Board['visibility'],
+    lifecycleState: row.lifecycle_state as Board['lifecycleState'], revision: Number(row.revision), isTemplate: Boolean(row.is_template),
     color: String(row.color),
     starred: asBool(Number(row.starred)),
     labels: parseJson<Board['labels']>(String(row.labels_json)),
@@ -654,13 +651,28 @@ export function updateList(db: Database.Database, listId: string, title: string)
 }
 
 export function archiveList(db: Database.Database, listId: string) {
-  db.prepare('UPDATE lists SET archived = 1 WHERE id = ?').run(listId);
-  db.prepare('UPDATE cards SET archived = 1 WHERE list_id = ?').run(listId);
+  db.transaction(() => {
+    const changed = db.prepare('UPDATE lists SET archived = 1 WHERE id = ? AND archived = 0').run(listId).changes;
+    if (changed) db.prepare('UPDATE cards SET archived = 1, archived_by_list_id = ? WHERE list_id = ? AND archived = 0').run(listId, listId);
+  })();
+}
+
+export function compactActivePositions(db: Database.Database, table: 'lists' | 'cards', parentColumn: 'board_id' | 'list_id', parentId: string) {
+  const rows = db.prepare(`SELECT id, position FROM ${table} WHERE ${parentColumn} = ? AND archived = 0 ORDER BY position, id`).all(parentId) as { id: string; position: number }[];
+  for (const [position, row] of rows.entries()) if (row.position !== position) db.prepare(`UPDATE ${table} SET position = ? WHERE id = ?`).run(position, row.id);
 }
 
 export function restoreList(db: Database.Database, listId: string) {
-  db.prepare('UPDATE lists SET archived = 0 WHERE id = ?').run(listId);
-  db.prepare('UPDATE cards SET archived = 0 WHERE list_id = ?').run(listId);
+  db.transaction(() => {
+    const list = getListById(db, listId);
+    const position = list ? getMaxListPosition(db, list.boardId) + 1 : 0;
+    const changed = db.prepare('UPDATE lists SET archived = 0, position = ? WHERE id = ? AND archived = 1').run(position, listId).changes;
+    if (changed) {
+      db.prepare('UPDATE cards SET archived = 0, archived_by_list_id = NULL WHERE list_id = ? AND archived_by_list_id = ?').run(listId, listId);
+      if (list) compactActivePositions(db, 'lists', 'board_id', list.boardId);
+      compactActivePositions(db, 'cards', 'list_id', listId);
+    }
+  })();
 }
 
 export function deleteArchivedList(db: Database.Database, listId: string) {
@@ -681,7 +693,7 @@ export function moveList(db: Database.Database, listId: string, boardId: string,
 export function getListById(db: Database.Database, listId: string) {
   const row = db.prepare('SELECT * FROM lists WHERE id = ?').get(listId) as Record<string, unknown> | undefined;
   if (!row) return null;
-  return { id: String(row.id), title: String(row.title), boardId: String(row.board_id), position: Number(row.position), archived: asBool(Number(row.archived)) };
+  return { id: String(row.id), title: String(row.title), boardId: String(row.board_id), position: Number(row.position), archived: asBool(Number(row.archived)), revision: Number(row.revision), color: row.color ? String(row.color) : null };
 }
 
 export function sortListCards(
@@ -911,7 +923,7 @@ export function getCardById(db: Database.Database, cardId: string): Card | null 
     activity: parseJson<Card['activity']>(String(row.activity_json)),
     attachments: parseJson<Card['attachments']>(String(row.attachments_json)),
     watching: asBool(Number(row.watching)), archived: asBool(Number(row.archived)),
-    createdAt: String(row.created_at),
+    createdAt: String(row.created_at), revision: Number(row.revision), archivedByListId: row.archived_by_list_id ? String(row.archived_by_list_id) : null,
   };
 }
 
@@ -1010,7 +1022,7 @@ function mapAutomationRule(row: Record<string, unknown>): AutomationRule {
 }
 
 export function listScheduledAutomationRules(db: Database.Database) {
-  return (db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger IN ('date_time', 'weekday', 'monthly', 'heartbeat') ORDER BY rowid ASC").all() as Array<Record<string, unknown>>).map(mapAutomationRule);
+  return (db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND board_id IN (SELECT b.id FROM boards b JOIN workspaces w ON w.id = b.workspace_id WHERE b.lifecycle_state = 'active' AND w.lifecycle_state = 'active' AND b.is_template = 0) AND trigger IN ('date_time', 'weekday', 'monthly', 'heartbeat') ORDER BY rowid ASC").all() as Array<Record<string, unknown>>).map(mapAutomationRule);
 }
 
 export function listEventAutomationRules(db: Database.Database, boardId: string, trigger: 'card_created' | 'card_moved' | 'checklist_complete') {

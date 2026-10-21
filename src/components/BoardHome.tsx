@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../services/api';
 import { fetchNavigation, setPersonalStar, visitBoard, type NavigationBoard, type NavigationPage } from '../services/navigation';
 import { Button } from './ui/button';
+import { CollectionManager } from './CollectionManager';
 import { AcceptBoardInvitation } from './AcceptBoardInvitation';
 
 type HomeSection = 'recent' | 'starred' | 'all';
@@ -11,6 +12,9 @@ export function BoardHome({ onOpen, initialSection = 'recent' }: { onOpen?: () =
   const state = useAppState();
   const dispatch = useDispatch();
   const { refresh } = useAuth();
+  const [collectionFilter, setCollectionFilter] = useState<string[] | null>(null);
+  const [showClosed, setShowClosed] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [section, setSection] = useState<HomeSection>(initialSection);
   const [page, setPage] = useState<NavigationPage>({ items: [], nextCursor: null });
   const [loading, setLoading] = useState(initialSection !== 'all');
@@ -40,7 +44,7 @@ export function BoardHome({ onOpen, initialSection = 'recent' }: { onOpen?: () =
     return () => { cancelled = true; };
   }, [section, reload, refresh]);
   const rows: NavigationBoard[] = section === 'all'
-    ? state.boards.filter(board => board.workspaceId === state.currentWorkspaceId).map(board => ({ boardId: board.id, workspaceId: board.workspaceId, title: board.title, color: board.color, starred: knownStars[board.id] ?? false, lastVisitedAt: null }))
+    ? state.boards.filter(board => board.workspaceId === state.currentWorkspaceId && (showClosed || (board.lifecycleState !== 'closed' && state.workspaces.find(workspace => workspace.id === board.workspaceId)?.lifecycleState !== 'closed')) && (showTemplates || !board.isTemplate) && (!collectionFilter || collectionFilter.includes(board.id))).map(board => ({ boardId: board.id, workspaceId: board.workspaceId, title: board.title, color: board.color, starred: knownStars[board.id] ?? false, lastVisitedAt: null }))
     : page.items.filter(item => state.boards.some(board => board.id === item.boardId)).map(item => ({ ...item, starred: knownStars[item.boardId] ?? item.starred }));
   async function changeStar(row: NavigationBoard) {
     setPending(row.boardId);
@@ -71,7 +75,9 @@ export function BoardHome({ onOpen, initialSection = 'recent' }: { onOpen?: () =
     setPending(boardId);
     setError(null);
     try {
-      await visitBoard(boardId);
+      const board = state.boards.find(item => item.id === boardId);
+      const closed = board?.lifecycleState === 'closed' || state.workspaces.find(workspace => workspace.id === board?.workspaceId)?.lifecycleState === 'closed';
+      if (!closed && !board?.isTemplate) await visitBoard(boardId);
       dispatch({ type: 'SET_ACTIVE_CARD', payload: null });
       dispatch({ type: 'SET_CURRENT_BOARD', payload: boardId });
       onOpen?.();
@@ -86,11 +92,13 @@ export function BoardHome({ onOpen, initialSection = 'recent' }: { onOpen?: () =
       {([['recent', 'Recent'], ['starred', 'Your stars'], ['all', 'All boards']] as const).map(([key, title]) => <Button key={key} disabled={pending !== null} variant={section === key ? 'secondary' : 'outline'} aria-pressed={section === key} onClick={() => { if (key !== section) changeSection(key); }}>{title}</Button>)}
     </div>
     {section === 'all' && <label className="block text-sm">Workspace
-      <select aria-label="Workspace" className="block w-full mt-1 p-2 border rounded bg-background" value={state.currentWorkspaceId ?? ''} onChange={event => dispatch({ type: 'SET_CURRENT_WORKSPACE', payload: event.target.value })}>
+      <select aria-label="Workspace" className="block w-full mt-1 p-2 border rounded bg-background" value={state.currentWorkspaceId ?? ''} onChange={event => { setCollectionFilter(null); dispatch({ type: 'SET_CURRENT_WORKSPACE', payload: event.target.value }); }}>
         {!state.workspaces.length && <option value="">No workspaces available</option>}
         {state.workspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
       </select>
     </label>}
+    {section === 'all' && <div className="flex flex-wrap gap-3 text-sm"><label className="flex items-center gap-2"><input type="checkbox" checked={showClosed} onChange={event => setShowClosed(event.target.checked)} />Include closed boards</label><label className="flex items-center gap-2"><input type="checkbox" checked={showTemplates} onChange={event => setShowTemplates(event.target.checked)} />Include templates</label></div>}
+    {section === 'all' && state.currentWorkspaceId && <CollectionManager key={state.currentWorkspaceId} workspaceId={state.currentWorkspaceId} onFilter={setCollectionFilter} />}
     {error && <div role="alert" className="space-y-2"><p>{error}</p><Button variant="outline" onClick={() => { changeSection(section); setReload(value => value + 1); }}>Retry boards</Button></div>}
     {notice && <p role="status">{notice}</p>}
     {loading ? <p role="status">Loading your boards…</p> : !error && !rows.length && <p>{section === 'recent' ? 'No recent boards yet.' : section === 'starred' ? 'No starred boards yet.' : !state.workspaces.length ? 'No workspaces available. Ask an administrator for board access.' : 'No boards in this workspace.'}</p>}

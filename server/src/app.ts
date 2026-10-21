@@ -14,6 +14,10 @@ import { createBoardRoutes } from './routes/board-routes';
 import { createListRoutes } from './routes/list-routes';
 import { createCardRoutes } from './routes/card-routes';
 import { createAutomationRoutes, createNotificationRoutes } from './routes/automation-routes';
+import { guardLifecycleWrites } from './http/lifecycle-middleware';
+import { createLifecycleRoutes } from './routes/lifecycle-routes';
+import { createContentOperationRoutes } from './routes/content-operation-routes';
+import { createPresentationRoutes } from './routes/presentation-routes';
 
 const JSON_BODY_LIMIT = '12mb';
 
@@ -49,6 +53,10 @@ export function createApp(db: Database.Database) {
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());
   app.use(attachAuth(db));
+  app.use(guardLifecycleWrites(db));
+  app.use('/api', createLifecycleRoutes(db));
+  app.use('/api/content-operations', createContentOperationRoutes(db));
+  app.use('/api', createPresentationRoutes(db));
 
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true });

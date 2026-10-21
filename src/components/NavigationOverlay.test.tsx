@@ -6,14 +6,15 @@ import { createWorkspace, deleteWorkspace, updateWorkspace } from '../services/a
 import { createBoardApi, deleteBoardApi, updateBoardApi } from '../services/data';
 import { toggleBoardStarApi } from '../services/data';
 
-const { createAutomationRuleApiMock, updateAutomationRuleApiMock, createBoardApiMock, updateBoardApiMock, deleteBoardApiMock, authState } = vi.hoisted(() => ({
+const { createAutomationRuleApiMock, updateAutomationRuleApiMock, createBoardApiMock, updateBoardApiMock, deleteBoardApiMock, previewMock, commitMock, authState } = vi.hoisted(() => ({
   createAutomationRuleApiMock: vi.fn(),
   updateAutomationRuleApiMock: vi.fn(),
   createBoardApiMock: vi.fn(),
   updateBoardApiMock: vi.fn(),
-  deleteBoardApiMock: vi.fn(),
+  deleteBoardApiMock: vi.fn(), previewMock: vi.fn(), commitMock: vi.fn(),
   authState: {
     session: { permissions: { isSystemAdmin: false } },
+    canEditBoardCards: vi.fn(() => true),
     canManageWorkspace: vi.fn<(workspaceId: string | null) => boolean>(() => true),
     canManageBoard: vi.fn<(boardId: string | null) => boolean>(() => true),
     canArchiveBoardContent: vi.fn<(boardId: string | null) => boolean>(() => true),
@@ -39,6 +40,9 @@ vi.mock('../services/data', async () => {
     deleteBoardApi: deleteBoardApiMock,
   };
 });
+
+vi.mock('../services/content', async () => ({ ...await vi.importActual<typeof import('../services/content')>('../services/content'), previewContentOperation: previewMock, commitContentOperation: commitMock }));
+vi.mock('../services/collections', async () => ({ ...await vi.importActual<typeof import('../services/collections')>('../services/collections'), fetchCollections: vi.fn(async () => ({ items: [] })) }));
 
 vi.mock('../lib/auth-context', () => ({
   useAuth: () => authState,
@@ -67,6 +71,8 @@ async function openAutomationForm(user: ReturnType<typeof userEvent.setup>) {
 
 describe('NavigationOverlay automations', () => {
   beforeEach(() => {
+    previewMock.mockResolvedValue({ planHash: 'plan', counts: { boards: 1 }, warnings: [], unresolvedMappings: [], expiresAt: '2099-01-01T00:00:00Z' });
+    commitMock.mockResolvedValue({});
     createAutomationRuleApiMock.mockReset();
     updateAutomationRuleApiMock.mockReset();
     createWorkspaceMock.mockReset();
@@ -127,18 +133,20 @@ describe('NavigationOverlay automations', () => {
     await user.click(screen.getByRole('button', { name: 'Archive' }));
     await user.click(screen.getByRole('button', { name: 'Delete archived list Backlog' }));
 
-    expect(screen.getByTestId('management-dialog')).toHaveClass('h-[min(42rem,80vh)]');
+    expect(screen.getByTestId('management-dialog')).toHaveClass('h-[min(42rem,85dvh)]');
     expect(screen.getByTestId('archive-items')).toHaveClass('min-h-[20rem]');
-    const dialog = screen.getByRole('alertdialog');
-    expect(dialog).toHaveTextContent('This permanently deletes the archived list and every card it contains. This cannot be undone.');
+    const dialog = screen.getByRole('dialog', { name: 'Permanently delete list' });
+    expect(dialog).toHaveClass('overflow-hidden');
+    expect(screen.getByRole('button', { name: 'Cancel' }).closest('.overflow-y-auto')).toBeNull();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Confirm delete archived list' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete permanently' })).toBeDisabled();
   });
 
   it('renames a workspace inline on Enter without switching tabs', async () => {
     const user = userEvent.setup();
     authState.session = { permissions: { isSystemAdmin: true } };
     updateWorkspaceMock.mockResolvedValue({
+      memberIds: [],
       id: 'w1',
       name: 'Platform Ops',
       description: initialState.workspaces[0].description,
@@ -163,6 +171,7 @@ describe('NavigationOverlay automations', () => {
     const user = userEvent.setup();
     authState.session = { permissions: { isSystemAdmin: true } };
     updateWorkspaceMock.mockResolvedValue({
+      memberIds: [],
       id: 'w1',
       name: 'Customer Success',
       description: initialState.workspaces[0].description,
@@ -198,43 +207,25 @@ describe('NavigationOverlay automations', () => {
     expect(screen.getByText('Acme Engineering')).toBeInTheDocument();
   });
 
-  it('deletes a board after DELETE confirmation', async () => {
+  it('keeps closed-board deletion out of Management', async () => {
     const user = userEvent.setup();
-    deleteBoardApiMockInstance.mockResolvedValue({ success: true });
-
-    renderOverlay();
-
+    renderOverlay({ ...initialState, boards: initialState.boards.map(board => board.id === 'b1' ? { ...board, lifecycleState: 'closed' as const } : board) });
     await user.click(screen.getByRole('button', { name: 'Boards' }));
-    await user.click(screen.getByLabelText('Delete board Platform Sprint 24'));
-    expect(screen.getByPlaceholderText('Type DELETE to confirm')).toBeInTheDocument();
-
-    const yesButton = screen.getByRole('button', { name: 'YES' });
-    expect(yesButton).toBeDisabled();
-    await user.type(screen.getByPlaceholderText('Type DELETE to confirm'), 'DELETE');
-    expect(yesButton).toBeEnabled();
-    await user.click(yesButton);
-
-    await waitFor(() => {
-      expect(deleteBoardApiMockInstance).toHaveBeenCalledWith('b1');
-      expect(authState.refresh).toHaveBeenCalled();
-    });
+    expect(screen.queryByLabelText('Delete board Platform Sprint 24')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete closed board' })).not.toBeInTheDocument();
   });
 
-  it('deletes a workspace after DELETE confirmation', async () => {
+  it('deletes a closed workspace only after preview and typed confirmation', async () => {
     const user = userEvent.setup();
     authState.session = { permissions: { isSystemAdmin: true } };
-    deleteWorkspaceMockInstance.mockResolvedValue({ success: true });
-
-    renderOverlay();
-
+    renderOverlay({ ...initialState, workspaces: initialState.workspaces.map(workspace => workspace.id === 'w1' ? { ...workspace, lifecycleState: 'closed' as const } : workspace) });
     await user.click(screen.getByLabelText('Delete workspace Acme Engineering'));
-    await user.type(screen.getByPlaceholderText('Type DELETE to confirm'), 'DELETE');
-    await user.click(screen.getByRole('button', { name: 'YES' }));
-
-    await waitFor(() => {
-      expect(deleteWorkspaceMockInstance).toHaveBeenCalledWith('w1');
-      expect(authState.refresh).toHaveBeenCalled();
-    });
+    await user.click(screen.getByRole('button', { name: 'Preview impact' }));
+    await user.type(screen.getByLabelText('Type DELETE to confirm'), 'DELETE');
+    await user.click(screen.getByRole('button', { name: 'Delete permanently' }));
+    await waitFor(() => expect(commitMock).toHaveBeenCalledWith(expect.objectContaining({ kind: 'delete', resourceType: 'workspace', sourceId: 'w1' }), expect.any(String)));
+    expect(deleteWorkspaceMockInstance).not.toHaveBeenCalled();
+    expect(authState.refresh).toHaveBeenCalled();
   });
 
   it('creates a board without closing the overlay or changing selection', async () => {

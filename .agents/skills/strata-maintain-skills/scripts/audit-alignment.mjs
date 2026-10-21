@@ -81,6 +81,17 @@ requireText(canaryRelease, "local development workstation", ".agents/skills/stra
 requireText(canaryRelease, "never on a Kubernetes node", ".agents/skills/strata-release-canary/SKILL.md");
 requireText(canaryRelease, "main` container", ".agents/skills/strata-release-canary/SKILL.md");
 requireText(canaryRelease, "/api/health", ".agents/skills/strata-release-canary/SKILL.md");
+for (const [owner, content] of [
+  ["AGENTS.md", agents],
+  [".agents/strata-pipeline-policy.html", policy],
+  ["strata-release-canary", canaryRelease],
+  ["strata-review-issue", issueReview],
+]) {
+  requireText(content, "Strata Canary deployment health", owner);
+  rejectText(content, "whole homelab are verified green", owner);
+  rejectText(content, "whole-homelab green are the Canary runtime gates", owner);
+  rejectText(content, "whole-cluster health before In Review", owner);
+}
 requireText(productionRelease, "strata-data", ".agents/skills/strata-release-production/SKILL.md");
 requireText(productionRelease, "SQLite integrity", ".agents/skills/strata-release-production/SKILL.md");
 requireText(productionRelease, "Purge obsolete unreferenced Strata image manifests from Zot", ".agents/skills/strata-release-production/SKILL.md");

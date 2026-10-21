@@ -27,7 +27,9 @@ export function SearchOverlay() {
     const q = state.searchQuery.toLowerCase().trim();
     if (!q) return [];
 
-    let cards = state.cards.filter(c => !c.archived);
+    const activeBoardIds = new Set(state.boards.filter(board => board.lifecycleState !== 'closed' && state.workspaces.find(workspace => workspace.id === board.workspaceId)?.lifecycleState !== 'closed' && !board.isTemplate).map(board => board.id));
+    const activeListIds = new Set(state.lists.filter(list => !list.archived && activeBoardIds.has(list.boardId)).map(list => list.id));
+    let cards = state.cards.filter(c => !c.archived && activeListIds.has(c.listId));
 
     // Parse operators
     const tokens = q.split(/\s+/);
@@ -60,7 +62,7 @@ export function SearchOverlay() {
     }
 
     return cards.slice(0, 20);
-  }, [state.searchQuery, state.searchTimestamp, state.cards, state.users, state.boards]);
+  }, [state.searchQuery, state.searchTimestamp, state.cards, state.users, state.boards, state.workspaces, state.lists]);
 
   return (
     <Dialog open={state.searchOpen} onOpenChange={open => dispatch({ type: 'SET_SEARCH_OPEN', payload: open })}>

@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { createIdentitySchema } from './identity-schema';
+import { createLifecycleSchema } from './lifecycle-schema';
 
 export function createSchema(db: Database.Database) {
   db.exec(`
@@ -282,6 +283,10 @@ export function createSchema(db: Database.Database) {
     db.exec('ALTER TABLE cards ADD COLUMN description_json TEXT');
   }
 
+  if (!cardColumns.has('archived_by_list_id')) {
+    db.exec('ALTER TABLE cards ADD COLUMN archived_by_list_id TEXT REFERENCES lists(id) ON DELETE SET NULL');
+  }
+
   const automationRuleColumns = new Set(
     (db.prepare('PRAGMA table_info(automation_rules)').all() as Array<{ name: string }>).map(column => column.name),
   );
@@ -294,5 +299,6 @@ export function createSchema(db: Database.Database) {
     db.exec('ALTER TABLE automation_rules ADD COLUMN last_run_at TEXT');
   }
   createIdentitySchema(db);
+  createLifecycleSchema(db);
 
 }

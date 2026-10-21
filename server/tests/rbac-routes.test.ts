@@ -17,6 +17,7 @@
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import { reviewedDelete } from './reviewed-delete';
 import { createDatabase, closeDatabase } from '../src/db/database';
 import { createApp } from '../src/app';
 
@@ -230,7 +231,7 @@ describe('list CRUD RBAC', () => {
     expect((await agent.post(`/api/lists/${listId}/restore`).send()).status).toBe(200);
 
     expect((await agent.post(`/api/lists/${listId}/archive`).send()).status).toBe(200);
-    expect((await agent.delete(`/api/lists/${listId}`).send()).status).toBe(200);
+    expect((await reviewedDelete(agent, db, 'list', listId)).status).toBe(200);
   });
 
   it('allows workspace_admin to manage lists in boards of their workspace', async () => {
@@ -304,8 +305,8 @@ describe('card CRUD RBAC', () => {
     expect(update.status).toBe(200);
 
     // Delete
-    const del = await agent.delete(`/api/cards/${cardId}`).send();
-    expect(del.status).toBe(204);
+    const del = await reviewedDelete(agent, db, 'card', cardId);
+    expect(del.status).toBe(200);
   });
 
   it('allows workspace_admin to CRUD cards in their workspace boards', async () => {

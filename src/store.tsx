@@ -262,17 +262,20 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'UPDATE_LIST':
-      return { ...state, lists: state.lists.map(list => list.id === action.payload.id ? { ...list, title: action.payload.title } : list) };
+      return { ...state, lists: state.lists.map(list => list.id === action.payload.id ? { ...list, ...action.payload } : list) };
 
     case 'ARCHIVE_LIST':
-      return { ...state, lists: state.lists.map(list => list.id === action.payload ? { ...list, archived: true } : list), cards: state.cards.map(card => card.listId === action.payload ? { ...card, archived: true } : card) };
+      return { ...state, lists: state.lists.map(list => list.id === action.payload ? { ...list, archived: true } : list), cards: state.cards.map(card => card.listId === action.payload && !card.archived ? { ...card, archived: true, archivedByListId: action.payload } : card) };
 
     case 'RESTORE_LIST':
       return {
         ...state,
         lists: state.lists.map(list => list.id === action.payload ? { ...list, archived: false } : list),
-        cards: state.cards.map(card => card.listId === action.payload ? { ...card, archived: false } : card),
+        cards: state.cards.map(card => card.listId === action.payload && card.archivedByListId === action.payload ? { ...card, archived: false, archivedByListId: null } : card),
       };
+
+    case 'SET_LIST_COLLAPSED':
+      return { ...state, lists: state.lists.map(list => list.id === action.payload.listId ? { ...list, collapsed: action.payload.collapsed } : list) };
 
     case 'DELETE_LIST':
       return {

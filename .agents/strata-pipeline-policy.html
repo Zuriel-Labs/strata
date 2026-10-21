@@ -7,7 +7,7 @@
   <style>
     :root { color-scheme: dark; --bg:#0b0d0e; --panel:#151918; --ink:#f4f0e7; --muted:#b7b0a4; --accent:#d8b76f; --line:#343a37; }
     * { box-sizing: border-box; }
-    body { max-width: 980px; margin: auto; padding: 48px 24px 96px; background: var(--bg); color: var(--ink); font: 16px/1.65 system-ui,sans-serif; }
+    body { overflow-wrap: anywhere; max-width: 980px; margin: auto; padding: 48px 24px 96px; background: var(--bg); color: var(--ink); font: 16px/1.65 system-ui,sans-serif; }
     h1,h2 { font-family: Georgia,serif; font-weight: 500; }
     h1 { font-size: 48px; } h2 { margin-top: 40px; color: var(--accent); }
     p,li,td { color: var(--muted); } code { color: #f0d18c; }
@@ -22,6 +22,10 @@
 
   <h2>Authority</h2>
   <p>The canonical repository is <code>Zuriel-Labs/strata</code> and the canonical GitHub Project is the private Zuriel-Labs <code>Strata</code> Project #2. The PM is <code>brimdor</code>. Strata intentionally has no branch protection or repository ruleset; the workflow and evidence remain mandatory even though GitHub does not enforce them server-side.</p>
+
+  <h2>Approved Issue execution</h2>
+  <p>Repository GitHub Issues are already approved scope. Work, start, initiate, complete, finish, implement, resume and equivalent execution requests all direct the agent to carry the selected Issue through the verified PM Testing handoff. The agent researches, maintains the specification and plan, implements all applicable acceptance criteria, verifies, remediates findings, opens the PR, obtains exact-head CI, deploys and verifies Canary, and supplies numbered PM testing steps without asking for another blueprint, spec, plan, task-list or slice-selection approval. Do not turn agent-generated implementation recommendations into additional PM gates.</p>
+  <p>Resolve routine choices from approved scope, repository evidence and user instructions. An actual blocker or material decision that those sources cannot resolve still requires input; ask all outstanding questions together and checkpoint the affected task. Preserve explicit scope restrictions, the single-active-Issue invariant and separate approvals for spending or destructive real-data actions. Read-only, discussion-only and plan-only requests retain their stated scope. Generic completion intent does not authorize merge or Production: the exact current-candidate approval remains required at PM Testing.</p>
 
   <h2>Project schema</h2>
   <table>
@@ -41,7 +45,7 @@
     <li>After the PM approves a new Issue draft, the agent creates it and moves its Project card to Backlog, open, unassigned, and inactive.</li>
     <li>After the PM selects ready work, the agent moves that card to In Progress, assigns only <code>brimdor</code>, and verifies the live Project state before implementation.</li>
     <li>The agent implements on <code>issue/&lt;number&gt;-&lt;slug&gt;</code>, validates locally, and opens a PR using <code>Refs #&lt;number&gt;</code>.</li>
-    <li>The agent completes local QA, including relevant browser interaction testing against a local instance, builds one immutable image from the exact committed PR head, deploys that digest to Canary, and verifies the application runtime and homelab all-green.</li>
+    <li>The agent completes local QA, including relevant browser interaction testing against a local instance, builds one immutable image from the exact committed PR head, deploys that digest to Canary, and verifies Strata Canary deployment health.</li>
     <li>Only then does the agent move the Issue to In Review, verify the card, and give the PM numbered, change-specific Canary testing steps.</li>
     <li>When the PM reports findings, the agent moves the Issue back to In Progress before remediation. Every change invalidates the earlier candidate and approval.</li>
     <li>When the PM explicitly requests a pause, the agent moves the Issue to On Hold and verifies that the active slot is released. When the PM requests resumption and the slot is free, the agent moves it to In Progress and verifies assignment and metadata.</li>
@@ -67,7 +71,7 @@
   <p>A candidate is the tuple of Issue, PR URL, exact PR head commit and tree, immutable Zot digest, and homelab Canary commit. The merge result must have the same Git tree as the approved PR head. Tag or commit identity alone is insufficient.</p>
 
   <h2>Deployment ownership</h2>
-  <p>Local testing belongs to the agent, and local browser interaction testing is sufficient to prove application behavior before release. Release images are built from an exact clean Git archive on the local development workstation outside the Kubernetes cluster, target <code>linux/amd64</code>, and are never built ad hoc on a Kubernetes node. Canary is the PM test environment and uses isolated ephemeral SQLite data. Production uses the existing <code>strata-data</code> PVC and backup workload; its data is never copied from Canary. Exact image identity, the one healthy <code>main</code> container, <code>/api/health</code>, zero restarts, Argo CD sync and health, external TLS/route behavior, and whole-homelab green are the Canary runtime gates. Production additionally requires backup freshness, PVC identity, SQLite integrity, and safe schema compatibility. The homelab repository and Gitea <code>master</code> are deployment authority; Argo CD performs reconciliation. Safe non-destructive GitOps rollback is automatic, while destructive data or schema rollback requires PM authorization.</p>
+  <p>Local testing belongs to the agent, and local browser interaction testing is sufficient to prove application behavior before release. Release images are built from an exact clean Git archive on the local development workstation outside the Kubernetes cluster, target <code>linux/amd64</code>, and are never built ad hoc on a Kubernetes node. Canary is the PM test environment and uses isolated ephemeral SQLite data. Production uses the existing <code>strata-data</code> PVC and backup workload; its data is never copied from Canary. Exact image identity, the one healthy <code>main</code> container, <code>/api/health</code>, zero restarts, Argo CD sync and health, external TLS/route behavior, and Strata-scoped logs/events are the Canary runtime gates. Unrelated homelab Applications, pods, nodes or storage health do not gate PM Testing and do not authorize infrastructure investigation or repair. Shared dependency failures block only when Strata’s own checks fail. Production retains its existing whole-cluster health gate and additionally requires backup freshness, PVC identity, SQLite integrity, and safe schema compatibility. The homelab repository and Gitea <code>master</code> are deployment authority; Argo CD performs reconciliation. Safe non-destructive GitOps rollback is automatic, while destructive data or schema rollback requires PM authorization.</p>
 
   <h2>PM testing handoff</h2>
   <p>Every implementation, remediation, Canary, Production, and completion handoff includes numbered, change-specific PM testing steps even after agent-owned verification passes. The steps identify the environment or URL, prerequisite state, exact actions, expected results, and relevant baseline regression checks. A Canary review handoff is incomplete without these steps.</p>

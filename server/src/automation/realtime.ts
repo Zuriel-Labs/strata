@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { isListActive } from '../rbac/lifecycle';
 import type Database from 'better-sqlite3';
 import type { AutomationRule, Card, Checklist } from '../../../src/types';
-import { createNotification, getCardById, getMaxCardPosition, getUserById, listEventAutomationRules, updateCard } from '../db/repositories';
+import { createNotification, getBoardById, getCardById, getMaxCardPosition, getUserById, listEventAutomationRules, updateCard } from '../db/repositories';
 
 function ruleMatchesConditions(card: Card, conditions: AutomationRule['conditions']) {
   if (conditions.listId && card.listId !== conditions.listId) return false;
@@ -29,13 +30,19 @@ export function applyRealtimeAutomations(
   trigger: 'card_created' | 'card_moved' | 'checklist_complete',
   actorUserId: string,
   extra?: { toListId?: string },
+  operationId?: string,
 ) {
+  if (card.archived || getBoardById(db, card.boardId)?.isTemplate || !isListActive(db, card.listId)) return card;
   let nextCard = card;
   const rules = listEventAutomationRules(db, card.boardId, trigger);
 
   for (const rule of rules) {
     if (trigger === 'card_moved' && rule.triggerConfig.toListId && extra?.toListId !== rule.triggerConfig.toListId) continue;
     if (!ruleMatchesConditions(nextCard, rule.conditions)) continue;
+    if (operationId) {
+      const inserted = db.prepare('INSERT OR IGNORE INTO content_operation_effects (operation_id, rule_id, subject_id, effect_kind) VALUES (?, ?, ?, ?)').run(operationId, rule.id, card.id, trigger).changes;
+      if (!inserted) continue;
+    }
 
     if (rule.action === 'assign_member' && rule.actionConfig.memberId && !nextCard.memberIds.includes(rule.actionConfig.memberId)) {
       const memberId = rule.actionConfig.memberId;
@@ -51,7 +58,7 @@ export function applyRealtimeAutomations(
       updateCard(db, nextCard.id, { labelIds: nextCard.labelIds, activity: nextCard.activity });
     }
 
-    if (rule.action === 'move_to_list' && rule.actionConfig.listId && nextCard.listId !== rule.actionConfig.listId) {
+    if (rule.action === 'move_to_list' && rule.actionConfig.listId && isListActive(db, rule.actionConfig.listId) && nextCard.listId !== rule.actionConfig.listId) {
       nextCard = appendActivity({ ...nextCard, listId: rule.actionConfig.listId, position: getMaxCardPosition(db, rule.actionConfig.listId) + 1 }, actorUserId, 'automatically moved this card');
       updateCard(db, nextCard.id, { listId: nextCard.listId, position: nextCard.position, activity: nextCard.activity });
       const refreshed = getCardById(db, nextCard.id);

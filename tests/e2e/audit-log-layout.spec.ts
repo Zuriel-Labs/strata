@@ -84,7 +84,9 @@ test('keeps scrollable Audit Log content below stable Administration tabs', asyn
   const tabs = dialog.locator('nav');
   const initialChrome = await chromeGeometry(dialog);
   await dialog.getByRole('button', { name: 'Audit Log' }).click();
-  await expect(dialog.getByText('auth.login', { exact: true })).toHaveCount(25);
+  await expect(dialog.locator('main section > div')).toHaveCount(25);
+  await expect(dialog.getByText('auth.login', { exact: true }).first()).toBeVisible();
+  await expect(dialog.getByText('auth.navigation_visit', { exact: true }).first()).toBeVisible();
   await expectAuditBelowStableTabs(dialog, initialChrome, true);
 
   for (const tabName of ['People', 'Create User', 'Board Members', 'Audit Log']) {

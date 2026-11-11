@@ -22,7 +22,7 @@ export function BoardInvitations({ boardId }: { boardId: string }) {
   useEffect(() => {
     if (!allowed) return;
     let cancelled = false;
-    void Promise.all([fetchEligibleBoardUsers(boardId, { query, page: accountPage, pageSize: 20 }), fetchBoardInvitations(boardId, page)])
+    void Promise.all([fetchEligibleBoardUsers(boardId, { query, page: accountPage, pageSize: 20, accountType: 'human' }), fetchBoardInvitations(boardId, page)])
       .then(([accounts, invitations]) => { if (!cancelled) setData({ accounts, invitations }); })
       .catch(() => { if (!cancelled) setError('Unable to load invitations. Retry when connected.'); });
     return () => { cancelled = true; };

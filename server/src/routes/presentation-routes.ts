@@ -4,20 +4,21 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { requireContentAuth as requireAuth, safeContentErrors, type AuthenticatedRequest } from '../http/auth-middleware';
 import { boardContentAccessSql, canReadBoardContent, canReadWorkspaceContent, canManageUserBoard, canManageUserWorkspace } from '../rbac/policies';
-import { createAuditEvent, getBoardById, getListById, getWorkspaceById } from '../db/repositories';
+import { buildSessionPayload, createAuditEvent, getBoardById, getListById, getWorkspaceById } from '../db/repositories';
 import { isWorkspaceActive } from '../rbac/lifecycle';
 
-const nameSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
-const revisionSchema = z.object({ expectedRevision: z.number().int().min(0) }).strict();
-const colorSchema = revisionSchema.extend({ color: z.enum(['#6366f1', '#0891b2', '#059669', '#ea580c', '#dc2626', '#7c3aed', '#be185d']).nullable() }).strict();
-const preferenceSchema = z.object({ collapsed: z.boolean() }).strict();
+export const nameSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
+export const revisionSchema = z.object({ expectedRevision: z.number().int().min(0) }).strict();
+export const colorSchema = revisionSchema.extend({ color: z.enum(['#6366f1', '#0891b2', '#059669', '#ea580c', '#dc2626', '#7c3aed', '#be185d']).nullable() }).strict();
+export const collectionQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), cursor: z.string().max(1000).optional() }).strict();
+export const preferenceSchema = z.object({ collapsed: z.boolean() }).strict();
 
 export function createPresentationRoutes(db: Database.Database) {
   const router = Router();
   router.get('/workspaces/:id/collections', requireAuth, (request: AuthenticatedRequest, response) => {
     const workspaceId = String(request.params.id);
     if (!getWorkspaceById(db, workspaceId) || !canReadWorkspaceContent(request.auth!, workspaceId)) { response.status(404).json({ message: 'Resource unavailable.' }); return; }
-    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), cursor: z.string().max(1000).optional() }).strict().safeParse(request.query);
+    const query = collectionQuerySchema.safeParse(request.query);
     if (!query.success) { response.status(400).json({ message: 'Invalid collection page.' }); return; }
     let afterId = '';
     if (query.data.cursor) {
@@ -30,8 +31,8 @@ export function createPresentationRoutes(db: Database.Database) {
     const collections = db.prepare(`SELECT c.id, c.workspace_id AS workspaceId, c.name, c.revision FROM board_collections c
       WHERE c.workspace_id = @workspaceId AND c.id > @afterId AND (@manager = 1 OR EXISTS (
         SELECT 1 FROM board_collection_items i JOIN boards ON boards.id = i.board_id
-        WHERE i.collection_id = c.id AND ${boardContentAccessSql}))
-      ORDER BY c.id LIMIT @limit`).all({ workspaceId, afterId, userId: request.auth!.user.id, manager: Number(canManageUserWorkspace(request.auth!, workspaceId)), limit: query.data.limit + 1 }) as { id: string; workspaceId: string; name: string; revision: number }[];
+        WHERE i.collection_id = c.id AND (@boardScope IS NULL OR boards.id IN (SELECT value FROM json_each(@boardScope))) AND ${boardContentAccessSql}))
+      ORDER BY c.id LIMIT @limit`).all({ workspaceId, afterId, userId: request.auth!.user.id, manager: Number(canManageUserWorkspace(request.auth!, workspaceId)), limit: query.data.limit + 1, boardScope: request.auth!.credential ? JSON.stringify(buildSessionPayload(db, request.auth!.user, request.auth!).appState.boards.map(board => board.id)) : null }) as { id: string; workspaceId: string; name: string; revision: number }[];
     const visible = collections.slice(0, query.data.limit);
     const items = visible.map(collection => ({ ...collection, boardIds: (db.prepare('SELECT board_id AS id FROM board_collection_items WHERE collection_id = ? ORDER BY board_id').all(collection.id) as { id: string }[]).filter(board => canReadBoardContent(db, request.auth!, board.id)).map(board => board.id) }));
     const last = visible.at(-1);
@@ -119,8 +120,11 @@ export function createPresentationRoutes(db: Database.Database) {
     if (!parsed.success) { response.status(400).json({ message: 'Invalid list preference.' }); return; }
     const list = getListById(db, id);
     if (!list || !canReadBoardContent(db, request.auth!, list.boardId)) { response.status(404).json({ message: 'Resource unavailable.' }); return; }
-    db.prepare('INSERT INTO user_list_preferences (user_id, list_id, collapsed, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, list_id) DO UPDATE SET collapsed = excluded.collapsed, updated_at = excluded.updated_at')
-      .run(request.auth!.user.id, id, Number(parsed.data.collapsed), new Date().toISOString());
+    db.transaction(() => {
+      db.prepare('INSERT INTO user_list_preferences (user_id, list_id, collapsed, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, list_id) DO UPDATE SET collapsed = excluded.collapsed, updated_at = excluded.updated_at')
+        .run(request.auth!.user.id, id, Number(parsed.data.collapsed), new Date().toISOString());
+      createAuditEvent(db, {actorUserId:request.auth!.user.id,scopeType:'board',scopeId:list.boardId,action:'auth.list_preference',outcome:'success',metadata:{listId:id,collapsed:parsed.data.collapsed}});
+    })();
     response.json({ listId: id, collapsed: parsed.data.collapsed });
   });
   router.use(safeContentErrors);

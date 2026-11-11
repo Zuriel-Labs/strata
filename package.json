@@ -54,10 +54,10 @@
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@tiptap/extension-link": "3.30.3",
-    "@tiptap/pm": "3.30.3",
-    "@tiptap/react": "3.30.3",
-    "@tiptap/starter-kit": "3.30.3",
+    "@tiptap/extension-link": "3.30.5",
+    "@tiptap/pm": "3.30.5",
+    "@tiptap/react": "3.30.5",
+    "@tiptap/starter-kit": "3.30.5",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "class-variance-authority": "^0.7.1",
@@ -78,7 +78,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "vaul": "^1.1.2",
-    "zod": "^4.3.6"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -115,5 +115,9 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.0",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "@tiptap/extension-bubble-menu": "3.30.5",
+    "@tiptap/extension-floating-menu": "3.30.5"
   }
 }

@@ -1,12 +1,13 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
+import { apiRequestContext } from '../api/request-context';
 import type { BoardRole } from '../types';
 import { isBoardActive } from '../rbac/lifecycle';
 import { invitationIssuerAuthoritySql } from '../rbac/policies';
 import { createSession, deleteSessionsForUser } from './repositories';
 
-export function acceptBoardInvitation(db: Database.Database, userId: string, token: string) {
+export function acceptBoardInvitation(db: Database.Database, userId: string, token: string, issueSession = true) {
   return db.transaction(() => {
     const unavailable = () => {
       audit(db, { actorUserId: userId, scopeType: 'auth', action: 'board.invitation_accept', outcome: 'failure', metadata: { reason: 'unavailable' } });
@@ -35,9 +36,9 @@ export function acceptBoardInvitation(db: Database.Database, userId: string, tok
       .run(randomUUID(), userId, invitation.boardId, invitation.role, now);
     db.prepare('UPDATE board_invitations SET accepted_at = ? WHERE id = ?').run(now, invitation.id);
     deleteSessionsForUser(db, userId);
-    const session = createSession(db, userId);
+    const session = issueSession ? createSession(db, userId) : null;
     audit(db, { actorUserId: userId, targetUserId: userId, scopeType: 'board', scopeId: invitation.boardId, action: 'board.invitation_accept', outcome: 'success', metadata: { invitationId: invitation.id, role: invitation.role } });
-    return { status: 'accepted' as const, boardId: invitation.boardId, membershipRole: invitation.role, alreadyAccepted: false, sessionId: session.id };
+    return { status: 'accepted' as const, boardId: invitation.boardId, membershipRole: invitation.role, alreadyAccepted: false, sessionId: session?.id ?? null };
   })();
 }
 
@@ -56,8 +57,15 @@ export function listPendingBoardInvitations(db: Database.Database, boardId: stri
 
 export function revokeBoardInvitation(db: Database.Database, actorId: string, boardId: string, invitationId: string) {
   // The database trigger writes the audit in this same statement's transaction.
-  db.prepare(`UPDATE board_invitations SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = 'manual'
-    WHERE id = ? AND board_id = ? AND revoked_at IS NULL`).run(new Date().toISOString(), actorId, invitationId, boardId);
+  db.transaction(() => {
+    const changed = db.prepare(`UPDATE board_invitations SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = 'manual'
+      WHERE id = ? AND board_id = ? AND revoked_at IS NULL`).run(new Date().toISOString(), actorId, invitationId, boardId).changes;
+    const context = apiRequestContext.getStore();
+    // Keep the trigger's single audit event while recording the initiating API connection.
+    if (changed && context) db.prepare(`UPDATE audit_events SET metadata_json = json_patch(metadata_json, ?)
+      WHERE action = 'board.invitation_revoke' AND json_extract(metadata_json, '$.invitationId') = ?`)
+      .run(JSON.stringify(context), invitationId);
+  })();
 }
 
 export function hashBoardInvitationToken(token: string) {

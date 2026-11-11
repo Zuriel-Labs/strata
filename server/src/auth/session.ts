@@ -17,6 +17,7 @@ function isSecureCookie(request: Request): boolean {
 }
 
 export function setSessionCookie(request: Request, response: Response, sessionId: string) {
+  if (request.get('Authorization')) return;
   response.cookie(SESSION_COOKIE, sessionId, {
     httpOnly: true,
     sameSite: 'lax',
@@ -30,6 +31,7 @@ export function clearSessionCookie(response: Response) {
 }
 
 export function createUserSession(db: Database.Database, userId: string, request: Request, response: Response) {
+  if (request.get('Authorization')) return null;
   const session = createSession(db, userId);
   setSessionCookie(request, response, session.id);
   return session;

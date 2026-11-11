@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { createApiSchema } from './api-schema';
 import { createIdentitySchema } from './identity-schema';
 import { createLifecycleSchema } from './lifecycle-schema';
 
@@ -300,5 +301,6 @@ export function createSchema(db: Database.Database) {
   }
   createIdentitySchema(db);
   createLifecycleSchema(db);
+  createApiSchema(db);
 
 }

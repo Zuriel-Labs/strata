@@ -1,3 +1,4 @@
+import type { ApiCredential } from './api/contract';
 import type { AppState } from '../../src/types';
 
 export type PlatformRole = 'system_admin' | 'user';
@@ -73,6 +74,7 @@ export interface AuditEventInput {
 }
 
 export interface AuthContextValue {
+  credential?: ApiCredential;
   user: UserRecord;
   session: SessionRecord;
   workspaceAdminGrants: WorkspaceAdminGrantRecord[];

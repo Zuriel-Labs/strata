@@ -1,3 +1,4 @@
+import { ConnectionConsent } from './components/ConnectionConsent';
 import { useEffect, useState } from 'react';
 import './App.css';
 import { AppProvider, useAppState } from './store';
@@ -155,6 +156,8 @@ function AppShell() {
       />
     );
   }
+
+  if (window.location.pathname === '/connect') return <ConnectionConsent />;
 
   return (
     <AppProvider initialAppState={auth.session?.appState}>

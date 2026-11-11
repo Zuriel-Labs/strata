@@ -6,13 +6,13 @@ import { buildSessionPayload, createAuditEvent, getWorkspaceById } from '../db/r
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canManageWorkspace, isSystemAdmin } from '../rbac/permissions';
 
-const workspaceSchema = z.object({
+export const workspaceSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(''),
   visibility: z.enum(['private', 'workspace', 'public']).default('private'),
 });
 
-const updateWorkspaceSchema = z.object({
+export const updateWorkspaceSchema = z.object({
   name: z.string().transform(value => value.trim()).refine(value => value.length > 0),
 });
 

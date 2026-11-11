@@ -11,7 +11,10 @@ let singleton: DatabaseHandle | null = null;
 export async function createDatabase(filename?: string) {
   const targetFile = filename ?? process.env.STRATA_DB_FILE ?? path.resolve(process.cwd(), 'server/data/strata.sqlite');
   if (targetFile !== ':memory:') {
-    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true, mode: 0o700 });
+    // Restrict both new and existing credential-bearing databases to the service user.
+    fs.closeSync(fs.openSync(targetFile, 'a', 0o600));
+    fs.chmodSync(targetFile, 0o600);
   }
   const db = new BetterSqlite3(targetFile);
   createSchema(db);

@@ -1,0 +1,195 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { createApp } from '../src/app';
+import { createDatabase, type DatabaseHandle } from '../src/db/database';
+import { createApiSchema } from '../src/db/api-schema';
+
+const intent = 'X-Strata-Intent';
+const api = '/api/connections';
+const services = `${api}/service-accounts`;
+const key = (name:string,actions:string[],resources:string[],expiresInDays=7) => ({ name,actions,resources,expiresInDays,confirmation:'CREATE' });
+const bearer = (token:string) => `Bearer ${token}`;
+
+describe('granular keys and service accounts',()=>{
+  let db:DatabaseHandle;
+  let app:ReturnType<typeof createApp>;
+  beforeEach(async()=>{process.env.SEED_DATA='true';db=await createDatabase(':memory:');app=createApp(db)});
+  afterEach(()=>db.close());
+  async function login(username:string,password:string){
+    const agent=request.agent(app);
+    expect((await agent.post('/api/auth/login').send({username,password})).status).toBe(200);
+    return agent;
+  }
+
+  it('creates independently revocable keys with discrete expiry choices and exact actions',async()=>{
+    const user=await login('priya','Member12345!');
+    const catalog=await user.get(`${api}/catalog`);
+    expect(catalog.body.expiries).toEqual([1,7,30,60,90,180]);
+    const board=catalog.body.resources.find((item:{id:string})=>item.id==='board:b1');
+    expect(board.actions).toContain('GET /cards');
+    expect(board.actions).not.toContain('PATCH /boards/:boardId');
+    expect(catalog.body.resources.some((item:{id:string})=>item.id==='platform')).toBe(false);
+    const all=[];
+    for(const days of [1,7,30,60,90,180]){
+      const result=await user.post(api).set(intent,'connections').send(key(`Read ${days}`,['GET /cards'],['board:b1'],days));
+      expect(result.status).toBe(201);
+      expect(result.body.token).toMatch(/^strata_key_/);
+      expect(Date.parse(result.body.connection.expiresAt)-Date.parse(result.body.connection.createdAt)).toBe(days*86_400_000);
+      all.push(result.body);
+    }
+    expect(new Set(all.map(item=>item.token)).size).toBe(6);
+    expect((await user.post(api).set(intent,'connections').send(key('Bad expiry',['GET /cards'],['board:b1'],2))).status).toBe(400);
+    expect((await user.post(api).set(intent,'connections').send(key('Bad permission',['PATCH /boards/:boardId'],['board:b1']))).status).toBe(403);
+    const list=await user.get(api);
+    expect(list.body.items).toHaveLength(6);
+    expect(JSON.stringify(list.body)).not.toContain(all[0].token);
+    const read=await request(app).get('/api/v1/cards').set('Authorization',bearer(all[0].token));
+    expect(read.status).toBe(200);
+    expect(read.body.items.every((item:{boardId:string})=>item.boardId==='b1')).toBe(true);
+    for(const path of ['/api/v1/lists','/api/v1/cards/c1','/api/v1/admin/audit']){
+      expect((await request(app).get(path).set('Authorization',bearer(all[0].token))).status).toBe(403);
+    }
+    expect((await user.delete(`${api}/${all[0].connection.id}`).set(intent,'connections')).status).toBe(204);
+    expect((await request(app).get('/api/v1/cards').set('Authorization',bearer(all[0].token))).status).toBe(401);
+    expect((await request(app).get('/api/v1/cards').set('Authorization',bearer(all[5].token))).status).toBe(200);
+  });
+
+  it('keeps archive, edits, audit reads and account-only actions separate',async()=>{
+    db.prepare("UPDATE users SET must_change_password=0 WHERE id='u1'").run();
+    const admin=await login('admin','ChangeMe123!');
+    const create=(actions:string[],resources:string[])=>admin.post(api).set(intent,'connections').send(key('Specific',actions,resources));
+    const archive=await create(['card:archive'],['board:b1']);
+    expect(archive.status).toBe(201);
+    const edit=(body:object)=>request(app).patch('/api/v1/cards/c1').set('Authorization',bearer(archive.body.token)).send(body);
+    expect((await edit({title:'Denied'})).status).toBe(403);
+    expect((await edit({archived:true,title:'Denied'})).status).toBe(403);
+    expect((await edit({archived:true})).status).toBe(200);
+    const profile=await create(['admin:user_profile'],['platform']);
+    expect(profile.status).toBe(201);
+    const updateUser=(body:object)=>request(app).patch('/api/v1/admin/users/u3').set('Authorization',bearer(profile.body.token)).send(body);
+    expect((await updateUser({name:'Changed profile'})).status).toBe(200);
+    expect((await updateUser({name:'Denied',boardMemberships:[]})).status).toBe(403);
+    expect((await updateUser({active:false})).status).toBe(403);
+    expect(db.prepare("SELECT role FROM board_memberships WHERE user_id='u3' AND board_id='b1'").pluck().get()).toBe('member');
+    expect((await create(['GET /cards'],['account'])).status).toBe(403);
+    const own=await create(['GET /me'],['account']);
+    expect(own.status).toBe(201);
+    expect((await request(app).get('/api/v1/me').set('Authorization',bearer(own.body.token))).status).toBe(200);
+    const people=await create(['GET /admin/users'],['platform']);
+    const directory=await request(app).get('/api/v1/admin/users').set('Authorization',bearer(people.body.token));
+    expect(directory.status).toBe(200);
+    expect(directory.body.auditEvents).toEqual([]);
+    expect((await request(app).get('/api/v1/admin/audit').set('Authorization',bearer(people.body.token))).status).toBe(403);
+    const audit=await create(['GET /admin/audit'],['platform']);
+    expect((await request(app).get('/api/v1/admin/audit').set('Authorization',bearer(audit.body.token))).body.auditEvents.length).toBeGreaterThan(0);
+  });
+
+  it('accepts all listed platform permissions in a single key',async()=>{
+    db.prepare("UPDATE users SET must_change_password=0 WHERE id='u1'").run();
+    const admin=await login('admin','ChangeMe123!');
+    const {body,status}=await admin.get(`${api}/catalog`);
+    expect(status).toBe(200);
+    const {actions}=body.resources.find((item:{id:string})=>item.id==='platform');
+    const issued=await admin.post(api).set(intent,'connections').send(key('All listed permissions',actions,['platform']));
+    expect(issued.status).toBe(201);
+    expect(issued.body.connection.actions).toEqual(actions);
+    for(const path of ['/api/v1/me','/api/v1/cards','/api/v1/admin/audit']){
+      expect((await request(app).get(path).set('Authorization',bearer(issued.body.token))).status).toBe(200);
+    }
+  });
+
+  it('keeps service membership independent of the key and uses the service identity for work',async()=>{
+    db.prepare("UPDATE users SET must_change_password=0 WHERE id='u1'").run();
+    const admin=await login('admin','ChangeMe123!');
+    const create=await admin.post(services).set(intent,'connections').send(key('Agent worker',['GET /auth/session','GET /boards/:id','POST /cards/:cardId/comments'],['board:b1']));
+    expect(create.status).toBe(201);
+    const {id,username}=create.body.account;
+    const authorization=bearer(create.body.token);
+    const session=await request(app).get('/api/v1/auth/session').set('Authorization',authorization);
+    expect(session.status).toBe(200);
+    expect(session.body.user).toMatchObject({id,username});
+    const comment=await request(app).post('/api/v1/cards/c1/comments').set('Authorization',authorization).send({text:'Local agent comment'});
+    expect(comment.status).toBe(201);
+    expect(JSON.stringify(comment.body)).toContain(id);
+    const loginAttempt=await request(app).post('/api/auth/login').send({username,password:'UnusedTestPassword123!'});
+    expect(loginAttempt.status).toBe(401);
+    expect((await admin.post(`/api/admin/users/${id}/generate-recovery-key`)).status).toBe(404);
+    const other=db.prepare("SELECT id FROM boards WHERE id<>'b1' AND is_template=0 LIMIT 1").pluck().get() as string;
+    const eligible=await admin.get(`/api/admin/boards/${other}/eligible-users`).query({query:username});
+    expect(eligible.body.items).toMatchObject([{id,username,serviceAccount:true}]);
+    const inviteCandidates=await admin.get(`/api/admin/boards/${other}/eligible-users`).query({query:username,accountType:'human'});
+    expect(inviteCandidates.status).toBe(200);
+    expect(inviteCandidates.body.items).toEqual([]);
+    expect((await admin.put(`/api/admin/boards/${other}/members/${id}`).send({role:'member'})).status).toBe(200);
+    expect((await request(app).get(`/api/v1/boards/${other}`).set('Authorization',authorization)).status).toBe(403);
+    const member=await admin.get(`/api/admin/boards/${other}/members`).query({query:username});
+    expect(member.body.items).toMatchObject([{id,serviceAccount:true,role:'member'}]);
+    const catalog=await admin.get(`${api}/catalog`).query({serviceAccount:id});
+    expect(catalog.body.resources.map((item:{id:string})=>item.id)).toEqual(expect.arrayContaining(['board:b1',`board:${other}`]));
+    const changed=await admin.put(`${services}/${id}/assignments`).set(intent,'connections').send({resources:['workspace:w1']});
+    expect(changed.status).toBe(200);
+    expect(changed.body.account).toMatchObject({id,username,assignments:['workspace:w1'],resources:['board:b1'],key:{revokedAt:expect.any(String)}});
+    expect((await request(app).get('/api/v1/auth/session').set('Authorization',authorization)).status).toBe(401);
+    const workspace=await admin.get('/api/auth/session');
+    expect(workspace.body.appState.workspaces.find((item:{id:string})=>item.id==='w1').memberIds).toContain(id);
+    expect((await admin.post(`${services}/${id}/key`).set(intent,'connections').send(key('Agent worker',['GET /cards'],['platform']))).status).toBe(403);
+  });
+
+  it('migrates legacy service keys to stable service identities and is safe to rerun',async()=>{
+    const admin=await login('alex','WorkspaceAdmin123!');
+    const made=await admin.post(api).set(intent,'connections').send(key('Legacy agent',['GET /auth/session'],['workspace:w1']));
+    expect(made.status).toBe(201);
+    const legacy='11111111-1111-4111-8111-111111111111';
+    db.prepare('INSERT INTO api_service_accounts(id,name,owner_user_id,resources_json,actions_json,created_at,grant_id) VALUES (?,?,?,?,?,?,?)')
+      .run(legacy,'Legacy agent','u2','["workspace:w1"]','["GET /auth/session"]',new Date().toISOString(),made.body.connection.id);
+    db.prepare('UPDATE api_grants SET service_account_id=? WHERE id=?').run(legacy,made.body.connection.id);
+    createApiSchema(db);
+    createApiSchema(db);
+    expect(db.pragma('foreign_key_check')).toEqual([]);
+    expect(db.prepare('SELECT user_id FROM api_grants WHERE id=?').pluck().get(made.body.connection.id)).toBe(legacy);
+    const session=await request(app).get('/api/v1/auth/session').set('Authorization',bearer(made.body.token));
+    expect(session.status).toBe(200);
+    expect(session.body.user).toMatchObject({id:legacy,username:`svc-${legacy}`});
+  });
+
+  it('uses the same endpoints, audits the agent, and revokes old access on an ownership transfer',async()=>{
+    const owner=await login('alex','WorkspaceAdmin123!');
+    const successor=await login('marcus','BoardAdmin123!');
+    const basic=await login('priya','Member12345!');
+    const actions=['GET /cards','card:title','PATCH /workspaces/:workspaceId'];
+    const input=key('Board assistant',actions,['workspace:w1']);
+    expect((await basic.post(services).set(intent,'connections').send(input)).status).toBe(403);
+    const made=await owner.post(services).set(intent,'connections').send(input);
+    expect(made.status).toBe(201);
+    const {id}=made.body.account;
+    expect(made.body.account.username).toMatch(/^svc-/);
+    expect(db.prepare('SELECT user_id FROM api_grants WHERE service_account_id=?').pluck().get(id)).toBe(id);
+    const auth=bearer(made.body.token);
+    expect((await owner.get(api)).body.items).toEqual([]);
+    expect((await successor.get(services)).body.items).toEqual([]);
+    expect((await owner.get(services).set('Authorization',auth)).status).toBe(403);
+    expect((await owner.post(services).set(intent,'connections').send({...input,name:'board ASSISTANT'})).status).toBe(409);
+    expect((await owner.post(services).set(intent,'connections').send(key('Personal',['GET /me'],['workspace:w1']))).status).toBe(403);
+    expect((await request(app).patch('/api/v1/cards/c1').set('Authorization',auth).send({title:'Agent edit'})).status).toBe(200);
+    const event=db.prepare("SELECT actor_user_id,metadata_json FROM audit_events WHERE action='card.update' ORDER BY rowid DESC LIMIT 1").get() as {actor_user_id:string;metadata_json:string};
+    expect(event.actor_user_id).toBe(id);
+    expect(JSON.parse(event.metadata_json)).toMatchObject({serviceAccountId:id,serviceAccountName:'Board assistant'});
+    expect((await successor.delete(`${services}/${id}/key`).set(intent,'connections')).status).toBe(404);
+    const transfer=(username:string)=>owner.post(`${services}/${id}/transfer`).set(intent,'connections').send({username,confirmation:'TRANSFER'});
+    expect((await transfer('priya')).status).toBe(400);
+    expect((await transfer('marcus')).status).toBe(204);
+    expect((await request(app).get('/api/v1/cards').set('Authorization',auth)).status).toBe(401);
+    expect((await owner.get(services)).body.items).toEqual([]);
+    const accounts=(await successor.get(services)).body.items;
+    expect(accounts).toMatchObject([{id,username:made.body.account.username,name:'Board assistant',resources:['board:b1'],actions:['GET /cards','card:title'],key:null}]);
+    const issue=(body:object)=>successor.post(`${services}/${id}/key`).set(intent,'connections').send(body);
+    expect((await issue(input)).status).toBe(403);
+    const renewed=await issue(key('Board assistant',accounts[0].actions,accounts[0].resources,180));
+    expect(renewed.status).toBe(201);
+    const requestCards=()=>request(app).get('/api/v1/cards').set('Authorization',bearer(renewed.body.token));
+    expect((await requestCards()).body.items.every((item:{boardId:string})=>item.boardId==='b1')).toBe(true);
+    db.prepare("DELETE FROM board_admin_grants WHERE user_id='u4' AND board_id='b1'").run();
+    expect((await requestCards()).status).toBe(401);
+  });
+});

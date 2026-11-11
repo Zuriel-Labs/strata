@@ -8,25 +8,25 @@ import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware'
 import { canArchiveBoardContent, canEditBoardCards, canManageBoard } from '../rbac/permissions';
 import { normalizeDescriptionInput, RichTextValidationError } from '../../../src/lib/rich-text';
 
-const createCardSchema = z.object({
+export const createCardSchema = z.object({
   boardId: z.string().min(1),
   listId: z.string().min(1),
   title: z.string().min(1),
 });
 
-const checklistItemSchema = z.object({
+export const checklistItemSchema = z.object({
   id: z.string().trim().min(1).max(200),
   text: z.string().trim().min(1).max(1_000),
   completed: z.boolean(),
 }).strict();
 
-const checklistSchema = z.object({
+export const checklistSchema = z.object({
   id: z.string().trim().min(1).max(200),
   title: z.string().trim().min(1).max(200),
   items: z.array(checklistItemSchema).max(500),
 }).strict();
 
-const updateCardSchema = z.object({
+export const updateCardSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   descriptionDocument: z.unknown().optional(),
@@ -40,14 +40,14 @@ const updateCardSchema = z.object({
   archived: z.boolean().optional(),
 }).strict().refine(value => !(value.description !== undefined && value.descriptionDocument !== undefined));
 
-const moveCardSchema = z.object({
+export const moveCardSchema = z.object({
   toListId: z.string().min(1),
   toPosition: z.number().int().min(0),
 }).strict();
 
-const duplicateCardSchema = z.object({}).strict();
+export const duplicateCardSchema = z.object({}).strict();
 
-const commentMutationSchema = z.object({
+export const commentMutationSchema = z.object({
   text: z.string().trim().min(1).max(10_000),
 }).strict();
 
@@ -135,6 +135,7 @@ export function createCardRoutes(db: Database.Database) {
     const shouldRunChecklistAutomations = parsed.data.checklists !== undefined && becameChecklistComplete(card.checklists, parsed.data.checklists as typeof card.checklists);
     const updated = db.transaction(() => {
       updateCard(db, cardId, requiresArchivePermission && parsed.data.archived === false ? { ...updates, position: getMaxCardPosition(db, card.listId) + 1 } : updates);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: card.boardId, action: 'card.update', outcome: 'success', metadata: { cardId } });
       if (requiresArchivePermission) {
         db.prepare('UPDATE cards SET archived_by_list_id = NULL WHERE id = ?').run(cardId);
         if (parsed.data.archived === false) compactActivePositions(db, 'cards', 'list_id', card.listId);

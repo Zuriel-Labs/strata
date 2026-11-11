@@ -1,3 +1,4 @@
+import { buildSessionPayload } from '../db/repositories';
 import { Router } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
@@ -6,12 +7,12 @@ import { canUsePersonalBoardNavigation } from '../rbac/policies';
 import { listPersonalBoardNavigation, recordPersonalBoardVisit, setPersonalBoardStar } from '../db/navigation-repositories';
 
 const boardParams = z.object({ boardId: z.string().min(1).max(100) }).strict();
-const starBody = z.object({ starred: z.boolean() }).strict();
-const navigationQuery = z.object({
+export const starBody = z.object({ starred: z.boolean() }).strict();
+export const navigationQuery = z.object({
   kind: z.enum(['recent', 'starred']), limit: z.coerce.number().int().min(1).max(50).default(20),
   cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).optional(),
 }).strict();
-const cursorSchema = z.object({ userId: z.string(), kind: z.enum(['recent', 'starred']), timestamp: z.iso.datetime(), boardId: z.string().min(1).max(100) }).strict();
+export const cursorSchema = z.object({ userId: z.string(), kind: z.enum(['recent', 'starred']), timestamp: z.iso.datetime(), boardId: z.string().min(1).max(100) }).strict();
 
 export function createNavigationRoutes(db: Database.Database) {
   const router = Router();
@@ -50,7 +51,7 @@ export function createNavigationRoutes(db: Database.Database) {
         return;
       }
     }
-    response.set('Cache-Control', 'no-store').json(listPersonalBoardNavigation(db, actor.user.id, parsed.data.kind, parsed.data.limit, cursor));
+    response.set('Cache-Control', 'no-store').json(listPersonalBoardNavigation(db, actor.user.id, parsed.data.kind, parsed.data.limit, cursor, actor.credential ? buildSessionPayload(db, actor.user, actor).appState.boards.map(board => board.id) : null));
   });
   router.put('/boards/:boardId/star', (request: AuthenticatedRequest, response) => {
     const actor = request.auth;

@@ -73,6 +73,7 @@ export function deleteManagedUser(userId: string) {
 
 export interface AdminPerson {
   id: string; name: string; username: string; initials: string; color: string; role?: 'member' | 'observer';
+  serviceAccount?: boolean;
 }
 export interface AdminPeoplePage { items: AdminPerson[]; page: PageMeta }
 
@@ -80,8 +81,10 @@ export function fetchBoardMembers(boardId: string, input: { query?: string; page
   return apiRequest<AdminPeoplePage>(`/api/admin/boards/${boardId}/members?${pageQuery(input)}`);
 }
 
-export function fetchEligibleBoardUsers(boardId: string, input: { query?: string; page?: number; pageSize?: number } = {}) {
-  return apiRequest<AdminPeoplePage>(`/api/admin/boards/${boardId}/eligible-users?${pageQuery(input)}`);
+export function fetchEligibleBoardUsers(boardId: string, input: { query?: string; page?: number; pageSize?: number; accountType?: 'human' } = {}) {
+  const params = pageQuery(input);
+  if (input.accountType) params.set('accountType', input.accountType);
+  return apiRequest<AdminPeoplePage>(`/api/admin/boards/${boardId}/eligible-users?${params}`);
 }
 
 export function setBoardMember(boardId: string, userId: string, role: 'member' | 'observer') {

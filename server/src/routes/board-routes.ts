@@ -7,13 +7,13 @@ import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware'
 import { canManageWorkspace, canManageBoard, canManageBoardLabels } from '../rbac/permissions';
 import { canManageUserBoard } from '../rbac/policies';
 
-const labelSchema = z.object({
+export const labelSchema = z.object({
   id: z.string().trim().min(1).max(100),
   name: z.string().max(50).transform(value => value.trim()),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).transform(value => value.toLowerCase()),
 }).strict();
 
-const labelsSchema = z.array(labelSchema).max(100).superRefine((labels, context) => {
+export const labelsSchema = z.array(labelSchema).max(100).superRefine((labels, context) => {
   const seen = new Set<string>();
   labels.forEach((label, index) => {
     if (seen.has(label.id)) {
@@ -23,18 +23,18 @@ const labelsSchema = z.array(labelSchema).max(100).superRefine((labels, context)
   });
 });
 
-const createBoardSchema = z.object({
+export const createBoardSchema = z.object({
   workspaceId: z.string().min(1),
   title: z.string().min(1),
   color: z.string().min(1),
   labels: labelsSchema.optional(),
 }).strict();
 
-const updateBoardSchema = z.object({
+export const updateBoardSchema = z.object({
   title: z.string().transform(value => value.trim()).refine(value => value.length > 0),
 });
 
-const updateBoardLabelsSchema = z.object({
+export const updateBoardLabelsSchema = z.object({
   labels: labelsSchema,
   expectedRevision: z.number().int().min(0),
 }).strict();

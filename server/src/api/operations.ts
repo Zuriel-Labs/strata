@@ -63,6 +63,7 @@ add('POST','/auth/password/change','account:security','Change own password with 
 add('POST','/auth/recovery-key/generate','account:security','Generate own recovery key');
 add('POST','/auth/board-invitations/accept','account:write','Accept invitation within approved resources',invitation.acceptBody);
 add('GET','/admin/users','administration:read','List authorized users with bounded pages',undefined,admin.pageSchema);
+add('GET','/admin/audit','administration:read','Read platform audit log',undefined,undefined,true);
 add('GET','/admin/users/:userId','administration:read','Read authorized user detail');
 add('GET','/admin/resources','administration:read','List manageable workspace or board resources',undefined,admin.resourceSchema);
 add('POST','/admin/users','administration:write','Create user (System Admin)',admin.userSchema,undefined,true);

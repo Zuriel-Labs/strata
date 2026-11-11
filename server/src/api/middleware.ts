@@ -3,6 +3,7 @@ import type { Response, NextFunction } from 'express';
 import type { AuthenticatedRequest } from '../http/auth-middleware';
 import { authenticateBearer, isWithinResources } from './credentials';
 import { consumeRate } from './rate-limit';
+import { actionIds } from './actions';
 import { matchOperation } from './operations';
 import { hashBoardInvitationToken } from '../db/invitation-repositories';
 import { audit } from '../audit/audit-log';
@@ -33,11 +34,16 @@ export function attachApiPrincipal(db: Database.Database) {
     const matched = matchOperation(request.method, request.path);
     if (!matched) { response.status(404).json({ code: 'OPERATION_UNAVAILABLE', message: 'Supported operation unavailable.' }); return; }
     const { operation, params } = matched;
+    const serviceActor = credential.serviceAccountId ? {serviceAccountId:credential.serviceAccountId,serviceAccountName:credential.name} : {};
     const deny = (code:string, message:string) => {
-      audit(db,{actorUserId:request.auth!.user.id,scopeType:'auth',action:'api.operation.denied',outcome:'failure',metadata:{credentialId:credential.id,operationId:`${operation.method} ${operation.path}`,reason:code}});
+      audit(db,{actorUserId:request.auth!.user.id,scopeType:'auth',action:'api.operation.denied',outcome:'failure',metadata:{credentialId:credential.id,operationId:`${operation.method} ${operation.path}`,reason:code,...serviceActor}});
       response.status(403).json({code,message});
     };
     const body = request.body && typeof request.body === 'object' ? request.body as Record<string, unknown> : {};
+    const actions = actionIds(operation, body);
+    if (credential.actions && (!actions.length || actions.some(action => !credential.actions!.includes(action)))) {
+      deny('ACTION_FORBIDDEN','This key does not allow this action.'); return;
+    }
     const needed = [...operation.scopes];
     if (request.path.startsWith('/content-operations') && (body.kind === 'delete' || (typeof body.kind === 'string' && /^(board|list)_/.test(body.kind)))) needed.push('content:manage');
     if (request.path.match(/^\/cards\/[^/]+$/) && body.archived !== undefined) needed.push('content:manage');
@@ -62,7 +68,7 @@ export function attachApiPrincipal(db: Database.Database) {
       const kind = ({ workspaceId: 'workspace', boardId: 'board', listId: 'list', toListId: 'list', destinationWorkspaceId: 'workspace', destinationBoardId: 'board', destinationListId: 'list', defaultWorkspaceId: 'workspace', defaultBoardId: 'board' } as Record<string,string>)[key];
       if (kind) reference(kind, value);
     }
-    if (typeof body.sourceId === 'string') reference(typeof body.resourceType === 'string' ? body.resourceType : String(body.kind).split('_')[0], body.sourceId);
+    if (typeof body.sourceId === 'string') reference(body.kind === 'delete' ? String(body.resourceType) : String(body.kind).split('_')[0], body.sourceId.trim());
     if (request.path === '/auth/board-invitations/accept' && typeof body.token === 'string') {
       const boardId = db.prepare('SELECT board_id FROM board_invitations WHERE token_hash = ?').pluck().get(hashBoardInvitationToken(body.token));
       if (typeof boardId === 'string') reference('board', boardId);
@@ -70,6 +76,6 @@ export function attachApiPrincipal(db: Database.Database) {
     if (references.some(item => !isWithinResources(db, credential.resources, item.kind, item.id) && !(['GET','HEAD'].includes(request.method) && item.kind === 'workspace' && request.auth!.derivedWorkspaceIds.includes(item.id)))) { deny('RESOURCE_FORBIDDEN','Approved resources do not allow this operation.'); return; }
     if (request.method === 'DELETE' && /^\/admin\/users\//.test(request.path) && body.confirmation !== 'DELETE') { response.status(400).json({ code: 'CONFIRMATION_REQUIRED', message: 'Type DELETE to confirm account deletion.' }); return; }
     db.prepare('UPDATE api_grants SET last_used_at = ? WHERE id = ?').run(new Date().toISOString(), credential.id);
-    apiRequestContext.run({ credentialId: credential.id, operationId: `${operation.method} ${operation.path}` }, next);
+    apiRequestContext.run({ credentialId: credential.id, operationId: `${operation.method} ${operation.path}`, ...serviceActor }, next);
   };
 }

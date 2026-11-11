@@ -3,7 +3,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { createManagedUser, deleteBoardMembership, deleteManagedUser, getAdminUserDetail, listAdminResources, listAdminUsersPage, listBoardMembers, listEligibleUsers, updateManagedUser, upsertBoardMembership } from '../db/admin-repositories';
-import { countBoardsAboveLabelLimit, deleteSessionsForUser, getBoardById, getMaxLabelsPerBoard, getUserById, listAuditEvents, updateMaxLabelsPerBoard, upsertRecoveryKey } from '../db/repositories';
+import { countBoardsAboveLabelLimit, deleteSessionsForUser, getBoardById, getMaxLabelsPerBoard, getUserById, getWorkspaceAdminGrantsForUser, getBoardAdminGrantsForUser, getBoardMembershipsForUser, listAuditEvents, updateMaxLabelsPerBoard, upsertRecoveryKey } from '../db/repositories';
 import { DISABLED_PASSWORD_HASH } from '../auth/passwords';
 import { hashRecoveryKey } from '../auth/recovery-keys';
 import { createUserSession } from '../auth/session';
@@ -59,7 +59,12 @@ export function createAdminRoutes(db: Database.Database) {
     const parsed = pageSchema.safeParse(request.query); if (!parsed.success) { response.status(400).json({ message: 'Invalid directory query.' }); return; }
     const result = listAdminUsersPage(db, request.auth, parsed.data);
     const systemAdmin = canManageUserPlatform(request.auth);
-    response.json({ ...result, actorCapabilities: { canCreateUsers: systemAdmin, canManageAccess: systemAdmin, canViewAudit: systemAdmin, canManageSystemSettings: systemAdmin }, auditEvents: systemAdmin ? listAuditEvents(db, 25) : [] });
+    response.json({ ...result, actorCapabilities: { canCreateUsers: systemAdmin, canManageAccess: systemAdmin, canViewAudit: systemAdmin, canManageSystemSettings: systemAdmin }, auditEvents: systemAdmin && !request.auth.credential?.actions ? listAuditEvents(db, 25) : [] });
+  });
+
+  router.get('/audit', (request: AuthenticatedRequest, response: Response) => {
+    if (!request.auth || !canManageUserPlatform(request.auth)) { response.status(403).json({ message: 'Forbidden.' }); return; }
+    response.json({ auditEvents: listAuditEvents(db, 25) });
   });
 
   router.patch('/settings/label-policy', (request: AuthenticatedRequest, response: Response) => {
@@ -109,7 +114,14 @@ export function createAdminRoutes(db: Database.Database) {
     const userId = String(request.params.userId); const current = getUserById(db, userId);
     if (!current) { response.status(404).json({ message: 'User not found.' }); return; }
     try {
-      const updated = updateManagedUser(db, request.auth.user, userId, parsed.data);
+      const input = parsed.data;
+      if (request.auth.credential?.actions) {
+        // Granular user edits must preserve assignments the key did not explicitly change.
+        if (!Object.hasOwn(request.body,'workspaceAdminWorkspaceIds')) input.workspaceAdminWorkspaceIds=getWorkspaceAdminGrantsForUser(db,userId).map(item=>item.workspaceId);
+        if (!Object.hasOwn(request.body,'boardAdminBoardIds')) input.boardAdminBoardIds=getBoardAdminGrantsForUser(db,userId).map(item=>item.boardId);
+        if (!Object.hasOwn(request.body,'boardMemberships')) input.boardMemberships=getBoardMembershipsForUser(db,userId).map(({boardId,role})=>({boardId,role}));
+      }
+      const updated = updateManagedUser(db, request.auth.user, userId, input);
       if (!updated) { response.status(404).json({ message: 'User not found.' }); return; }
       const deletedCount = deleteSessionsForUser(db, userId);
       if (userId === request.auth.user.id && updated.active) createUserSession(db,userId,request,response);

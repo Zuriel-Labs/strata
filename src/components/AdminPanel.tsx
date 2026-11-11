@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import type { AdminDirectoryResponse, AdminUserRecord } from '../types';
 import { useAuth } from '../lib/auth-context';
 import { AdminAssignmentPicker } from './AdminAssignmentPicker';
+import { ServiceAccountsPanel } from './ServiceAccountsPanel';
 import { BoardInvitations } from './BoardInvitations';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import {
@@ -11,7 +12,7 @@ import {
   updateLabelPolicy,
 } from '../services/admin';
 
-type Tab = 'people' | 'create' | 'members' | 'settings' | 'audit';
+type Tab = 'people' | 'create' | 'members' | 'settings' | 'audit' | 'serviceAccounts';
 const blankForm = (): ManagedUserInput => ({ name:'', initials:'', color:'#6366f1', username:'', platformRole:'user', active:true, workspaceAdminWorkspaceIds:[], boardAdminBoardIds:[], boardMemberships:[] });
 const formFor = (user: AdminUserRecord): ManagedUserInput => ({
   name:user.name, initials:user.initials, color:user.color, username:user.username, platformRole:user.platformRole, active:user.active,
@@ -31,7 +32,7 @@ export function AdminPanel() {
   useEffect(()=>{ if(auth.adminOpen&&canOpen) void Promise.resolve().then(loadDirectory).catch(cause=>setError(cause instanceof Error?cause.message:'Unable to load administration.')); },[auth.adminOpen,canOpen,loadDirectory]);
   if(!auth.adminOpen||!canOpen)return null;
   const capabilities=directory?.actorCapabilities;
-  const tabs:Array<{key:Tab;label:string}>=[{key:'people',label:'People'},...(capabilities?.canCreateUsers?[{key:'create' as const,label:'Create User'}]:[]),{key:'members',label:'Board Members'},...(capabilities?.canManageSystemSettings?[{key:'settings' as const,label:'System Settings'}]:[]),...(capabilities?.canViewAudit?[{key:'audit' as const,label:'Audit Log'}]:[])];
+  const tabs:Array<{key:Tab;label:string}>=[{key:'people',label:'People'},...(capabilities?.canCreateUsers?[{key:'create' as const,label:'Create User'}]:[]),{key:'members',label:'Board Members'},{key:'serviceAccounts',label:'Service Accounts'},...(capabilities?.canManageSystemSettings?[{key:'settings' as const,label:'System Settings'}]:[]),...(capabilities?.canViewAudit?[{key:'audit' as const,label:'Audit Log'}]:[])];
   async function changed(){ await Promise.all([loadDirectory(),auth.refresh()]); }
   return <Dialog open={auth.adminOpen} onOpenChange={auth.setAdminOpen}>
     <DialogContent showCloseButton={false} className="flex max-h-[92vh] w-[calc(100vw-1.5rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-2xl p-0" style={{background:'#111a26',borderColor:'#334155',animation:'none',transition:'none'}} onOpenAutoFocus={()=>{opener.current=document.activeElement instanceof HTMLElement?document.activeElement:null}} onCloseAutoFocus={event=>{event.preventDefault();if(opener.current?.isConnected)opener.current.focus()}}>
@@ -42,6 +43,7 @@ export function AdminPanel() {
         {tab==='people'&&<People directory={directory} query={query} setQuery={value=>{setQuery(value);setPage(1)}} page={page} setPage={setPage} canEdit={Boolean(capabilities?.canManageAccess)} onChanged={changed}/>}
         {tab==='create'&&capabilities?.canCreateUsers&&<Create onChanged={changed}/>}
         {tab==='members'&&<BoardMembers onChanged={changed}/>}
+        {tab==='serviceAccounts'&&<ServiceAccountsPanel/>}
         {tab==='settings'&&capabilities?.canManageSystemSettings&&<SystemSettings onChanged={changed}/>}
         {tab==='audit'&&capabilities?.canViewAudit&&<Audit directory={directory}/>}
       </main>
@@ -115,4 +117,13 @@ function BoardMembers({onChanged}:{onChanged:()=>Promise<void>}) {
 }
 
 function Pager({page,totalPages,setPage}:{page:number;totalPages:number;setPage:(page:number)=>void}) { return <div className="mt-3 flex items-center justify-between text-xs"><button disabled={page<=1} onClick={()=>setPage(page-1)}>Previous</button><span>Page {page} of {totalPages}</span><button disabled={page>=totalPages} onClick={()=>setPage(page+1)}>Next</button></div> }
-function Audit({directory}:{directory:AdminDirectoryResponse|null}) { return <section className="space-y-2">{directory?.auditEvents.map(event=><div key={event.id} className="rounded-lg p-3" style={{background:'#162233'}}><strong className="text-sm">{event.action}</strong><p className="text-xs" style={{color:'#9bb1c0'}}>{event.outcome} · {new Date(event.created_at).toLocaleString()}</p></div>)}{!directory?.auditEvents.length&&<p>No audit events.</p>}</section> }
+function Audit({directory}:{directory:AdminDirectoryResponse|null}) {
+  return <section className="space-y-2">{directory?.auditEvents.map(event=>{
+    let serviceName:string|null=null;
+    try {
+      const metadata=JSON.parse(event.metadata_json ?? '{}');
+      if(typeof metadata?.serviceAccountName==='string')serviceName=metadata.serviceAccountName;
+    } catch { /* Older events may have no structured metadata. */ }
+    return <div key={event.id} className="rounded-lg p-3" style={{background:'#162233'}}><strong className="text-sm">{event.action}</strong><p className="text-xs" style={{color:'#9bb1c0'}}>{event.outcome} · {new Date(event.created_at).toLocaleString()}{serviceName&&<> · Service account: {serviceName}</>}</p></div>;
+  })}{!directory?.auditEvents.length&&<p>No audit events.</p>}</section>;
+}

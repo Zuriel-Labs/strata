@@ -1,4 +1,4 @@
-import { ConnectionsPanel } from './ConnectionsPanel';
+import { ConnectionList, ConnectionsPanel } from './ConnectionsPanel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth-context';
 import { getContrastingTextColor } from '../lib/color';
@@ -18,7 +18,7 @@ const PROFILE_COLOR_OPTIONS = [
   '#b45309',
 ];
 
-type OverlayView = 'menu' | 'profile' | 'preferences' | 'security' | 'connections';
+type OverlayView = 'menu' | 'profile' | 'preferences' | 'security' | 'connections' | 'apiKeys' | 'approvedApps';
 
 type Notice = {
   tone: 'success' | 'error';
@@ -81,7 +81,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
 
   useEffect(() => {
     if (!open) return;
-    const selector = view === 'menu' ? `[data-account-view="${lastViewRef.current}"]` : '[aria-label="Back to account menu"]';
+    const selector = view === 'menu' ? `[data-account-view="${lastViewRef.current}"]` : '[data-account-back]';
     contentRef.current?.querySelector<HTMLElement>(selector)?.focus();
   }, [open, view]);
 
@@ -93,13 +93,14 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
   };
 
   const openView = (nextView: OverlayView) => {
-    lastViewRef.current = nextView;
+    lastViewRef.current = nextView === 'apiKeys' || nextView === 'approvedApps' ? 'connections' : nextView;
     setNotice(null);
     setView(nextView);
   };
 
   const goBack = () => {
     if (submitting) return;
+    if (view === 'apiKeys' || view === 'approvedApps') { setView('connections'); return; }
     setNotice(null);
     setDisplayName(sessionUser.name);
     setInitials(sessionUser.initials);
@@ -238,7 +239,8 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
     <div className="flex items-start justify-between gap-3 border-b px-4 py-4 sm:px-5" style={{ borderColor: 'var(--border)' }}>
       <button
         type="button"
-        aria-label="Back to account menu"
+        data-account-back
+        aria-label={view === 'apiKeys' || view === 'approvedApps' ? 'Back to API Connections' : 'Back to account menu'}
         onClick={goBack}
         className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border"
         style={{ color: 'var(--text-secondary)', background: 'var(--active-bg)', borderColor: 'var(--border)' }}
@@ -341,7 +343,7 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
                 <span aria-hidden="true" style={{ color: 'var(--text-secondary)' }}>&rarr;</span>
               </button>
 
-              <button data-account-view="connections" type="button" onClick={() => openView('connections')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}><span><span className="block text-sm font-semibold">API connections</span><span className="block text-xs" style={{color:'var(--text-muted)'}}>API keys, approved clients, and revocation</span></span><span aria-hidden="true">&rarr;</span></button>
+              <button data-account-view="connections" type="button" onClick={() => openView('connections')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}><span><span className="block text-sm font-semibold">API Connections</span><span className="block text-xs" style={{color:'var(--text-muted)'}}>Create and manage API keys</span></span><span aria-hidden="true">&rarr;</span></button>
 
               <button type="button" onClick={() => { void handleSignOut(); }} disabled={submitting} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'rgba(255,107,107,0.22)', color: '#ffd4d4' }}>
                 <span>
@@ -433,7 +435,10 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
           </>
         ) : null}
 
-        {view === 'connections' ? <>{renderSubheader('API connections', 'Manage the access you approve for scripts and agents.')}<ConnectionsPanel onPendingChange={setSubmitting}/></> : null}
+        {view === 'connections' ? <>{renderSubheader('API Connections', 'API Token Generator')}<ConnectionsPanel onPendingChange={setSubmitting} onKeys={()=>openView('apiKeys')} onApps={()=>openView('approvedApps')}/></> : null}
+
+        {view === 'apiKeys' ? <>{renderSubheader('API Keys', 'Manage your personal keys.')}<ConnectionList kind="keys" onCreate={()=>openView('connections')}/></> : null}
+        {view === 'approvedApps' ? <>{renderSubheader('Approved Apps', 'Manage apps you have authorized.')}<ConnectionList kind="apps" onCreate={()=>openView('connections')}/></> : null}
 
         {view === 'preferences' ? (
           <>

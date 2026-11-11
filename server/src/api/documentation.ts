@@ -3,9 +3,10 @@ import path from 'node:path';
 import { Router } from 'express';
 import { z } from 'zod';
 import { API_OPERATIONS, type ApiOperation } from './operations';
-import { SCOPES, grantSchema } from './contract';
+import { SCOPES, grantSchema, keySchema, KEY_EXPIRIES } from './contract';
 import { publicOrigin, clientSchema, decisionSchema } from './oauth-routes';
 import { bootstrapSchema, loginSchema, recoveryConsumeSchema } from '../routes/auth-routes';
+import { documentedActions } from './actions';
 import { requireTls } from './rate-limit';
 
 const string = { type:'string' };
@@ -17,6 +18,7 @@ const array = (items:object) => ({ type:'array',items });
 const object = (properties:Record<string,object>, required=Object.keys(properties)) => ({ type:'object',properties,required });
 const resourceNames:Record<string,string> = {workspaces:'Workspace',boards:'Board',lists:'List',cards:'Card','automation-rules':'AutomationRule',notifications:'Notification'};
 const page = (items:object) => object({items:array(items),nextCursor:nullableString});
+const auditEvents = array(object({id:string,actor_user_id:nullableString,target_user_id:nullableString,scope_type:string,scope_id:nullableString,action:string,outcome:{enum:['success','failure']},metadata_json:string,created_at:string}));
 const schemas = {
   Error:object({code:string,message:string}),
   OAuthError:object({error:string,error_description:string}),
@@ -40,7 +42,7 @@ const schemas = {
   ResourceChoice:object({id:string,name:string,kind:{enum:['workspace','board']},workspaceId:nullableString,workspaceName:nullableString}),
   OperationPreview:object({planHash:string,sourceRevision:integer,destinationRevision:{type:['integer','null']},counts:{type:'object',additionalProperties:integer},warnings:array(string),unresolvedMappings:array(object({kind:{enum:['label','member']},sourceId:string})),audience:{type:'object'},expiresAt:string},['planHash','sourceRevision','destinationRevision','counts','warnings','unresolvedMappings','expiresAt']),
   OperationResult:object({operationId:string,resultIds:array(string),createdCardIds:array(string),counts:{type:'object',additionalProperties:integer},resources:array({type:'object'}),replayed:boolean}),
-  Connection:object({id:string,userId:string,name:string,kind:{enum:['pat','device','code']},clientId:nullableString,scopes:array({enum:SCOPES}),resources:array(string),createdAt:string,expiresAt:string,lastUsedAt:nullableString,revokedAt:nullableString}),
+  Connection:object({id:string,userId:string,name:string,kind:{enum:['pat','device','code']},clientId:nullableString,scopes:array({enum:SCOPES}),resources:array(string),actions:{anyOf:[array(string),{type:'null'}]},serviceAccountId:nullableString,createdAt:string,expiresAt:string,lastUsedAt:nullableString,revokedAt:nullableString}),
   Token:object({access_token:string,token_type:{const:'Bearer'},expires_in:integer,refresh_token:string,scope:string,resource:string,connection_id:string}),
 };
 function inputSchema(value:z.ZodType) { return z.toJSONSchema(value,{io:'input',unrepresentable:'any'}); }
@@ -59,7 +61,8 @@ function responseSchema(operation:ApiOperation):object {
   if(path==='/auth/profile' || path==='/auth/preferences') return object({user:ref('User')});
   if(path==='/auth/recovery-key/generate' || path.endsWith('/generate-recovery-key')) return object({recoveryKey:string});
   if(path==='/auth/board-invitations/accept') return object({boardId:string,membershipRole:{enum:['member','observer']},alreadyAccepted:boolean});
-  if(path==='/admin/users') return method==='GET'?object({users:array(ref('AdminUser')),page:ref('PageMeta'),actorCapabilities:object({canCreateUsers:boolean,canManageAccess:boolean,canViewAudit:boolean,canManageSystemSettings:boolean}),auditEvents:array(object({id:string,actor_user_id:nullableString,target_user_id:nullableString,scope_type:string,scope_id:nullableString,action:string,outcome:{enum:['success','failure']},metadata_json:string,created_at:string}))}):object({user:ref('AdminUser'),inviteToken:string});
+  if(path==='/admin/audit') return object({auditEvents});
+  if(path==='/admin/users') return method==='GET'?object({users:array(ref('AdminUser')),page:ref('PageMeta'),actorCapabilities:object({canCreateUsers:boolean,canManageAccess:boolean,canViewAudit:boolean,canManageSystemSettings:boolean}),auditEvents}):object({user:ref('AdminUser'),inviteToken:string});
   if(path==='/admin/users/:userId') return method==='DELETE'?object({deletedUserId:string,username:string,removedCardAssignments:integer,remediatedAutomationRules:integer}):object({user:ref('AdminUser')});
   if(path==='/admin/resources') return object({items:array(ref('ResourceChoice')),selectedItems:array(ref('ResourceChoice')),page:ref('PageMeta')});
   if(path==='/admin/settings/label-policy') return object({maxLabelsPerBoard:integer,boardsAboveLimit:integer});
@@ -107,14 +110,14 @@ export function createOpenApi() {
     const responses:Record<string,unknown>={ ...(success?{[success]:{description:'Success under current application authorization.',...(noContent?{}:{content:{'application/json':{schema:responseSchema(operation)}}})}}:{}),'400':errorResponse,'401':{...errorResponse,description:'Missing, expired or revoked credential. Reauthenticate; never use browser cookies as API fallback.',headers:{'WWW-Authenticate':{schema:string}}},'403':{...errorResponse,description:'Scope, approved resource boundary or current RBAC denies access. Reapproval may be required.'},'404':errorResponse,'409':{...errorResponse,description:'Revision, plan, lifecycle or idempotency conflict. Reload state and preview again.'},'429':{...errorResponse,description:'Rate limit exceeded. Wait Retry-After seconds and use backoff with jitter.',headers:{'Retry-After':{schema:{type:'integer',minimum:1}}}},'500':{...errorResponse,description:'Server failure. Reconcile state before retrying a non-idempotent write.'}};
     if(operation.path==='/content-operations') responses['201']=responses['200'];
     const body=operation.body?inputSchema(operation.body):operation.method==='DELETE' && operation.path==='/admin/users/:userId'?object({confirmation:{const:'DELETE'}}):null;
-    (paths[pathKey]??={})[operation.method.toLowerCase()]={summary:operation.summary,operationId:`${operation.method.toLowerCase()}_${operation.path.replace(/[^\w]+/g,'_')}`,tags:[operation.path.split('/')[1]],security:[{bearerAuth:[]}],parameters,'x-required-scopes':operation.scopes,'x-resource-policy':operation.platform?'platform and current System Admin':'Approved resources intersect current membership, roles and issuance authority ceiling.',...(body?{requestBody:{required:true,content:{'application/json':{schema:body}}}}:{}),responses};
+    (paths[pathKey]??={})[operation.method.toLowerCase()]={summary:operation.summary,operationId:`${operation.method.toLowerCase()}_${operation.path.replace(/[^\w]+/g,'_')}`,tags:[operation.path.split('/')[1]],security:[{bearerAuth:[]}],parameters,'x-required-scopes':operation.scopes,'x-key-actions':documentedActions(operation),'x-resource-policy':operation.platform?'platform and current System Admin':'Approved resources intersect current membership, roles and issuance authority ceiling.',...(body?{requestBody:{required:true,content:{'application/json':{schema:body}}}}:{}),responses};
   }
   const oauthBody=(properties:Record<string,object>)=>({required:true,content:{'application/x-www-form-urlencoded':{schema:object(properties)}}});
   paths['/api/oauth/device/authorization']={post:{summary:'Begin public-client Device Authorization',security:[],requestBody:oauthBody({client_id:string,scope:string,resource:string}),responses:{'200':{description:'Display user_code and verification_uri. Poll only after interval seconds.',content:{'application/json':{schema:object({device_code:string,user_code:string,verification_uri:string,verification_uri_complete:string,expires_in:integer,interval:integer})}}},'400':{description:'OAuth error'},'429':errorResponse}}};
   paths['/api/oauth/token']={post:{summary:'Redeem device/code or rotate refresh token',security:[],requestBody:{required:true,content:{'application/x-www-form-urlencoded':{schema:{oneOf:[object({grant_type:{const:'urn:ietf:params:oauth:grant-type:device_code'},client_id:string,device_code:string}),object({grant_type:{const:'authorization_code'},client_id:string,code:string,redirect_uri:string,code_verifier:{type:'string',minLength:43,maxLength:128}}),object({grant_type:{const:'refresh_token'},client_id:string,refresh_token:string})]}}}},responses:{'200':{description:'Store securely. Access ≤600 seconds; refresh rotation preserves grant expiry.',content:{'application/json':{schema:ref('Token')}}},'400':{description:'authorization_pending: continue after interval; slow_down: add 5 seconds to every subsequent interval; access_denied/expired_token/invalid_grant: stop. Refresh reuse revokes the entire family.',content:{'application/json':{schema:ref('OAuthError')}}},'429':errorResponse}}};
   paths['/api/oauth/authorize']={get:{summary:'Begin public-client authorization code flow with S256 PKCE',security:[],parameters:Object.entries({client_id:string,response_type:{const:'code'},redirect_uri:{type:'string',format:'uri'},scope:string,resource:string,state:{type:'string',minLength:16,maxLength:512},code_challenge:{type:'string',pattern:'^[A-Za-z0-9_-]{43}$'},code_challenge_method:{const:'S256'}}).map(([name,schema])=>({name,in:'query',required:true,schema})),responses:{'303':{description:'Continue to browser approval. Exact pre-registered redirect, state and S256 verifier are mandatory.'},'400':errorResponse}}};
   for(const [suffix,properties] of Object.entries<Record<string,object>>({revoke:{client_id:string,token:string},'device/cancel':{client_id:string,device_code:string}})) paths[`/api/oauth/${suffix}`]={post:{summary:suffix==='revoke'?'Revoke the connection using a bound token':'Cancel a device request and any issued connection',security:[],requestBody:oauthBody(properties),responses:{[suffix==='revoke'?'200':'204']:{description:'Idempotent success'},'400':errorResponse}}};
-  paths['/api/connections']={get:{summary:'Browser only: list own connection metadata (no secret)',security:[{browserSession:[]}],responses:{'200':{description:'Latest connections, active first; maximum 200.',content:{'application/json':{schema:object({items:array(ref('Connection'))})}}}}},post:{summary:'Browser only: create an explicitly approved PAT',security:[{browserSession:[]}],parameters:[{name:'X-Strata-Intent',in:'header',required:true,schema:{const:'connections'}}],requestBody:{required:true,content:{'application/json':{schema:inputSchema(grantSchema)}}},responses:{'201':{description:'One-time secret. Copy to protected storage; never log it.',content:{'application/json':{schema:object({connection:ref('Connection'),token:string})}}},'403':errorResponse}}};
+  paths['/api/connections']={get:{summary:'Browser only: list own connection metadata (no secret)',security:[{browserSession:[]}],responses:{'200':{description:'Latest connections, active first; maximum 200.',content:{'application/json':{schema:object({items:array(ref('Connection'))})}}}}},post:{summary:'Browser only: create an explicitly approved PAT',security:[{browserSession:[]}],parameters:[{name:'X-Strata-Intent',in:'header',required:true,schema:{const:'connections'}}],requestBody:{required:true,content:{'application/json':{schema:{oneOf:[inputSchema(keySchema),inputSchema(grantSchema)]}}}},responses:{'201':{description:'One-time secret. Copy to protected storage; never log it.',content:{'application/json':{schema:object({connection:ref('Connection'),token:string})}}},'403':errorResponse}}};
   const browserErrors={'400':errorResponse,'401':errorResponse,'403':errorResponse,'404':errorResponse,'409':errorResponse,'429':{...errorResponse,headers:{'Retry-After':{schema:integer}}}};
   const browserSecurity=[{browserSession:[]}];
   const intent={name:'X-Strata-Intent',in:'header',required:true,schema:{const:'connections'}};
@@ -122,6 +125,18 @@ export function createOpenApi() {
   const jsonBody=(schema:object)=>({required:true,content:{'application/json':{schema}}});
   const jsonSuccess=(schema:object)=>({description:'Success',content:{'application/json':{schema}}});
   const client=object({id:string,name:string,redirectUris:array(string)},['id','name','redirectUris']);
+  const serviceAccount=object({id:string,name:string,resources:array(string),actions:array(string),key:{anyOf:[object({expiresAt:string,lastUsedAt:nullableString,revokedAt:nullableString}),{type:'null'}]}});
+  const serviceKeyResponse=jsonSuccess(object({account:serviceAccount,token:string}));
+  paths['/api/connections/catalog']={get:{summary:'Browser only: available resources, actions and expiration choices',security:browserSecurity,parameters:[{name:'service',in:'query',schema:{const:'1'}}],responses:{'200':jsonSuccess(object({resources:array(object({id:string,label:string,actions:array(string)})),actions:array(object({id:string,label:string,level:string})),expiries:array({enum:KEY_EXPIRIES})})),...browserErrors}}};
+  paths['/api/connections/service-accounts']={
+    get:{summary:'Browser only: list owned service accounts',security:browserSecurity,responses:{'200':jsonSuccess(object({items:array(serviceAccount)})),...browserErrors}},
+    post:{summary:'Browser only: create a service account and its first key',security:browserSecurity,parameters:[intent],requestBody:jsonBody(inputSchema(keySchema)),responses:{'201':serviceKeyResponse,...browserErrors}},
+  };
+  paths['/api/connections/service-accounts/{id}/key']={
+    post:{summary:'Browser only: replace a service key with explicit access and expiry',security:browserSecurity,parameters:[idParameter,intent],requestBody:jsonBody(inputSchema(keySchema)),responses:{'201':serviceKeyResponse,...browserErrors}},
+    delete:{summary:'Browser only: revoke the active service key',security:browserSecurity,parameters:[idParameter,intent],responses:{'204':{description:'Revoked'},...browserErrors}},
+  };
+  paths['/api/connections/service-accounts/{id}/transfer']={post:{summary:'Browser only: transfer to an active administrator; revoke previous key',security:browserSecurity,parameters:[idParameter,intent],requestBody:jsonBody(object({username:string,confirmation:{const:'TRANSFER'}})),responses:{'204':{description:'Ownership transferred'},...browserErrors}}};
   paths['/api/connections/{id}']={delete:{summary:'Browser only: revoke own connection and every token in its family',security:browserSecurity,parameters:[idParameter,intent],responses:{'204':{description:'Revoked'},...browserErrors}}};
   paths['/api/connections/clients']={
     get:{summary:'Browser only: list own public clients (maximum 100)',security:browserSecurity,responses:{'200':jsonSuccess(object({items:array(client)})),...browserErrors}},

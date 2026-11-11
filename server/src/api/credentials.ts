@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { AuthContextValue } from '../types';
 import { getBoardAdminGrantsForUser, getBoardMembershipsForUser, getDerivedWorkspaceIdsForUser, getUserById, getWorkspaceAdminGrantsForUser } from '../db/repositories';
 import { canAccessBoard, canAccessWorkspace, canEditBoardCards, canManageBoard, canManageWorkspace } from '../rbac/permissions';
+import { canAccessAdminPanel } from '../rbac/policies';
 import { audit } from '../audit/audit-log';
 import { ApiAuthorizationError, type ApiCredential, type ApiGrant, type GrantInput, type AuthorityCeiling } from './contract';
 
@@ -20,7 +21,7 @@ export function authorityCeiling(actor: AuthContextValue): AuthorityCeiling {
 export function readGrant(db: Database.Database, id: string): ApiGrant | null {
   const row = db.prepare('SELECT * FROM api_grants WHERE id = ?').get(id) as Record<string, string | null> | undefined;
   if (!row) return null;
-  return { id: String(row.id), userId: String(row.user_id), name: String(row.name), kind: row.kind as ApiGrant['kind'], clientId: row.client_id, scopes: JSON.parse(String(row.scopes_json)), resources: JSON.parse(String(row.resources_json)), authority: JSON.parse(String(row.authority_json)), expiresAt: String(row.expires_at), createdAt: String(row.created_at), lastUsedAt: row.last_used_at, revokedAt: row.revoked_at };
+  return { id: String(row.id), userId: String(row.user_id), name: String(row.name), kind: row.kind as ApiGrant['kind'], clientId: row.client_id, scopes: JSON.parse(String(row.scopes_json)), resources: JSON.parse(String(row.resources_json)), actions: row.actions_json ? JSON.parse(row.actions_json) : null, serviceAccountId: row.service_account_id ?? null, authority: JSON.parse(String(row.authority_json)), expiresAt: String(row.expires_at), createdAt: String(row.created_at), lastUsedAt: row.last_used_at, revokedAt: row.revoked_at };
 }
 export function isWithinResources(db: Database.Database, resources: string[], kind: 'workspace' | 'board', id: string) {
   if (resources.includes('platform') || resources.includes(`${kind}:${id}`)) return true;
@@ -44,19 +45,23 @@ export function validateGrantAuthority(db: Database.Database, actor: AuthContext
     if (input.scopes.includes('content:write') && !(kind === 'board' ? canEditBoardCards(db, actor, id) : canManageWorkspace(actor, id))) throw new ApiAuthorizationError(403, 'GRANT_FORBIDDEN', 'Requested permissions are unavailable.');
   }
 }
-export function createGrant(db: Database.Database, actor: AuthContextValue, input: Omit<GrantInput, 'confirmation'>, kind: ApiGrant['kind'], clientId: string | null = null, maximumExpiresAt?: string) {
+export function createGrant(db: Database.Database, actor: AuthContextValue, input: Omit<GrantInput, 'confirmation'>, kind: ApiGrant['kind'], clientId: string | null = null, maximumExpiresAt?: string, actions?: string[], serviceAccountId?: string) {
   validateGrantAuthority(db, actor, input);
   if (Number(db.prepare("SELECT COUNT(*) FROM api_grants WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?").pluck().get(actor.user.id, new Date().toISOString())) >= 100) throw new ApiAuthorizationError(409, 'CONNECTION_LIMIT', 'Revoke an existing connection before adding another.');
   const id = randomUUID();
-  db.prepare('INSERT INTO api_grants (id,user_id,name,kind,client_id,scopes_json,resources_json,authority_json,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .run(id, actor.user.id, input.name, kind, clientId, JSON.stringify(input.scopes), JSON.stringify(input.resources), JSON.stringify(authorityCeiling(actor)), new Date().toISOString(), [afterSeconds(input.expiresInDays * 86400), maximumExpiresAt ?? afterSeconds(input.expiresInDays * 86400)].sort()[0]);
-  audit(db, { actorUserId: actor.user.id, scopeType: 'auth', action: 'api.connection.create', outcome: 'success', metadata: { credentialId: id, kind, scopes: input.scopes, resources: input.resources } });
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + input.expiresInDays * 86400000).toISOString();
+  db.prepare('INSERT INTO api_grants (id,user_id,name,kind,client_id,scopes_json,resources_json,authority_json,created_at,expires_at,actions_json,service_account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, actor.user.id, input.name, kind, clientId, JSON.stringify(input.scopes), JSON.stringify(input.resources), JSON.stringify(authorityCeiling(actor)), createdAt.toISOString(), maximumExpiresAt && maximumExpiresAt < expiresAt ? maximumExpiresAt : expiresAt, actions ? JSON.stringify(actions) : null, serviceAccountId ?? null);
+  audit(db, { actorUserId: actor.user.id, scopeType: 'auth', action: 'api.connection.create', outcome: 'success', metadata: { credentialId: id, kind, scopes: input.scopes, resources: input.resources, ...(actions && { actions }), ...(serviceAccountId && { serviceAccountId }) } });
   const grant = readGrant(db, id);
   if (!grant) throw new Error('Connection creation failed.');
   return grant;
 }
 export function issueToken(db: Database.Database, grant: ApiGrant, kind: 'pat' | 'access' | 'refresh') {
-  const raw = `strata_${kind}_${secret()}`;
+  // Older servers must reject granular keys instead of treating them as broad PATs.
+  const prefix = kind === 'pat' && grant.actions ? 'key' : kind;
+  const raw = `strata_${prefix}_${secret()}`;
   const expiresAt = kind === 'access' ? [afterSeconds(600), grant.expiresAt].sort()[0] : grant.expiresAt;
   const id = randomUUID();
   db.prepare('INSERT INTO api_tokens (id,grant_id,token_hash,kind,expires_at) VALUES (?,?,?,?,?)').run(id, grant.id, digest(raw), kind, expiresAt);
@@ -77,6 +82,11 @@ export function credentialContext(db: Database.Database, tokenId: string, refres
 export function grantContext(db: Database.Database, grant: ApiGrant, tokenId: string, expiresAt: string): AuthContextValue | null {
   const actor = userContext(db, grant.userId);
   if (!actor) return null;
+  if (grant.serviceAccountId && (!canAccessAdminPanel(actor) || !grant.resources.every(resource => {
+    if (resource === 'platform') return actor.user.platformRole === 'system_admin';
+    const [kind,id] = resource.split(':');
+    return kind === 'board' ? canManageBoard(db,actor,id) : kind === 'workspace' && canManageWorkspace(actor,id);
+  }) || !db.prepare('SELECT 1 FROM api_service_accounts WHERE id = ? AND owner_user_id = ? AND grant_id = ?').get(grant.serviceAccountId,grant.userId,grant.id))) return null;
   const ceiling = grant.authority;
   if (!ceiling.system) {
     actor.user = { ...actor.user, platformRole: 'user' };
@@ -108,7 +118,7 @@ export function grantContext(db: Database.Database, grant: ApiGrant, tokenId: st
   return actor;
 }
 export function authenticateBearer(db: Database.Database, authorization: string | undefined) {
-  const matched = authorization?.match(/^Bearer (strata_(?:pat|access)_[A-Za-z0-9_-]{43})$/i);
+  const matched = authorization?.match(/^Bearer (strata_(?:pat|key|access)_[A-Za-z0-9_-]{43})$/i);
   if (!matched) return null;
   const id = db.prepare('SELECT id FROM api_tokens WHERE token_hash = ?').pluck().get(digest(matched[1]));
   return typeof id === 'string' ? credentialContext(db, id) : null;

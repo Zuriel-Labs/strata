@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 
 export function createApiSchema(db: Database.Database) {
-  db.transaction(() => db.exec(`
+  db.transaction(() => { db.exec(`
     CREATE TABLE IF NOT EXISTS api_grants (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('pat','device','code')), client_id TEXT,
@@ -9,6 +9,13 @@ export function createApiSchema(db: Database.Database) {
       created_at TEXT NOT NULL, expires_at TEXT NOT NULL, last_used_at TEXT, revoked_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_api_grants_user ON api_grants(user_id, created_at, id);
+    CREATE TABLE IF NOT EXISTS api_service_accounts (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      resources_json TEXT NOT NULL, actions_json TEXT NOT NULL, created_at TEXT NOT NULL,
+      grant_id TEXT REFERENCES api_grants(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_service_accounts_owner ON api_service_accounts(owner_user_id);
     CREATE TABLE IF NOT EXISTS api_tokens (
       id TEXT PRIMARY KEY, grant_id TEXT NOT NULL REFERENCES api_grants(id) ON DELETE CASCADE,
       token_hash TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('pat','access','refresh')),
@@ -52,5 +59,9 @@ export function createApiSchema(db: Database.Database) {
           FROM api_grants WHERE user_id = NEW.id AND revoked_at IS NULL;
         UPDATE api_grants SET revoked_at = COALESCE(revoked_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE user_id = NEW.id;
       END;
-  `))();
+  `);
+    const columns = db.pragma('table_info(api_grants)') as { name: string }[];
+    if (!columns.some(column => column.name === 'actions_json')) db.exec('ALTER TABLE api_grants ADD COLUMN actions_json TEXT');
+    if (!columns.some(column => column.name === 'service_account_id')) db.exec('ALTER TABLE api_grants ADD COLUMN service_account_id TEXT REFERENCES api_service_accounts(id) ON DELETE CASCADE');
+  })();
 }

@@ -7,6 +7,7 @@
   --muted: #adbed4;
   --accent: #9ccfff;
   --stroke: #3d516a;
+  --control-stroke: #7185a3;
   --focus: #ffdb95;
   --top: #0e1725;
   --hero: #182845;
@@ -21,6 +22,7 @@
     --muted: #485975;
     --accent: #174f96;
     --stroke: #72839c;
+    --control-stroke: #72839c;
     --focus: #784800;
     --top: #edf2fa;
     --hero: #e3edfd;
@@ -32,7 +34,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 1rem/1.65 sys
 a { color: var(--accent); text-underline-offset: .22em; overflow-wrap: anywhere; }
 a:hover { text-decoration-thickness: .14em; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
-button, input, select { color: inherit; font: inherit; background: var(--panel); border: 1px solid var(--stroke); border-radius: .45rem; }
+button, input, select { color: inherit; font: inherit; background: var(--panel); border: 1px solid var(--control-stroke); border-radius: .45rem; }
 input, select { width: 100%; min-height: 2.75rem; padding: .4rem .55rem; }
 button { min-height: 2.4rem; padding: .3rem .7rem; cursor: pointer; }
 button:hover { background: var(--raised); }

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue 78 · Hosted API reference</title>
+<style>:root{color-scheme:dark}body{margin:2rem auto;max-width:76ch;padding:0 1rem;background:#0b1018;color:#e6edf5;font:1rem/1.65 system-ui}a{color:#8ecbff}code{overflow-wrap:anywhere}</style>
+<main><h1>Issue 78: Hosted API reference</h1>
+<p>Extend <code>/api/docs</code> in the Strata image. Baseline: Canary returned OpenAPI 1.0.0 with 106 operations. Express mounts the v1 domain routers, dedicated reads, OAuth, connection management, and browser session aliases in <code>server/src/app.ts</code>. API policies and shared input schemas live in <code>server/src/api</code>; browser authorization still runs in the same domain handlers.</p>
+<h2>Design and acceptance</h2>
+<ol>
+<li>Serve a public guide and static reference assets with the same image. Load only the same origin versioned OpenAPI URL without credentials, cache, or redirects. Show its API version and SHA-256 identity. Preserve existing guide anchors and leave runtime authorization intact.</li>
+<li>Build the operation index from every published method/path, with topical groups and an explicit fallback. Search purpose, method, path, tag and documented access; filter method and area. Use reversible fragments and browser history. Show only the selected operation in detail.</li>
+<li>Show authentication separately from authorization, and label unknown policy. Render parameters, media variants, statuses, headers and nested schema fields. Keep contract text inert and recursive references bounded. Use contract examples validated at source, or state why none is verified; provide placeholder request templates and no execution UI.</li>
+<li>Keep practical guides for personal and service credentials, OAuth, paging, errors and approved writes. Link walkthroughs to actual operations. Distinguish application rate windows from any edge policy.</li>
+<li>Verify actual Express route registration in both directions, document exclusions with reasons, and compare index keys to the contract. Verify search, fallback, links, keyboard/mobile, malformed/unavailable contracts, and malicious content. Verify the exact Canary candidate before PM review.</li>
+</ol>
+<h2>Maintenance boundaries</h2>
+<p>Published inventory and supplemental permission metadata belong in <code>server/src/api/documentation.ts</code>. The renderer uses local JSON pointers and handles the constructs in the Strata contract; unknown or external constructs remain visible without fetching external references. Guidance must describe verified policy only. Keep tenant data and secrets out of examples and evidence.</p></main></html>

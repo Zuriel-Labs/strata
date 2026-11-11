@@ -471,12 +471,13 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord, act
 
   const workspaceMemberMap = new Map<string, string[]>();
   for (const membership of db.prepare(`
-    SELECT DISTINCT boards.workspace_id AS workspaceId, board_memberships.user_id AS userId, boards.id AS boardId
+    SELECT DISTINCT boards.workspace_id AS workspaceId, board_memberships.user_id AS userId
     FROM board_memberships
     JOIN boards ON boards.id = board_memberships.board_id
-  `).all() as Array<{ workspaceId: string; userId: string; boardId: string }>) {
+    WHERE ? = 0 OR boards.id IN (SELECT value FROM json_each(?))
+  `).all(Number(Boolean(actor?.credential)), JSON.stringify(boardIds)) as Array<{ workspaceId: string; userId: string }>) {
     const list = workspaceMemberMap.get(membership.workspaceId) ?? [];
-    if (!actor?.credential || boardIds.includes(membership.boardId)) list.push(membership.userId);
+    list.push(membership.userId);
     workspaceMemberMap.set(membership.workspaceId, list);
   }
 

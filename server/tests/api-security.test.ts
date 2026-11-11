@@ -53,6 +53,17 @@ describe('credential security boundaries', () => {
     expect((await observer.agent.post('/api/connections').send(body)).status).toBe(403);
     expect((await observer.agent.post('/api/connections').set('X-Strata-Intent','connections').set('Origin','https://foreign.invalid').send(body)).status).toBe(403);
   });
+  it('lists each workspace member once across multiple board memberships', async () => {
+    const insert = db.prepare('INSERT OR IGNORE INTO board_memberships (id,user_id,board_id,role,created_at) VALUES (?,?,?,?,?)');
+    for (const boardId of ['b1', 'b2']) insert.run(randomUUID(), 'u3', boardId, 'member', new Date().toISOString());
+    const { agent, authorization, result } = await issue('alex', 'WorkspaceAdmin123!', ['content:read', 'account:read'], ['workspace:w1']);
+    expect(result.status).toBe(201);
+    for (const response of [await agent.get('/api/auth/session'), await request(app).get('/api/v1/state').set('Authorization', authorization)]) {
+      expect(response.status).toBe(200);
+      const workspace = response.body.appState.workspaces.find((item: { id: string }) => item.id === 'w1');
+      expect(workspace.memberIds.filter((id: string) => id === 'u3')).toEqual(['u3']);
+    }
+  });
   it('keeps aggregate, administration, source and destination reads inside the approved board', async () => {
     const {authorization,result}=await issue('alex','WorkspaceAdmin123!',['content:read','content:write','content:manage','account:read','administration:read'],['board:b1']);
     expect(result.status).toBe(201);

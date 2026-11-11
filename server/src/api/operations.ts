@@ -71,7 +71,8 @@ add('PATCH','/admin/users/:userId','administration:write','Update account and as
 add('DELETE','/admin/users/:userId','administration:write','Delete user with explicit DELETE confirmation (System Admin)',undefined,undefined,true);
 add('POST','/admin/users/:userId/generate-recovery-key','administration:write','Generate account recovery key (System Admin)',undefined,undefined,true);
 add('PATCH','/admin/settings/label-policy','administration:write','Update platform label limit (System Admin)',admin.labelPolicySchema,undefined,true);
-for (const suffix of ['members','eligible-users']) add('GET',`/admin/boards/:boardId/${suffix}`,'administration:read',`List board ${suffix}`,undefined,admin.pageSchema);
+add('GET','/admin/boards/:boardId/members','administration:read','List board members',undefined,admin.pageSchema);
+add('GET','/admin/boards/:boardId/eligible-users','administration:read','List accounts eligible for board membership',undefined,admin.eligibleUsersQuery);
 add('PUT','/admin/boards/:boardId/members/:userId','administration:write','Assign board membership',admin.membershipSchema);
 add('DELETE','/admin/boards/:boardId/members/:userId','administration:write','Remove board membership');
 add('GET','/admin/boards/:boardId/invitations','administration:read','List pending board invitations',undefined,invitation.invitationQuery);

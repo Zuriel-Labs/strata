@@ -25,13 +25,15 @@ export function KeyWizard({account,service=false,submit,onDone,onBusy,links}:{
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   const [token,setToken]=useState('');
+  const [copyStatus,setCopyStatus]=useState('');
   const heading=useRef<HTMLHeadingElement>(null);
+  const keyField=useRef<HTMLTextAreaElement>(null);
   const pending=useRef(false);
   useEffect(()=>{
     let live=true;
-    void fetchConnectionCatalog(service).then(result=>{if(live)setCatalog(result)}).catch(()=>{if(live)setLoadError(true)});
+    void fetchConnectionCatalog(service,account?.id).then(result=>{if(live)setCatalog(result)}).catch(()=>{if(live)setLoadError(true)});
     return()=>{live=false};
-  },[service,loadAttempt]);
+  },[service,account?.id,loadAttempt]);
   useEffect(()=>{heading.current?.focus()},[step,token]);
   const available=catalog?.resources.filter(item=>resources.includes(item.id))??[];
   const eligible=catalog?.actions.filter(action=>available.length>0&&available.every(item=>item.actions.includes(action.id)))??[];
@@ -67,11 +69,25 @@ export function KeyWizard({account,service=false,submit,onDone,onBusy,links}:{
     catch(cause){setError(cause instanceof Error?cause.message:'Could not create the key.')}
     finally{pending.current=false;setBusy(false);onBusy?.(false)}
   }
+  async function copyKey(){
+    try{
+      await navigator.clipboard.writeText(token);
+      setCopyStatus('API key copied.');
+    }catch{
+      keyField.current?.focus();
+      keyField.current?.select();
+      setCopyStatus('Clipboard unavailable. Copy the selected key manually.');
+    }
+  }
   if(token)return <section className="space-y-4" aria-labelledby="new-key-title">
     <h3 id="new-key-title" ref={heading} tabIndex={-1} className="text-lg font-semibold">Save your API key</h3>
     <p className="text-sm">Shown once. Store it in a credential manager.</p>
-    <label className="block text-sm">New API key<textarea name="new-api-key" autoComplete="off" spellCheck={false} className="mt-2 w-full rounded-md border bg-background p-2 font-mono text-xs" readOnly value={token} rows={3}/></label>
-    <Button className="min-h-11 w-full" onClick={onDone}>I saved the key</Button>
+    <label className="block text-sm">New API key<textarea ref={keyField} name="new-api-key" autoComplete="off" spellCheck={false} className="mt-2 w-full rounded-md border bg-background p-2 font-mono text-xs" readOnly value={token} rows={3}/></label>
+    <div className="space-y-2">
+      <Button type="button" variant="outline" className="min-h-11 w-full border-[color:var(--border-light)] bg-[var(--bg-active)] font-semibold hover:bg-[var(--bg-hover)]" onClick={()=>void copyKey()}>Copy API key</Button>
+      <p role="status" className={copyStatus?'text-sm':'sr-only'}>{copyStatus}</p>
+      <Button type="button" variant="outline" className="min-h-11 w-full" onClick={onDone}>I saved the key</Button>
+    </div>
   </section>;
   const canContinue=step===0?Boolean(name.trim()):step===1?resources.length>0&&resources.length===available.length:step===2?selected.length>0&&selected.length===actions.length:step===3?Boolean(catalog):Boolean(ready);
   const first=account?1:0;

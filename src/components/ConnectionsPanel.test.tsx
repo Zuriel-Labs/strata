@@ -52,11 +52,23 @@ it('walks one step at a time, keeps choices on Back, and forgets the displayed k
   expect(screen.getByRole('heading',{name:'Review'})).toHaveFocus();
   expect(calls).toHaveLength(0);
   await user.click(screen.getByRole('button',{name:'Create API key'}));
-  expect(await screen.findByLabelText('New API key')).toHaveValue('synthetic-test-token');
+  const keyField=await screen.findByLabelText<HTMLTextAreaElement>('New API key');
+  expect(keyField).toHaveValue('synthetic-test-token');
+  const copy=vi.spyOn(navigator.clipboard,'writeText').mockRejectedValueOnce(new Error('Clipboard blocked'));
+  const copyButton=screen.getByRole('button',{name:'Copy API key'});
+  await user.click(copyButton);
+  expect(screen.getByRole('status')).toHaveTextContent('Copy the selected key manually.');
+  expect(keyField).toHaveFocus();
+  expect([keyField.selectionStart,keyField.selectionEnd]).toEqual([0,keyField.value.length]);
+  await user.click(copyButton);
+  expect(copy).toHaveBeenLastCalledWith('synthetic-test-token');
+  expect(screen.getByRole('status')).toHaveTextContent('API key copied.');
+  copy.mockRestore();
   expect(JSON.parse(String(calls[0].body))).toEqual({name:'Build script',actions:['GET /cards'],resources:['board:b1'],expiresInDays:180,confirmation:'CREATE'});
   expect(calls[0].headers).toMatchObject({'X-Strata-Intent':'connections'});
   await user.click(screen.getByRole('button',{name:'I saved the key'}));
   expect(screen.queryByLabelText('New API key')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Copy API key'})).not.toBeInTheDocument();
   expect(await screen.findByText('First key')).toBeVisible();
   expect(screen.getByText('Build script')).toBeVisible();
   expect(screen.queryByText('Approved agent')).not.toBeInTheDocument();
@@ -75,6 +87,47 @@ it('shows an error and retry on the resource step',async()=>{
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load resources.');
   await user.click(screen.getByRole('button',{name:'Retry'}));
   expect(await screen.findByLabelText('Team board')).toBeVisible();
+});
+
+it('filters key rows and revokes only after confirming the active key action',async()=>{
+  const active={id:'active',name:'Build script',kind:'pat',scopes:['content:read'],resources:['board:b1'],expiresAt:'2099-01-01',lastUsedAt:null,revokedAt:null};
+  const items=[active,{...active,id:'expired',name:'Old script',expiresAt:'2000-01-01'},
+    {...active,id:'revoked',name:'Old report',revokedAt:'2020-01-01'}];
+  const revoke=vi.fn();
+  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
+    if(init?.method==='DELETE'){revoke(url);return new Response(null,{status:204});}
+    return url.includes('/catalog')?json(catalog):json({items});
+  }));
+  const user=userEvent.setup();render(<ConnectionList kind="keys" onCreate={()=>{}}/>);
+  expect(screen.getByRole('link',{name:'API Docs'})).toHaveAttribute('href','/api/docs');
+  const filter=await screen.findByRole('searchbox',{name:'Filter keys by name'});
+  expect(screen.queryByRole('button',{name:'Revoke Old script'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Revoke Old report'})).not.toBeInTheDocument();
+  await user.type(filter,'SCRIPT');
+  expect(screen.getByText('Old script')).toBeVisible();
+  expect(screen.queryByText('Old report')).not.toBeInTheDocument();
+  await user.clear(filter);
+  await user.type(filter,'missing');
+  expect(screen.getByRole('status')).toHaveTextContent('No matching keys.');
+  await user.clear(filter);
+  const row=screen.getByRole('button',{name:'Build script, Active'});
+  expect(row).toHaveAttribute('aria-expanded','false');
+  await user.click(row);
+  expect(screen.getByText('Read content')).toBeVisible();
+  await user.click(row);
+  await user.click(screen.getByRole('button',{name:'Revoke Build script'}));
+  expect(row).toHaveAttribute('aria-expanded','false');
+  expect(revoke).not.toHaveBeenCalled();
+  const confirm=()=>screen.getByRole('button',{name:'Confirm revocation of Build script'});
+  expect(confirm()).toHaveFocus();
+  await user.click(row);
+  expect(screen.queryByRole('button',{name:'Confirm revocation of Build script'})).not.toBeInTheDocument();
+  await user.click(row);
+  await user.click(screen.getByRole('button',{name:'Revoke Build script'}));
+  await user.click(confirm());
+  expect(revoke).toHaveBeenCalledExactlyOnceWith('/api/connections/active');
+  expect(await screen.findByRole('button',{name:'Build script, Revoked'})).toBeVisible();
+  expect(screen.queryByRole('button',{name:/^(Revoke |Confirm revocation of )/})).not.toBeInTheDocument();
 });
 
 it('selects or clears only permissions shown by both filters',async()=>{

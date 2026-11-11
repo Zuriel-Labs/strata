@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { createServiceIdentity, setServiceAdminResources } from './service-identities';
 
 export function createApiSchema(db: Database.Database) {
   db.transaction(() => { db.exec(`
@@ -63,5 +64,32 @@ export function createApiSchema(db: Database.Database) {
     const columns = db.pragma('table_info(api_grants)') as { name: string }[];
     if (!columns.some(column => column.name === 'actions_json')) db.exec('ALTER TABLE api_grants ADD COLUMN actions_json TEXT');
     if (!columns.some(column => column.name === 'service_account_id')) db.exec('ALTER TABLE api_grants ADD COLUMN service_account_id TEXT REFERENCES api_service_accounts(id) ON DELETE CASCADE');
+    if (!(db.pragma('table_info(users)') as {name:string}[]).some(column=>column.name==='is_service_account')) {
+      db.exec('ALTER TABLE users ADD COLUMN is_service_account INTEGER NOT NULL DEFAULT 0 CHECK(is_service_account IN (0,1))');
+    }
+    if (!(db.pragma('table_info(api_service_accounts)') as {name:string}[]).some(column=>column.name==='platform_access')) {
+      db.exec('ALTER TABLE api_service_accounts ADD COLUMN platform_access INTEGER NOT NULL DEFAULT 0 CHECK(platform_access IN (0,1))');
+    }
+    const legacy=db.prepare(`SELECT a.id,a.name,a.owner_user_id,a.resources_json,a.created_at FROM api_service_accounts a
+      WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id=a.id AND u.is_service_account=1)`).all() as {id:string;name:string;owner_user_id:string;resources_json:string;created_at:string}[];
+    for(const account of legacy){
+      createServiceIdentity(db,account.id,account.name,account.created_at);
+      setServiceAdminResources(db,account.id,JSON.parse(account.resources_json) as string[],account.owner_user_id,account.created_at);
+      db.prepare('UPDATE api_grants SET user_id=? WHERE service_account_id=?').run(account.id,account.id);
+    }
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS protect_service_signin BEFORE UPDATE OF active,platform_role,password_hash,is_service_account ON users
+      WHEN OLD.is_service_account=1 AND (NEW.active<>0 OR NEW.platform_role<>'user' OR NEW.password_hash<>OLD.password_hash OR NEW.is_service_account<>1)
+      BEGIN SELECT RAISE(ABORT,'Service identities cannot sign in'); END;
+      CREATE TRIGGER IF NOT EXISTS revoke_service_keys_after_owner_disable AFTER UPDATE OF active ON users WHEN NEW.active=0
+      BEGIN
+        INSERT INTO audit_events (id,actor_user_id,target_user_id,scope_type,action,outcome,metadata_json,created_at)
+          SELECT lower(hex(randomblob(16))),NULL,NEW.id,'auth','api.connection.revoke','success',
+            json_object('credentialId',g.id,'serviceAccountId',a.id,'reason','service_owner_disabled'),strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          FROM api_service_accounts a JOIN api_grants g ON g.service_account_id=a.id WHERE a.owner_user_id=NEW.id AND g.revoked_at IS NULL;
+        UPDATE api_grants SET revoked_at=COALESCE(revoked_at,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+          WHERE service_account_id IN (SELECT id FROM api_service_accounts WHERE owner_user_id=NEW.id);
+      END;
+    `);
   })();
 }

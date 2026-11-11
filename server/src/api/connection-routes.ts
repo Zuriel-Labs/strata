@@ -2,7 +2,7 @@ import { createOAuthConsentRoutes } from './oauth-routes';
 import { Router } from 'express';
 import type Database from 'better-sqlite3';
 import { requireContentAuth, safeContentErrors, type AuthenticatedRequest } from '../http/auth-middleware';
-import { createGrant, issueToken, readGrant, revokeGrant } from './credentials';
+import { createGrant, issueToken, readGrant, revokeGrant, serviceAccountContext } from './credentials';
 import { grantSchema, keySchema, KEY_EXPIRIES, ApiAuthorizationError } from './contract';
 import { ACCESS_LEVELS, actionCatalog, permitsAction, resourceCatalog, verifyActions } from './actions';
 import { serviceAccountRoutes } from './service-accounts';
@@ -21,9 +21,13 @@ export function createConnectionRoutes(db: Database.Database) {
   router.use(createOAuthConsentRoutes(db));
   router.use('/service-accounts', serviceAccountRoutes(db));
   router.get('/catalog', (request: AuthenticatedRequest, response) => {
-    const service = request.query.service === '1';
+    const serviceId=request.query.serviceAccount;
+    const actor=request.auth!;
+    const service=request.query.service==='1'||serviceId!==undefined;
+    const identity=serviceId===undefined?actor:typeof serviceId==='string'&&db.prepare('SELECT 1 FROM api_service_accounts WHERE id=? AND owner_user_id=?').get(serviceId,actor.user.id)?serviceAccountContext(db,serviceId):null;
+    if(!identity){response.status(404).json({message:'Service account unavailable.'});return;}
     const actions = actionCatalog().filter(item => !service || !item.personal);
-    const resources = resourceCatalog(db,request.auth!,service).map(resource => ({
+    const resources = resourceCatalog(db,identity,service,serviceId!==undefined).map(resource => ({
       id:resource.id,label:resource.label,actions:actions.filter(item=>permitsAction(resource,item)).map(item=>item.id),
     }));
     response.json({ resources, actions:actions.map(({id,label,level})=>({id,label,level})), levels:ACCESS_LEVELS, expiries:KEY_EXPIRIES });

@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { countSystemAdmins, createAuditEvent, getBoardAdminGrantsForUser, getBoardMembershipsForUser, getDerivedWorkspaceIdsForUser, getUserById, getWorkspaceAdminGrantsForUser } from './repositories';
+import { countSystemAdmins, createAuditEvent, getBoardAdminGrantsForUser, getBoardMembershipsForUser, getDerivedWorkspaceIdsForUser, getUserById, getWorkspaceAdminGrantsForUser, isServiceIdentity } from './repositories';
+import { readGrant, revokeGrant, userContext } from '../api/credentials';
+import { canAccessBoard, canEditBoardCards } from '../rbac/permissions';
+import { canAccessAdminPanel } from '../rbac/policies';
 import type { AuthContextValue, BoardMembershipRecord, PlatformRole, UserRecord } from '../types';
 
 export type AssignmentInput = {
@@ -44,7 +47,7 @@ function scopedUserIds(db: Database.Database, actor: AuthContextValue) {
 export function listAdminUsersPage(db: Database.Database, actor: AuthContextValue, input: PageInput) {
   const scopedIds = scopedUserIds(db, actor);
   const scopedBoards = actor.user.platformRole === 'system_admin' ? null : manageableBoardIds(db, actor);
-  const where = ['(lower(name) LIKE ? OR lower(username) LIKE ?)'];
+  const where = ['is_service_account=0','(lower(name) LIKE ? OR lower(username) LIKE ?)'];
   const query = `%${input.query.toLowerCase()}%`;
   const params: Array<string | number> = [query, query];
   if (scopedIds) { where.push(`id IN (${scopedIds.map(() => '?').join(', ')})`); params.push(...scopedIds); }
@@ -85,7 +88,7 @@ export function listAdminUsersPage(db: Database.Database, actor: AuthContextValu
 export function getAdminUserDetail(db: Database.Database, actor: AuthContextValue, userId: string) {
   const scopedIds = scopedUserIds(db, actor);
   if (scopedIds && !scopedIds.includes(userId)) return null;
-  const user = getUserById(db, userId); if (!user) return null;
+  const user = getUserById(db, userId); if (!user||isServiceIdentity(db,userId)) return null;
   const systemAdmin=actor.user.platformRole==='system_admin'; const own=actor.user.id===userId;
   const visibleBoards=systemAdmin?null:manageableBoardIds(db,actor);
   const memberships=getBoardMembershipsForUser(db,userId).filter(item=>visibleBoards===null||visibleBoards.includes(item.boardId));
@@ -131,17 +134,26 @@ export function listBoardMembers(db: Database.Database, actor: AuthContextValue,
   const query = `%${input.query.toLowerCase()}%`;
   const filter = 'board_id=? AND (lower(users.name) LIKE ? OR lower(users.username) LIKE ?)';
   const total = Number((db.prepare(`SELECT COUNT(*) AS count FROM board_memberships JOIN users ON users.id=board_memberships.user_id WHERE ${filter}`).get(boardId, query, query) as { count: number }).count);
-  const rows = db.prepare(`SELECT users.id,users.name,users.username,users.initials,users.color,board_memberships.role FROM board_memberships JOIN users ON users.id=board_memberships.user_id WHERE ${filter} ORDER BY lower(users.name),users.id LIMIT ? OFFSET ?`).all(boardId, query, query, input.pageSize, (input.page - 1) * input.pageSize) as Array<Record<string, unknown>>;
-  return { items: rows.map(row => ({ id:String(row.id), name:String(row.name), username:String(row.username), initials:String(row.initials), color:String(row.color), role:String(row.role) })), page: pageMeta(input.page, input.pageSize, total) };
+  const rows = db.prepare(`SELECT users.id,users.name,users.username,users.initials,users.color,users.is_service_account,board_memberships.role FROM board_memberships JOIN users ON users.id=board_memberships.user_id WHERE ${filter} ORDER BY lower(users.name),users.id LIMIT ? OFFSET ?`).all(boardId, query, query, input.pageSize, (input.page - 1) * input.pageSize) as Array<Record<string, unknown>>;
+  return { items: rows.map(row => ({ id:String(row.id), name:String(row.name), username:String(row.username), initials:String(row.initials), color:String(row.color), role:String(row.role), ...(row.is_service_account ? {serviceAccount:true} : {}) })), page: pageMeta(input.page, input.pageSize, total) };
 }
 
-export function listEligibleUsers(db: Database.Database, actor: AuthContextValue, boardId: string, input: PageInput) {
+export function listEligibleUsers(db: Database.Database, actor: AuthContextValue, boardId: string, input: PageInput & {accountType?:'human'}) {
   if (!manageableBoardIds(db, actor).includes(boardId)) return null;
   const query = `%${input.query.toLowerCase()}%`;
-  const filter = 'active=1 AND NOT EXISTS (SELECT 1 FROM board_memberships WHERE board_id=? AND user_id=users.id) AND (lower(name) LIKE ? OR lower(username) LIKE ?)';
-  const total = Number((db.prepare(`SELECT COUNT(*) AS count FROM users WHERE ${filter}`).get(boardId, query, query) as { count: number }).count);
-  const rows = db.prepare(`SELECT id,name,username,initials,color FROM users WHERE ${filter} ORDER BY lower(name),lower(username),id LIMIT ? OFFSET ?`).all(boardId, query, query, input.pageSize, (input.page - 1) * input.pageSize) as Array<Record<string, unknown>>;
-  return { items: rows.map(row => ({ id:String(row.id), name:String(row.name), username:String(row.username), initials:String(row.initials), color:String(row.color) })), page: pageMeta(input.page, input.pageSize, total) };
+  const filter = `(active=1 OR (@includeServices=1 AND EXISTS (
+    SELECT 1 FROM api_service_accounts sa JOIN users owner ON owner.id=sa.owner_user_id JOIN boards b ON b.id=@board
+    WHERE sa.id=users.id AND owner.active=1 AND owner.must_change_password=0 AND (
+      owner.platform_role='system_admin'
+      OR EXISTS (SELECT 1 FROM workspace_admin_grants g WHERE g.user_id=owner.id AND g.workspace_id=b.workspace_id)
+      OR EXISTS (SELECT 1 FROM board_admin_grants g WHERE g.user_id=owner.id AND g.board_id=b.id)
+      OR (EXISTS (SELECT 1 FROM board_memberships m WHERE m.user_id=owner.id AND m.board_id=b.id)
+        AND (EXISTS (SELECT 1 FROM workspace_admin_grants g WHERE g.user_id=owner.id) OR EXISTS (SELECT 1 FROM board_admin_grants g WHERE g.user_id=owner.id)))
+    )))) AND NOT EXISTS (SELECT 1 FROM board_memberships WHERE board_id=@board AND user_id=users.id) AND (lower(name) LIKE @query OR lower(username) LIKE @query)`;
+  const params = {board:boardId,query,includeServices:Number(input.accountType!=='human')};
+  const total = Number(db.prepare(`SELECT COUNT(*) FROM users WHERE ${filter}`).pluck().get(params));
+  const rows = db.prepare(`SELECT id,name,username,initials,color,is_service_account FROM users WHERE ${filter} ORDER BY lower(name),lower(username),id LIMIT @limit OFFSET @offset`).all({...params,limit:input.pageSize,offset:(input.page-1)*input.pageSize}) as Array<Record<string, unknown>>;
+  return { items: rows.map(row => ({ id:String(row.id), name:String(row.name), username:String(row.username), initials:String(row.initials), color:String(row.color), ...(row.is_service_account ? {serviceAccount:true} : {}) })), page: pageMeta(input.page, input.pageSize, total) };
 }
 
 function removeUserFromCardMemberships(db: Database.Database, userId: string) {
@@ -214,12 +226,33 @@ export function updateManagedUser(db: Database.Database, actor: UserRecord, user
   })();
 }
 
+function revokeMembershipServiceKey(db:Database.Database,id:string,actorId:string) {
+  const grantId=db.prepare('SELECT grant_id FROM api_service_accounts WHERE id=?').pluck().get(id);
+  const grant=typeof grantId==='string'?readGrant(db,grantId):null;
+  if(grant)revokeGrant(db,grant,'service_account_membership_changed',actorId);
+}
+
 export function upsertBoardMembership(db:Database.Database, actor:UserRecord, boardId:string, userId:string, role:BoardMembershipRecord['role']) {
-  const user=getUserById(db,userId); if(!user||!user.active)return null; const now=new Date().toISOString(); db.prepare('INSERT INTO board_memberships (id,user_id,board_id,role,created_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id,board_id) DO UPDATE SET role=excluded.role').run(randomUUID(),userId,boardId,role,now); createAuditEvent(db,{actorUserId:actor.id,targetUserId:userId,scopeType:'board',scopeId:boardId,action:'board.membership_upsert',outcome:'success',metadata:{role}}); return getBoardMembershipsForUser(db,userId).find(item=>item.boardId===boardId)??null;
+  const user=getUserById(db,userId);
+  const service=isServiceIdentity(db,userId);
+  if(!user||!service&&!user.active)return null;
+  if(service){
+    const ownerId=db.prepare('SELECT owner_user_id FROM api_service_accounts WHERE id=?').pluck().get(userId);
+    const owner=typeof ownerId==='string'?userContext(db,ownerId):null;
+    if(!owner||!canAccessAdminPanel(owner)||!canAccessBoard(db,owner,boardId)||role==='member'&&!canEditBoardCards(db,owner,boardId))return null;
+  }
+  return db.transaction(()=>{
+    const previous=db.prepare('SELECT role FROM board_memberships WHERE user_id=? AND board_id=?').pluck().get(userId,boardId);
+    db.prepare('INSERT INTO board_memberships (id,user_id,board_id,role,created_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id,board_id) DO UPDATE SET role=excluded.role').run(randomUUID(),userId,boardId,role,new Date().toISOString());
+    if(service&&previous&&previous!==role)revokeMembershipServiceKey(db,userId,actor.id);
+    createAuditEvent(db,{actorUserId:actor.id,targetUserId:userId,scopeType:'board',scopeId:boardId,action:'board.membership_upsert',outcome:'success',metadata:{role}});
+    return getBoardMembershipsForUser(db,userId).find(item=>item.boardId===boardId)??null;
+  })();
 }
 export function deleteBoardMembership(db:Database.Database, actor:UserRecord, boardId:string, userId:string) {
   return db.transaction(()=>{
     const result=db.prepare('DELETE FROM board_memberships WHERE board_id=? AND user_id=?').run(boardId,userId); if(!result.changes)return null;
+    if(isServiceIdentity(db,userId))revokeMembershipServiceKey(db,userId,actor.id);
     const cards=db.prepare('SELECT id,member_ids_json FROM cards WHERE board_id=?').all(boardId) as Array<{id:string;member_ids_json:string}>;
     for(const card of cards){const ids=JSON.parse(card.member_ids_json) as string[];if(ids.includes(userId))db.prepare('UPDATE cards SET member_ids_json=? WHERE id=?').run(JSON.stringify(ids.filter(id=>id!==userId)),card.id)}
     const rules=db.prepare("SELECT id,action_config_json FROM automation_rules WHERE board_id=? AND action='assign_member'").all(boardId) as Array<{id:string;action_config_json:string}>;
@@ -231,5 +264,19 @@ export function deleteBoardMembership(db:Database.Database, actor:UserRecord, bo
 
 export function deleteManagedUser(db:Database.Database, actor:UserRecord, userId:string):DeleteManagedUserResult|null {
   const current=getUserById(db,userId); if(!current)return null; if(actor.id===userId)throw new Error('Cannot delete the currently authenticated user.'); if(current.platformRole==='system_admin'&&current.active&&countSystemAdmins(db)<=1)throw new Error('Cannot delete the last remaining system administrator.');
-  return db.transaction(()=>{ const removedCardAssignments=removeUserFromCardMemberships(db,userId); const remediatedAutomationRules=remediateAutomationAssignments(db,userId); db.prepare('DELETE FROM users WHERE id=?').run(userId); createAuditEvent(db,{actorUserId:actor.id,targetUserId:userId,scopeType:'platform',action:'user.delete',outcome:'success',metadata:{username:current.username,removedCardAssignments,remediatedAutomationRules}}); return {deletedUserId:userId,username:current.username,removedCardAssignments,remediatedAutomationRules}; })();
+  return db.transaction(()=>{
+    const owned=db.prepare('SELECT id FROM api_service_accounts WHERE owner_user_id=?').pluck().all(userId) as string[];
+    let removedCardAssignments=0;
+    let remediatedAutomationRules=0;
+    for(const id of [userId,...owned]){
+      removedCardAssignments+=removeUserFromCardMemberships(db,id);
+      remediatedAutomationRules+=remediateAutomationAssignments(db,id);
+    }
+    for(const table of ['board_memberships','workspace_memberships','board_admin_grants','workspace_admin_grants']){
+      db.prepare(`DELETE FROM ${table} WHERE user_id IN (SELECT value FROM json_each(?))`).run(JSON.stringify(owned));
+    }
+    db.prepare('DELETE FROM users WHERE id=?').run(userId);
+    createAuditEvent(db,{actorUserId:actor.id,targetUserId:userId,scopeType:'platform',action:'user.delete',outcome:'success',metadata:{username:current.username,removedCardAssignments,remediatedAutomationRules}});
+    return {deletedUserId:userId,username:current.username,removedCardAssignments,remediatedAutomationRules};
+  })();
 }

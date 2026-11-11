@@ -102,7 +102,7 @@ export function actionCatalog(): Action[] {
   ];
 }
 
-export function resourceCatalog(db: Database.Database, actor: AuthContextValue, service: boolean): Resource[] {
+export function resourceCatalog(db: Database.Database, actor: AuthContextValue, service: boolean, assignedMember=false): Resource[] {
   const system = isSystemAdmin(actor);
   const workspaces = db.prepare('SELECT id, name FROM workspaces ORDER BY name, id').all() as { id:string; name:string }[];
   const boards = db.prepare('SELECT b.id, b.title, w.name workspace FROM boards b JOIN workspaces w ON b.workspace_id=w.id ORDER BY w.name, b.title, b.id').all() as { id:string; title:string; workspace:string }[];
@@ -112,7 +112,7 @@ export function resourceCatalog(db: Database.Database, actor: AuthContextValue, 
     ...workspaces.filter(item => service ? canManageWorkspace(actor,item.id) : canAccessWorkspace(actor,item.id)).map(item => ({
       id:`workspace:${item.id}`,label:`Workspace: ${item.name}`,level:canManageWorkspace(actor,item.id) ? 'Workspace Admin' as const : 'Viewer' as const,
     })),
-    ...boards.filter(item => service ? canManageBoard(db,actor,item.id) : canAccessBoard(db,actor,item.id)).map(item => ({
+    ...boards.filter(item => service&&!assignedMember ? canManageBoard(db,actor,item.id) : canAccessBoard(db,actor,item.id)).map(item => ({
       id:`board:${item.id}`,label:`${item.workspace} / ${item.title}`,level:canManageBoard(db,actor,item.id) ? 'Board Admin' as const : canEditBoardCards(db,actor,item.id) ? 'Basic User' as const : 'Viewer' as const,
     })),
   ];
@@ -124,9 +124,9 @@ export function permitsAction(resource: Resource, action: Action) {
     : resource.id !== 'account' && ACCESS_LEVELS.indexOf(resource.level) >= ACCESS_LEVELS.indexOf(action.level);
 }
 
-export function verifyActions(db: Database.Database, actor: AuthContextValue, ids: string[], resources: string[], service: boolean) {
+export function verifyActions(db: Database.Database, actor: AuthContextValue, ids: string[], resources: string[], service: boolean, assignedMember=false) {
   const actions = new Map(actionCatalog().map(item => [item.id,item]));
-  const options = new Map(resourceCatalog(db,actor,service).map(item => [item.id,item]));
+  const options = new Map(resourceCatalog(db,actor,service,assignedMember).map(item => [item.id,item]));
   if (resources.length > 1 && resources.some(id => id === 'account' || id === 'platform')) throw new ApiAuthorizationError(400,'RESOURCE_INVALID','Select My account or Entire platform by itself.');
   const selected = ids.map(id => actions.get(id));
   if (selected.some(item => !item || service && item.personal || resources.some(id => !options.has(id) || !permitsAction(options.get(id)!,item)))) {

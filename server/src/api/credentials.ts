@@ -15,6 +15,24 @@ export function userContext(db: Database.Database, userId: string): AuthContextV
   if (!user?.active || user.mustChangePassword) return null;
   return { user, session: { id: '', userId, createdAt: '', expiresAt: '', lastSeenAt: '' }, workspaceAdminGrants: getWorkspaceAdminGrantsForUser(db, userId), boardAdminGrants: getBoardAdminGrantsForUser(db, userId), boardMemberships: getBoardMembershipsForUser(db, userId), derivedWorkspaceIds: getDerivedWorkspaceIdsForUser(db, userId) };
 }
+
+export function serviceAccountContext(db:Database.Database,id:string):AuthContextValue|null {
+  const account=db.prepare('SELECT owner_user_id,platform_access FROM api_service_accounts WHERE id=?').get(id) as {owner_user_id:string;platform_access:number}|undefined;
+  if(!account)return null;
+  const owner=userContext(db,account.owner_user_id);
+  const user=getUserById(db,id);
+  if(!owner||!canAccessAdminPanel(owner)||!user||user.active)return null;
+  const workspaceAdminGrants=getWorkspaceAdminGrantsForUser(db,id).filter(grant=>canManageWorkspace(owner,grant.workspaceId));
+  const boardAdminGrants=getBoardAdminGrantsForUser(db,id).filter(grant=>canManageBoard(db,owner,grant.boardId));
+  const boardMemberships=getBoardMembershipsForUser(db,id).filter(membership=>canAccessBoard(db,owner,membership.boardId)).map(membership=>({
+    ...membership,role:canEditBoardCards(db,owner,membership.boardId)?membership.role:'observer' as const,
+  }));
+  return {
+    user:{...user,active:true,platformRole:account.platform_access&&owner.user.platformRole==='system_admin'?'system_admin':'user'},
+    session:{id:'',userId:id,createdAt:'',expiresAt:'',lastSeenAt:''},workspaceAdminGrants,boardAdminGrants,boardMemberships,
+    derivedWorkspaceIds:[...new Set([...workspaceAdminGrants.map(grant=>grant.workspaceId),...boardMemberships.map(item=>String(db.prepare('SELECT workspace_id FROM boards WHERE id=?').pluck().get(item.boardId)))])],
+  };
+}
 export function authorityCeiling(actor: AuthContextValue): AuthorityCeiling {
   return { system: actor.user.platformRole === 'system_admin', workspaceAdmins: actor.workspaceAdminGrants.map(item => item.workspaceId), boardAdmins: actor.boardAdminGrants.map(item => item.boardId), memberships: actor.boardMemberships.map(({ boardId, role }) => ({ boardId, role })) };
 }
@@ -67,10 +85,10 @@ export function issueToken(db: Database.Database, grant: ApiGrant, kind: 'pat' |
   db.prepare('INSERT INTO api_tokens (id,grant_id,token_hash,kind,expires_at) VALUES (?,?,?,?,?)').run(id, grant.id, digest(raw), kind, expiresAt);
   return { raw, expiresAt, id };
 }
-export function revokeGrant(db: Database.Database, grant: ApiGrant, reason: string) {
+export function revokeGrant(db: Database.Database, grant: ApiGrant, reason: string, actorId=grant.userId) {
   if (grant.revokedAt) return;
   db.prepare('UPDATE api_grants SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), grant.id);
-  audit(db, { actorUserId: grant.userId, scopeType: 'auth', action: 'api.connection.revoke', outcome: 'success', metadata: { credentialId: grant.id, reason } });
+  audit(db, { actorUserId: actorId, scopeType: 'auth', action: 'api.connection.revoke', outcome: 'success', metadata: { credentialId: grant.id, reason, ...(grant.serviceAccountId&&{serviceAccountId:grant.serviceAccountId}) } });
 }
 export function credentialContext(db: Database.Database, tokenId: string, refresh = false): AuthContextValue | null {
   const token = db.prepare("SELECT grant_id, expires_at, consumed_at FROM api_tokens WHERE id = ? AND (kind IN ('pat','access') OR (? = 1 AND kind = 'refresh'))").get(tokenId, Number(refresh)) as { grant_id: string; expires_at: string; consumed_at: string | null } | undefined;
@@ -80,13 +98,13 @@ export function credentialContext(db: Database.Database, tokenId: string, refres
   return grantContext(db,grant,tokenId,token.expires_at);
 }
 export function grantContext(db: Database.Database, grant: ApiGrant, tokenId: string, expiresAt: string): AuthContextValue | null {
-  const actor = userContext(db, grant.userId);
+  const actor = grant.serviceAccountId ? serviceAccountContext(db,grant.serviceAccountId) : userContext(db, grant.userId);
   if (!actor) return null;
-  if (grant.serviceAccountId && (!canAccessAdminPanel(actor) || !grant.resources.every(resource => {
+  if (grant.serviceAccountId && (grant.userId!==grant.serviceAccountId || !grant.resources.every(resource => {
     if (resource === 'platform') return actor.user.platformRole === 'system_admin';
     const [kind,id] = resource.split(':');
-    return kind === 'board' ? canManageBoard(db,actor,id) : kind === 'workspace' && canManageWorkspace(actor,id);
-  }) || !db.prepare('SELECT 1 FROM api_service_accounts WHERE id = ? AND owner_user_id = ? AND grant_id = ?').get(grant.serviceAccountId,grant.userId,grant.id))) return null;
+    return kind === 'board' ? canAccessBoard(db,actor,id) : kind === 'workspace' && canManageWorkspace(actor,id);
+  }) || !db.prepare('SELECT 1 FROM api_service_accounts WHERE id = ? AND grant_id = ?').get(grant.serviceAccountId,grant.id))) return null;
   const ceiling = grant.authority;
   if (!ceiling.system) {
     actor.user = { ...actor.user, platformRole: 'user' };

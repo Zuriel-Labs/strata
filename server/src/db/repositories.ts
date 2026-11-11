@@ -94,8 +94,12 @@ function mapBoardAdminGrant(row: Record<string, unknown>): BoardAdminGrantRecord
 }
 
 export function getUserByUsername(db: Database.Database, username: string) {
-  const row = db.prepare('SELECT * FROM users WHERE lower(username) = lower(?)').get(username) as Record<string, unknown> | undefined;
+  const row = db.prepare('SELECT * FROM users WHERE lower(username) = lower(?) AND is_service_account=0').get(username) as Record<string, unknown> | undefined;
   return row ? mapUser(row) : null;
+}
+
+export function isServiceIdentity(db:Database.Database,id:string) {
+  return db.prepare('SELECT is_service_account FROM users WHERE id=?').pluck().get(id)===1;
 }
 
 export function getUserById(db: Database.Database, userId: string) {
@@ -427,7 +431,7 @@ function selectAutomationRules(db: Database.Database, boardIds: string[]) {
   }));
 }
 
-function selectScopedUsers(db: Database.Database, user: UserRecord, boardIds: string[]) {
+function selectScopedUsers(db: Database.Database, user: UserRecord, boardIds: string[],workspaceIds:string[]) {
   const membershipRows = db.prepare('SELECT user_id AS userId, board_id AS boardId, role FROM board_memberships').all() as Array<{ userId: string; boardId: string; role: string }>;
   const membershipMap = new Map<string, string[]>();
   membershipRows.filter(row => row.role === 'member' && boardIds.includes(row.boardId)).forEach(row => membershipMap.set(row.userId, [...(membershipMap.get(row.userId) ?? []), row.boardId]));
@@ -443,6 +447,8 @@ function selectScopedUsers(db: Database.Database, user: UserRecord, boardIds: st
   }
 
   const userIds = new Set<string>([user.id]);
+  const workspaceServices=db.prepare('SELECT DISTINCT m.user_id FROM workspace_memberships m JOIN api_service_accounts a ON a.id=m.user_id WHERE m.workspace_id IN (SELECT value FROM json_each(?))').pluck().all(JSON.stringify(workspaceIds)) as string[];
+  workspaceServices.forEach(id=>userIds.add(id));
   if (boardIds.length > 0) {
     const placeholders = boardIds.map(() => '?').join(', ');
     const rows = db.prepare(`SELECT DISTINCT user_id as userId FROM board_memberships WHERE board_id IN (${placeholders})`).all(...boardIds) as Array<{ userId: string }>;
@@ -467,7 +473,7 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord, act
   const cards = selectCards(db, boardIds);
   const notifications = selectNotifications(db, user.id, boardIds);
   const automationRules = selectAutomationRules(db, boardIds);
-  const users = selectScopedUsers(db, user, boardIds);
+  const users = selectScopedUsers(db, user, boardIds, workspaceIds);
 
   const workspaceMemberMap = new Map<string, string[]>();
   for (const membership of db.prepare(`
@@ -475,7 +481,9 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord, act
     FROM board_memberships
     JOIN boards ON boards.id = board_memberships.board_id
     WHERE ? = 0 OR boards.id IN (SELECT value FROM json_each(?))
-  `).all(Number(Boolean(actor?.credential)), JSON.stringify(boardIds)) as Array<{ workspaceId: string; userId: string }>) {
+    UNION SELECT m.workspace_id,m.user_id FROM workspace_memberships m JOIN api_service_accounts a ON a.id=m.user_id
+    WHERE m.workspace_id IN (SELECT value FROM json_each(?))
+  `).all(Number(Boolean(actor?.credential)), JSON.stringify(boardIds),JSON.stringify(workspaceIds)) as Array<{ workspaceId: string; userId: string }>) {
     const list = workspaceMemberMap.get(membership.workspaceId) ?? [];
     list.push(membership.userId);
     workspaceMemberMap.set(membership.workspaceId, list);

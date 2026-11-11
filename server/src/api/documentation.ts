@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { API_OPERATIONS, type ApiOperation } from './operations';
-import { SCOPES, grantSchema, keySchema, KEY_EXPIRIES } from './contract';
+import { SCOPES, grantSchema, keySchema, KEY_EXPIRIES, serviceAssignmentsSchema } from './contract';
 import { publicOrigin, clientSchema, decisionSchema } from './oauth-routes';
 import { bootstrapSchema, loginSchema, recoveryConsumeSchema } from '../routes/auth-routes';
 import { documentedActions } from './actions';
@@ -68,7 +68,7 @@ function responseSchema(operation:ApiOperation):object {
   if(path==='/admin/resources') return object({items:array(ref('ResourceChoice')),selectedItems:array(ref('ResourceChoice')),page:ref('PageMeta')});
   if(path==='/admin/settings/label-policy') return object({maxLabelsPerBoard:integer,boardsAboveLimit:integer});
   if(path.endsWith('/invitations')) return method==='GET'?paged(ref('Invitation')):object({invitation:ref('Invitation'),token:string});
-  if(path.endsWith('/members') || path.endsWith('/eligible-users')) return paged(object({id:string,name:string,username:string,initials:string,color:string,role:{enum:['member','observer']}},['id','name','username','initials','color']));
+  if(path.endsWith('/members') || path.endsWith('/eligible-users')) return paged(object({id:string,name:string,username:string,initials:string,color:string,role:{enum:['member','observer']},serviceAccount:{const:true}},['id','name','username','initials','color']));
   if(path==='/admin/boards/:boardId/members/:userId') return method==='PUT'?object({membership:object({id:string,userId:string,boardId:string,role:{enum:['member','observer']},createdAt:string})}):object({userId:string,boardId:string,derivedWorkspaceIds:array(string)});
   if(/\/(close|reopen)$/.test(path)) return object({id:string,lifecycleState:{enum:['active','closed']},revision:integer});
   if(path==='/boards/:id/template') return ref('Board');
@@ -183,9 +183,9 @@ export function createOpenApi() {
   const jsonBody=(schema:object)=>({required:true,content:{'application/json':{schema}}});
   const jsonSuccess=(schema:object)=>({description:'Success',content:{'application/json':{schema}}});
   const client=object({id:string,name:string,redirectUris:array(string)},['id','name','redirectUris']);
-  const serviceAccount=object({id:string,name:string,resources:array(string),actions:array(string),key:{anyOf:[object({expiresAt:string,lastUsedAt:nullableString,revokedAt:nullableString}),{type:'null'}]}});
+  const serviceAccount=object({id:string,name:string,username:string,ownerUserId:string,assignments:array(string),resources:array(string),actions:array(string),key:{anyOf:[object({expiresAt:string,lastUsedAt:nullableString,revokedAt:nullableString}),{type:'null'}]}});
   const serviceKeyResponse=jsonSuccess(object({account:serviceAccount,token:string}));
-  paths['/api/connections/catalog']={get:{summary:'Browser only: available resources, actions and expiration choices',security:browserSecurity,parameters:[{name:'service',in:'query',schema:{const:'1'}}],responses:{'200':jsonSuccess(object({resources:array(object({id:string,label:string,actions:array(string)})),actions:array(object({id:string,label:string,level:string})),levels:{...array(string),description:'Access levels in ascending order for role presets. Account permissions form a separate preset.'},expiries:array({enum:KEY_EXPIRIES})})),...browserErrors}}};
+  paths['/api/connections/catalog']={get:{summary:'Browser only: available resources, actions and expiration choices',security:browserSecurity,parameters:[{name:'service',in:'query',schema:{const:'1'}},{name:'serviceAccount',in:'query',schema:string,description:'Owned service account ID. Limits choices to its current assignments and owner authority.'}],responses:{'200':jsonSuccess(object({resources:array(object({id:string,label:string,actions:array(string)})),actions:array(object({id:string,label:string,level:string})),levels:{...array(string),description:'Access levels in ascending order for role presets. Account permissions form a separate preset.'},expiries:array({enum:KEY_EXPIRIES})})),...browserErrors}}};
   paths['/api/connections/service-accounts']={
     get:{summary:'Browser only: list owned service accounts',security:browserSecurity,responses:{'200':jsonSuccess(object({items:array(serviceAccount)})),...browserErrors}},
     post:{summary:'Browser only: create a service account and its first key',security:browserSecurity,parameters:[intent],requestBody:jsonBody(inputSchema(keySchema)),responses:{'201':serviceKeyResponse,...browserErrors}},
@@ -194,6 +194,7 @@ export function createOpenApi() {
     post:{summary:'Browser only: replace a service key with explicit access and expiry',security:browserSecurity,parameters:[idParameter,intent],requestBody:jsonBody(inputSchema(keySchema)),responses:{'201':serviceKeyResponse,...browserErrors}},
     delete:{summary:'Browser only: revoke the active service key',security:browserSecurity,parameters:[idParameter,intent],responses:{'204':{description:'Revoked'},...browserErrors}},
   };
+  paths['/api/connections/service-accounts/{id}/assignments']={put:{summary:'Browser only: replace service account administrative assignments and revoke its key if changed',security:browserSecurity,parameters:[idParameter,intent],requestBody:jsonBody(inputSchema(serviceAssignmentsSchema)),responses:{'200':jsonSuccess(object({account:serviceAccount})),...browserErrors}}};
   paths['/api/connections/service-accounts/{id}/transfer']={post:{summary:'Browser only: transfer to an active administrator; revoke previous key',security:browserSecurity,parameters:[idParameter,intent],requestBody:jsonBody(object({username:string,confirmation:{const:'TRANSFER'}})),responses:{'204':{description:'Ownership transferred'},...browserErrors}}};
   paths['/api/connections/{id}']={delete:{summary:'Browser only: revoke own connection and every token in its family',security:browserSecurity,parameters:[idParameter,intent],responses:{'204':{description:'Revoked'},...browserErrors}}};
   paths['/api/connections/clients']={

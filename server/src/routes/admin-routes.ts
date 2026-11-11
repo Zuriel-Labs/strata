@@ -3,7 +3,7 @@ import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { createManagedUser, deleteBoardMembership, deleteManagedUser, getAdminUserDetail, listAdminResources, listAdminUsersPage, listBoardMembers, listEligibleUsers, updateManagedUser, upsertBoardMembership } from '../db/admin-repositories';
-import { countBoardsAboveLabelLimit, deleteSessionsForUser, getBoardById, getMaxLabelsPerBoard, getUserById, getWorkspaceAdminGrantsForUser, getBoardAdminGrantsForUser, getBoardMembershipsForUser, listAuditEvents, updateMaxLabelsPerBoard, upsertRecoveryKey } from '../db/repositories';
+import { countBoardsAboveLabelLimit, deleteSessionsForUser, getBoardById, getMaxLabelsPerBoard, getUserById, getWorkspaceAdminGrantsForUser, getBoardAdminGrantsForUser, getBoardMembershipsForUser, isServiceIdentity, listAuditEvents, updateMaxLabelsPerBoard, upsertRecoveryKey } from '../db/repositories';
 import { DISABLED_PASSWORD_HASH } from '../auth/passwords';
 import { hashRecoveryKey } from '../auth/recovery-keys';
 import { createUserSession } from '../auth/session';
@@ -31,6 +31,7 @@ export const pageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
+export const eligibleUsersQuery = pageSchema.extend({ accountType: z.literal('human').optional() });
 export const resourceSchema = pageSchema.extend({
   kind: z.enum(['workspace', 'board']),
   workspaceId: z.string().optional(),
@@ -112,7 +113,7 @@ export function createAdminRoutes(db: Database.Database) {
     if (!request.auth || !canManageUserPlatform(request.auth)) { denyMutation(db,request,response,{action:'user.update',scopeType:'platform',targetUserId:String(request.params.userId)}); return; }
     const parsed = userPatchSchema.safeParse(request.body); if (!parsed.success) { response.status(400).json({ message: 'Invalid user update payload.', issues: parsed.error.issues }); return; }
     const userId = String(request.params.userId); const current = getUserById(db, userId);
-    if (!current) { response.status(404).json({ message: 'User not found.' }); return; }
+    if (!current||isServiceIdentity(db,userId)) { response.status(404).json({ message: 'User not found.' }); return; }
     try {
       const input = parsed.data;
       if (request.auth.credential?.actions) {
@@ -124,7 +125,7 @@ export function createAdminRoutes(db: Database.Database) {
       const updated = updateManagedUser(db, request.auth.user, userId, input);
       if (!updated) { response.status(404).json({ message: 'User not found.' }); return; }
       const deletedCount = deleteSessionsForUser(db, userId);
-      if (userId === request.auth.user.id && updated.active) createUserSession(db,userId,request,response);
+      if (!request.auth.credential && userId === request.auth.user.id && updated.active) createUserSession(db,userId,request,response);
       audit(db, { actorUserId: request.auth.user.id, targetUserId: userId, scopeType: 'platform', action: 'admin.session_invalidation', outcome: 'success', metadata: { reason: 'access_or_account_change', sessionsInvalidated: deletedCount } });
       response.json({ user: getAdminUserDetail(db, request.auth!, updated.id) });
     } catch (error) { errorResponse(response, error); }
@@ -140,7 +141,7 @@ export function createAdminRoutes(db: Database.Database) {
   router.get('/boards/:boardId/eligible-users', (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth) { response.status(401).json({ message: 'Authentication required.' }); return; }
     const boardId = String(request.params.boardId); if (!getBoardById(db, boardId)) { response.status(404).json({ message: 'Board not found.' }); return; }
-    const parsed = pageSchema.safeParse(request.query); if (!parsed.success) { response.status(400).json({ message: 'Invalid user query.' }); return; }
+    const parsed = eligibleUsersQuery.safeParse(request.query); if (!parsed.success) { response.status(400).json({ message: 'Invalid user query.' }); return; }
     const result = listEligibleUsers(db, request.auth, boardId, parsed.data); if (!result) { response.status(403).json({ message: 'Forbidden.' }); return; } response.json(result);
   });
 
@@ -151,7 +152,7 @@ export function createAdminRoutes(db: Database.Database) {
     const membership = upsertBoardMembership(db, request.auth.user, boardId, String(request.params.userId), parsed.data.role);
     if (!membership) { response.status(404).json({ message: 'Active user not found.' }); return; }
     deleteSessionsForUser(db,membership.userId);
-    if(membership.userId===request.auth.user.id)createUserSession(db,membership.userId,request,response);
+    if(!request.auth.credential&&membership.userId===request.auth.user.id)createUserSession(db,membership.userId,request,response);
     response.json({ membership });
   });
 
@@ -161,13 +162,13 @@ export function createAdminRoutes(db: Database.Database) {
     const result = deleteBoardMembership(db, request.auth.user, boardId, String(request.params.userId));
     if (!result) { response.status(404).json({ message: 'Membership not found.' }); return; }
     deleteSessionsForUser(db,result.userId);
-    if(result.userId===request.auth.user.id)createUserSession(db,result.userId,request,response);
+    if(!request.auth.credential&&result.userId===request.auth.user.id)createUserSession(db,result.userId,request,response);
     response.json(result);
   });
 
   router.post('/users/:userId/generate-recovery-key', async (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) { denyMutation(db,request,response,{action:'auth.admin_recovery_key_generate',scopeType:'platform',targetUserId:String(request.params.userId)}); return; }
-    const user = getUserById(db, String(request.params.userId)); if (!user) { response.status(404).json({ message: 'User not found.' }); return; }
+    const user = getUserById(db, String(request.params.userId)); if (!user||isServiceIdentity(db,user.id)) { response.status(404).json({ message: 'User not found.' }); return; }
     const recoveryKey = randomBytes(32).toString('hex'); upsertRecoveryKey(db, user.id, hashRecoveryKey(recoveryKey));
     audit(db, { actorUserId: request.auth.user.id, targetUserId: user.id, scopeType: 'auth', action: 'auth.admin_recovery_key_generate', outcome: 'success' });
     response.json({ recoveryKey });
@@ -175,6 +176,7 @@ export function createAdminRoutes(db: Database.Database) {
 
   router.delete('/users/:userId', (request: AuthenticatedRequest, response: Response) => {
     if (!request.auth || !canManageUserPlatform(request.auth)) { denyMutation(db,request,response,{action:'user.delete',scopeType:'platform',targetUserId:String(request.params.userId)}); return; }
+    if(isServiceIdentity(db,String(request.params.userId))){response.status(404).json({message:'User not found.'});return;}
     try { const deleted = deleteManagedUser(db, request.auth.user, String(request.params.userId)); if (!deleted) { response.status(404).json({ message: 'User not found.' }); return; } response.json(deleted); }
     catch (error) { errorResponse(response, error); }
   });

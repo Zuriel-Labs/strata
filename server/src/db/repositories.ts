@@ -1,7 +1,8 @@
+import { apiRequestContext } from '../api/request-context';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { AppState, AutomationRule, Board, Card, List, Notification, User, Workspace } from '../../../src/types';
-import type { AuditEventInput, BoardAdminGrantRecord, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, ThemePreference, UserRecord, WorkspaceAdminGrantRecord, WorkspaceMembershipRecord } from '../types';
+import type { AuthContextValue, AuditEventInput, BoardAdminGrantRecord, BoardMembershipRecord, SessionPayload, SessionRecord, SessionUser, ThemePreference, UserRecord, WorkspaceAdminGrantRecord, WorkspaceMembershipRecord } from '../types';
 import { normalizeDescriptionInput, storedRichTextDocument } from '../../../src/lib/rich-text';
 import { sortCardsByTitle, type CardSortDirection } from '../../../src/lib/card-sort';
 
@@ -429,7 +430,7 @@ function selectAutomationRules(db: Database.Database, boardIds: string[]) {
 function selectScopedUsers(db: Database.Database, user: UserRecord, boardIds: string[]) {
   const membershipRows = db.prepare('SELECT user_id AS userId, board_id AS boardId, role FROM board_memberships').all() as Array<{ userId: string; boardId: string; role: string }>;
   const membershipMap = new Map<string, string[]>();
-  membershipRows.filter(row => row.role === 'member').forEach(row => membershipMap.set(row.userId, [...(membershipMap.get(row.userId) ?? []), row.boardId]));
+  membershipRows.filter(row => row.role === 'member' && boardIds.includes(row.boardId)).forEach(row => membershipMap.set(row.userId, [...(membershipMap.get(row.userId) ?? []), row.boardId]));
   if (user.platformRole === 'system_admin') {
     return listUsers(db).map(safeUser => ({
       id: safeUser.id,
@@ -452,11 +453,11 @@ function selectScopedUsers(db: Database.Database, user: UserRecord, boardIds: st
   return rows.map(row => ({ ...row, boardIds: membershipMap.get(row.id) ?? [] }));
 }
 
-export function buildSessionPayload(db: Database.Database, user: UserRecord): SessionPayload {
-  const workspaceAdminGrants = getWorkspaceAdminGrantsForUser(db, user.id);
-  const boardAdminGrants = getBoardAdminGrantsForUser(db, user.id);
-  const boardMemberships = getBoardMembershipsForUser(db, user.id);
-  const derivedWorkspaceIds = getDerivedWorkspaceIdsForUser(db, user.id);
+export function buildSessionPayload(db: Database.Database, user: UserRecord, actor?: AuthContextValue): SessionPayload {
+  const workspaceAdminGrants = actor?.workspaceAdminGrants ?? getWorkspaceAdminGrantsForUser(db, user.id);
+  const boardAdminGrants = actor?.boardAdminGrants ?? getBoardAdminGrantsForUser(db, user.id);
+  const boardMemberships = actor?.boardMemberships ?? getBoardMembershipsForUser(db, user.id);
+  const derivedWorkspaceIds = actor?.derivedWorkspaceIds ?? getDerivedWorkspaceIdsForUser(db, user.id);
   const workspaceIds = getAccessibleWorkspaceIds(db, user, workspaceAdminGrants, boardAdminGrants, boardMemberships);
   const boardIds = getAccessibleBoardIds(db, user, workspaceAdminGrants, boardAdminGrants, boardMemberships);
   const workspaces = selectWorkspaces(db, workspaceIds);
@@ -470,12 +471,12 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
 
   const workspaceMemberMap = new Map<string, string[]>();
   for (const membership of db.prepare(`
-    SELECT DISTINCT boards.workspace_id AS workspaceId, board_memberships.user_id AS userId
+    SELECT DISTINCT boards.workspace_id AS workspaceId, board_memberships.user_id AS userId, boards.id AS boardId
     FROM board_memberships
     JOIN boards ON boards.id = board_memberships.board_id
-  `).all() as Array<{ workspaceId: string; userId: string }>) {
+  `).all() as Array<{ workspaceId: string; userId: string; boardId: string }>) {
     const list = workspaceMemberMap.get(membership.workspaceId) ?? [];
-    list.push(membership.userId);
+    if (!actor?.credential || boardIds.includes(membership.boardId)) list.push(membership.userId);
     workspaceMemberMap.set(membership.workspaceId, list);
   }
 
@@ -518,8 +519,8 @@ export function buildSessionPayload(db: Database.Database, user: UserRecord): Se
     username: user.username,
     platformRole: user.platformRole,
     mustChangePassword: user.mustChangePassword,
-    defaultWorkspaceId: user.defaultWorkspaceId,
-    defaultBoardId: user.defaultBoardId,
+    defaultWorkspaceId: !actor?.credential || workspaceIds.includes(user.defaultWorkspaceId ?? '') ? user.defaultWorkspaceId : null,
+    defaultBoardId: !actor?.credential || boardIds.includes(user.defaultBoardId ?? '') ? user.defaultBoardId : null,
   };
 
   return {
@@ -1077,6 +1078,7 @@ export function markAllNotificationsRead(db: Database.Database, userId: string) 
 }
 
 export function createAuditEvent(db: Database.Database, input: AuditEventInput) {
+  const context = apiRequestContext.getStore();
   db.prepare(`
     INSERT INTO audit_events (id, actor_user_id, target_user_id, scope_type, scope_id, action, outcome, metadata_json, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1088,7 +1090,7 @@ export function createAuditEvent(db: Database.Database, input: AuditEventInput) 
     input.scopeId ?? null,
     input.action,
     input.outcome,
-    JSON.stringify(input.metadata ?? {}),
+    JSON.stringify({ ...context, ...(input.metadata ?? {}), ...(context ? { credentialId: context.credentialId, operationTemplate: context.operationId } : {}) }),
     new Date().toISOString(),
   );
 }

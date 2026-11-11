@@ -6,8 +6,8 @@ import { canReadBoardContent as canAccessBoard, canReadWorkspaceContent as canAc
 import { isWorkspaceActive } from '../rbac/lifecycle';
 import { createAuditEvent, getBoardById, getWorkspaceById } from '../db/repositories';
 
-const revisionSchema = z.object({ expectedRevision: z.number().int().min(0) }).strict();
-const templateSchema = revisionSchema.extend({ isTemplate: z.boolean() }).strict();
+export const revisionSchema = z.object({ expectedRevision: z.number().int().min(0) }).strict();
+export const templateSchema = revisionSchema.extend({ isTemplate: z.boolean() }).strict();
 
 export function createLifecycleRoutes(db: Database.Database) {
   const router = Router();

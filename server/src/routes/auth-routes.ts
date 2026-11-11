@@ -3,24 +3,24 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import { audit } from '../audit/audit-log';
 import { clearSessionCookie, createUserSession, setSessionCookie, SESSION_COOKIE } from '../auth/session';
-import { buildSessionPayload, consumePasswordReset, createSession, deleteRecoveryKey, deleteSession, deleteSessionsForUser, getRecoveryKeyByUserId, getSession, getUserById, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey } from '../db/repositories';
+import { buildSessionPayload, consumePasswordReset, createSession, deleteRecoveryKey, deleteSession, deleteSessionsForUser, getRecoveryKeyByUserId, getUserById, getUserByUsername, listUsers, updateUserPassword, updateUserPreferences, updateUserProfile, upsertRecoveryKey } from '../db/repositories';
 import { hashPassword, validatePassword, verifyPassword } from '../auth/passwords';
 import { hashRecoveryKey, verifyRecoveryKey } from '../auth/recovery-keys';
-import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
+import { revalidateAuthContext, requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { UserRecord } from '../types';
 import { canSetDefaultSelection } from '../rbac/policies';
 
-const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
-const passwordChangeSchema = z.object({ currentPassword: z.string().min(1), nextPassword: z.string().min(10), confirmPassword: z.string().min(1) });
-const bootstrapSchema = z.object({ username: z.string().min(1), password: z.string().min(10), confirmPassword: z.string().min(1) });
-const recoveryConsumeSchema = z.object({ username: z.string().min(1), recoveryKey: z.string().min(1), newPassword: z.string().min(10), confirmPassword: z.string().min(1) });
-const profileUpdateSchema = z.object({
+export const loginSchema = z.object({ username: z.string().min(1), password: z.string().min(1) });
+export const passwordChangeSchema = z.object({ currentPassword: z.string().min(1), nextPassword: z.string().min(10), confirmPassword: z.string().min(1) });
+export const bootstrapSchema = z.object({ username: z.string().min(1), password: z.string().min(10), confirmPassword: z.string().min(1) });
+export const recoveryConsumeSchema = z.object({ username: z.string().min(1), recoveryKey: z.string().min(1), newPassword: z.string().min(10), confirmPassword: z.string().min(1) });
+export const profileUpdateSchema = z.object({
   name: z.string().trim().min(1),
   initials: z.string().trim().min(1).max(4),
   color: z.string().trim().min(4),
 });
-const preferencesUpdateSchema = z.object({
+export const preferencesUpdateSchema = z.object({
   themePreference: z.enum(['dark', 'light']).optional(),
   defaultWorkspaceId: z.string().uuid().nullable().optional(),
   defaultBoardId: z.string().uuid().nullable().optional(),
@@ -260,21 +260,21 @@ export function createAuthRoutes(db: Database.Database) {
       const passwordHash = await hashPassword(parsed.data.nextPassword);
       const session = db.transaction(() => {
         const currentUser = getUserById(db, actor.user.id);
-        const currentSession = getSession(db, actor.session.id);
-        if (!currentUser?.active || !currentSession || currentSession.userId !== actor.user.id
+        const currentSession = revalidateAuthContext(db, actor);
+        if (!currentUser?.active || !currentSession || currentSession.user.id !== actor.user.id
           || currentUser.passwordHash !== actor.user.passwordHash) return null;
         updateUserPassword(db, actor.user.id, passwordHash, false);
         consumePasswordReset(db, actor.user.id);
         deleteSessionsForUser(db, actor.user.id);
-        const replacement = createSession(db, actor.user.id);
+        const replacement = actor.credential ? null : createSession(db, actor.user.id);
         audit(db, { actorUserId: actor.user.id, scopeType: 'auth', action: 'auth.password_change', outcome: 'success' });
-        return replacement;
+        return { replacement };
       })();
       if (!session) {
         response.status(401).json({ message: 'Password change is no longer authorized.' });
         return;
       }
-      setSessionCookie(request, response, session.id);
+      if (session.replacement) setSessionCookie(request, response, session.replacement.id);
       response.status(204).send();
     } catch {
       response.status(500).json({ message: 'Password update failed.' });

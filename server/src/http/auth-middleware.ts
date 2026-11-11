@@ -1,8 +1,10 @@
+import { credentialContext } from '../api/credentials';
+import type { AuthContextValue } from '../types';
 import type { ErrorRequestHandler, NextFunction, Request, Response } from 'express';
 import type Database from 'better-sqlite3';
 import { getAuthContextFromRequest, SESSION_COOKIE } from '../auth/session';
 
-export type AuthenticatedRequest = Request & { auth?: ReturnType<typeof getAuthContextFromRequest> };
+export type AuthenticatedRequest = Request & { auth?: AuthContextValue | null };
 
 export function attachAuth(db: Database.Database) {
   return (request: AuthenticatedRequest, _response: Response, next: NextFunction) => {
@@ -31,3 +33,7 @@ export const safeContentErrors: ErrorRequestHandler = (error, request, response,
   void error; void request; void next;
   response.status(500).json({ code: 'OPERATION_FAILED', message: 'Unable to save changes. Nothing was changed.' });
 };
+
+export function revalidateAuthContext(db: Database.Database, actor: AuthContextValue): AuthContextValue | null {
+  return actor.credential ? credentialContext(db, actor.credential.tokenId) : getAuthContextFromRequest(db, actor.session.id);
+}

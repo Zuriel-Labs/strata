@@ -6,20 +6,20 @@ import { createList, updateList, archiveList, restoreList, moveList, sortListCar
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canArchiveBoardContent, canManageBoard } from '../rbac/permissions';
 
-const createListSchema = z.object({
+export const createListSchema = z.object({
   boardId: z.string().min(1),
   title: z.string().min(1),
 });
 
-const updateListSchema = z.object({
+export const updateListSchema = z.object({
   title: z.string().min(1),
 });
 
-const moveListSchema = z.object({
+export const moveListSchema = z.object({
   toPosition: z.number().int().min(0),
 });
 
-const sortListSchema = z.object({
+export const sortListSchema = z.object({
   direction: z.enum(['asc', 'desc']),
 }).strict();
 

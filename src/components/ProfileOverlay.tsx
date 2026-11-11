@@ -1,3 +1,4 @@
+import { ConnectionsPanel } from './ConnectionsPanel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth-context';
 import { getContrastingTextColor } from '../lib/color';
@@ -17,7 +18,7 @@ const PROFILE_COLOR_OPTIONS = [
   '#b45309',
 ];
 
-type OverlayView = 'menu' | 'profile' | 'preferences' | 'security';
+type OverlayView = 'menu' | 'profile' | 'preferences' | 'security' | 'connections';
 
 type Notice = {
   tone: 'success' | 'error';
@@ -340,6 +341,8 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
                 <span aria-hidden="true" style={{ color: 'var(--text-secondary)' }}>&rarr;</span>
               </button>
 
+              <button data-account-view="connections" type="button" onClick={() => openView('connections')} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)' }}><span><span className="block text-sm font-semibold">API connections</span><span className="block text-xs" style={{color:'var(--text-muted)'}}>API keys, approved clients, and revocation</span></span><span aria-hidden="true">&rarr;</span></button>
+
               <button type="button" onClick={() => { void handleSignOut(); }} disabled={submitting} className="flex min-h-[44px] w-full items-center justify-between rounded-2xl border px-4 py-3 text-left" style={{ background: 'var(--bg-secondary)', borderColor: 'rgba(255,107,107,0.22)', color: '#ffd4d4' }}>
                 <span>
                   <span className="block text-sm font-semibold">Sign Out</span>
@@ -429,6 +432,8 @@ export function ProfileOverlay({ open, onClose }: { open: boolean; onClose: () =
             </div>
           </>
         ) : null}
+
+        {view === 'connections' ? <>{renderSubheader('API connections', 'Manage the access you approve for scripts and agents.')}<ConnectionsPanel onPendingChange={setSubmitting}/></> : null}
 
         {view === 'preferences' ? (
           <>

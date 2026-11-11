@@ -6,10 +6,11 @@ import { isBoardActive, isListActive, isWorkspaceActive } from '../rbac/lifecycl
 
 export function guardLifecycleWrites(db: Database.Database) {
   return (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+    const requestPath = request.path.replace(/^\/api\/v1(?=\/)/, '/api');
     if (!request.auth || ['GET', 'HEAD', 'OPTIONS'].includes(request.method)) { next(); return; }
     // Lifecycle transitions and reviewed content operations enforce their own parent rules.
-    if (/^\/api\/(workspaces|boards)\/[^/]+\/(close|reopen)$/.test(request.path) || request.path.startsWith('/api/content-operations')) { next(); return; }
-    const match = request.path.match(/^\/api\/(?:admin\/|auth\/navigation\/)?(workspaces|boards|lists|cards|automation-rules)(?:\/([^/]+))?/);
+    if (/^\/api\/(workspaces|boards)\/[^/]+\/(close|reopen)$/.test(requestPath) || requestPath.startsWith('/api/content-operations')) { next(); return; }
+    const match = requestPath.match(/^\/api\/(?:admin\/|auth\/navigation\/)?(workspaces|boards|lists|cards|automation-rules)(?:\/([^/]+))?/);
     if (!match) { next(); return; }
     const [, kind, id] = match;
     const body = typeof request.body === 'object' && request.body !== null ? request.body as Record<string, unknown> : {};
@@ -22,7 +23,7 @@ export function guardLifecycleWrites(db: Database.Database) {
     if (kind === 'lists' && id) {
       const row = db.prepare('SELECT board_id AS boardId FROM lists WHERE id = ?').get(id) as { boardId: string } | undefined;
       boardId = row?.boardId;
-      if (!/\/(restore|archive)$/.test(request.path) && request.method !== 'DELETE') listId = id;
+      if (!/\/(restore|archive)$/.test(requestPath) && request.method !== 'DELETE') listId = id;
     }
     if (kind === 'cards' && id) {
       const row = db.prepare('SELECT board_id AS boardId, list_id AS listId, archived FROM cards WHERE id = ?').get(id) as { boardId: string; listId: string; archived: number } | undefined;
@@ -33,7 +34,7 @@ export function guardLifecycleWrites(db: Database.Database) {
     if (!id && typeof body.boardId === 'string') boardId = body.boardId;
     if (boardId && canAccessBoard(db, request.auth, boardId)) {
       const template = Boolean(db.prepare('SELECT is_template FROM boards WHERE id = ?').pluck().get(boardId));
-      if (template && (request.path.includes('/comments') || request.path.includes('/invitations') || request.path.includes('/members') || (kind === 'cards' && ('memberIds' in body || 'watching' in body)))) {
+      if (template && (requestPath.includes('/comments') || requestPath.includes('/invitations') || requestPath.includes('/members') || (kind === 'cards' && ('memberIds' in body || 'watching' in body)))) {
         response.status(409).json({ code: 'TEMPLATE_READ_ONLY', message: 'Convert the template to a board before collaborating.' }); return;
       }
       if (!isBoardActive(db, boardId) || (listId && !isListActive(db, listId)) || cardArchived) {

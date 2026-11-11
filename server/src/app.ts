@@ -4,6 +4,12 @@ import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import type Database from 'better-sqlite3';
+import { createApiDocumentationRoutes } from './api/documentation';
+import { createOAuthRoutes } from './api/oauth-routes';
+import { attachApiPrincipal, normalizeApiErrors } from './api/middleware';
+import { createApiReadRoutes } from './api/read-routes';
+import { createConnectionRoutes } from './api/connection-routes';
+import { rateLimit, requireTls } from './api/rate-limit';
 import { attachAuth } from './http/auth-middleware';
 import { createAuthRoutes } from './routes/auth-routes';
 import { createNavigationRoutes } from './routes/navigation-routes';
@@ -53,26 +59,38 @@ export function createApp(db: Database.Database) {
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(cookieParser());
   app.use(attachAuth(db));
+  app.use(createApiDocumentationRoutes());
+  app.use('/api/oauth', createOAuthRoutes(db));
+  app.use('/api/connections', createConnectionRoutes(db));
+  app.use('/api/v1', normalizeApiErrors, requireTls, rateLimit(db, 'api-requests', 600), attachApiPrincipal(db));
   app.use(guardLifecycleWrites(db));
-  app.use('/api', createLifecycleRoutes(db));
-  app.use('/api/content-operations', createContentOperationRoutes(db));
-  app.use('/api', createPresentationRoutes(db));
+  const domain = express.Router();
+  domain.use('/', createLifecycleRoutes(db));
+  domain.use('/content-operations', createContentOperationRoutes(db));
+  domain.use('/', createPresentationRoutes(db));
+
+  domain.use('/auth', createAuthRoutes(db));
+  domain.use('/auth/navigation', createNavigationRoutes(db));
+  domain.use('/auth', createRecipientInvitationRoutes(db));
+  domain.use('/admin', createAdminRoutes(db));
+  domain.use('/admin', createAdminInvitationRoutes(db));
+  domain.use('/workspaces', createBootstrapRoutes(db));
+  domain.use('/boards', createBoardRoutes(db));
+  domain.use('/lists', createListRoutes(db));
+  domain.use('/cards', createCardRoutes(db));
+  domain.use('/automation-rules', createAutomationRoutes(db));
+  domain.use('/notifications', createNotificationRoutes(db));
 
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true });
   });
 
-  app.use('/api/auth', createAuthRoutes(db));
-  app.use('/api/auth/navigation', createNavigationRoutes(db));
-  app.use('/api/auth', createRecipientInvitationRoutes(db));
-  app.use('/api/admin', createAdminRoutes(db));
-  app.use('/api/admin', createAdminInvitationRoutes(db));
-  app.use('/api/workspaces', createBootstrapRoutes(db));
-  app.use('/api/boards', createBoardRoutes(db));
-  app.use('/api/lists', createListRoutes(db));
-  app.use('/api/cards', createCardRoutes(db));
-  app.use('/api/automation-rules', createAutomationRoutes(db));
-  app.use('/api/notifications', createNotificationRoutes(db));
+  app.use('/api/v1', createApiReadRoutes(db), domain);
+  app.use('/api', (request, response, next) => {
+    if (request.get('Authorization')) { response.status(401).json({ code: 'SUPPORTED_API_REQUIRED', message: 'Send API credentials only to /api/v1.' }); return; }
+    next();
+  });
+  app.use('/api', domain);
 
   if (hasClientBuild) {
     app.use(express.static(clientDistPath, { index: false }));
@@ -92,12 +110,18 @@ export function createApp(db: Database.Database) {
     });
   }
 
-  app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
+  app.use((error: unknown, request: express.Request, response: express.Response, next: express.NextFunction) => {
     void next;
+
+    if (request.path.startsWith('/api/')) response.set('Cache-Control', 'no-store');
+    if (typeof error === 'object' && error && 'type' in error && error.type === 'entity.parse.failed') {
+      response.status(400).json({ code: 'INPUT_INVALID', error: 'invalid_request', message: 'Invalid request body.' });
+      return;
+    }
 
     if (typeof error === 'object' && error && 'type' in error && error.type === 'entity.too.large') {
       response.status(413).json({
-        message: 'Request payload is too large.',
+        code: 'PAYLOAD_TOO_LARGE', message: 'Request payload is too large.',
       });
       return;
     }
@@ -113,9 +137,9 @@ export function createApp(db: Database.Database) {
       )
     );
 
-    if (isProduction && !isKnownSafeError) {
+    if ((request.path.startsWith('/api/v1') || request.path.startsWith('/api/oauth') || request.path.startsWith('/api/connections')) || (isProduction && !isKnownSafeError)) {
       response.status(500).json({
-        message: 'An unexpected error occurred.',
+        code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.',
       });
       return;
     }

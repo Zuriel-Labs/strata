@@ -19,7 +19,7 @@ import { canManageAutomation } from '../rbac/permissions';
 const triggerEnum = z.enum(['card_moved', 'card_created', 'checklist_complete', 'date_time', 'weekday', 'monthly', 'heartbeat']);
 const actionEnum = z.enum(['assign_member', 'add_label', 'move_to_list', 'mark_due_complete']);
 
-const triggerConfigSchema = z.object({
+export const triggerConfigSchema = z.object({
   toListId: z.string().min(1).optional(),
   runAt: z.string().datetime().optional(),
   weekdays: z.array(z.number().int().min(0).max(6)).optional(),
@@ -29,18 +29,18 @@ const triggerConfigSchema = z.object({
   intervalUnit: z.enum(['minutes', 'hours']).optional(),
 });
 
-const conditionsSchema = z.object({
+export const conditionsSchema = z.object({
   listId: z.string().min(1).nullable(),
   labelId: z.string().min(1).nullable(),
 });
 
-const actionConfigSchema = z.object({
+export const actionConfigSchema = z.object({
   memberId: z.string().min(1).optional(),
   labelId: z.string().min(1).optional(),
   listId: z.string().min(1).optional(),
 });
 
-const createRuleSchema = z.object({
+export const createRuleSchema = z.object({
   boardId: z.string().min(1),
   name: z.string().trim().min(1),
   trigger: triggerEnum,
@@ -51,7 +51,7 @@ const createRuleSchema = z.object({
   enabled: z.boolean(),
 });
 
-const updateRuleSchema = z.object({
+export const updateRuleSchema = z.object({
   name: z.string().trim().min(1).optional(),
   trigger: triggerEnum.optional(),
   triggerConfig: triggerConfigSchema.optional(),
@@ -142,20 +142,22 @@ export function createAutomationRoutes(db: Database.Database) {
 
     const id = randomUUID();
     const lastRunAt = getInitialLastRunAt(parsed.data.trigger);
-    createAutomationRuleWithConditions(
-      db,
-      id,
-      parsed.data.boardId,
-      parsed.data.name,
-      parsed.data.trigger,
-      parsed.data.triggerConfig,
-      parsed.data.conditions,
-      parsed.data.action,
-      parsed.data.actionConfig,
-      parsed.data.enabled,
-      lastRunAt,
-    );
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: parsed.data.boardId, action: 'automation.create', outcome: 'success' });
+    db.transaction(() => {
+      createAutomationRuleWithConditions(
+        db,
+        id,
+        parsed.data.boardId,
+        parsed.data.name,
+        parsed.data.trigger,
+        parsed.data.triggerConfig,
+        parsed.data.conditions,
+        parsed.data.action,
+        parsed.data.actionConfig,
+        parsed.data.enabled,
+        lastRunAt,
+      );
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: parsed.data.boardId, action: 'automation.create', outcome: 'success' });
+    })();
     const rule = getAutomationRuleById(db, id);
     response.status(201).json(rule);
   });
@@ -193,11 +195,13 @@ export function createAutomationRoutes(db: Database.Database) {
     }
 
     const shouldResetLastRunAt = parsed.data.trigger !== undefined || parsed.data.triggerConfig !== undefined;
-    updateAutomationRule(db, ruleId, {
-      ...parsed.data,
-      lastRunAt: shouldResetLastRunAt ? getInitialLastRunAt(nextRule.trigger) : undefined,
-    });
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: existingRule.boardId, action: 'automation.update', outcome: 'success' });
+    db.transaction(() => {
+      updateAutomationRule(db, ruleId, {
+        ...parsed.data,
+        lastRunAt: shouldResetLastRunAt ? getInitialLastRunAt(nextRule.trigger) : undefined,
+      });
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: existingRule.boardId, action: 'automation.update', outcome: 'success' });
+    })();
     const updated = getAutomationRuleById(db, ruleId);
     response.json(updated);
   });
@@ -212,8 +216,10 @@ export function createAutomationRoutes(db: Database.Database) {
       response.status(403).json({ message: 'Access denied.' });
       return;
     }
-    deleteAutomationRule(db, String(request.params.ruleId));
-    createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: rule.boardId, action: 'automation.delete', outcome: 'success' });
+    db.transaction(() => {
+      deleteAutomationRule(db, String(request.params.ruleId));
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: rule.boardId, action: 'automation.delete', outcome: 'success' });
+    })();
     response.status(204).send();
   });
 
@@ -224,12 +230,21 @@ export function createNotificationRoutes(db: Database.Database) {
   const router = Router();
 
   router.post('/:notificationId/read', requireAuth, (request: AuthenticatedRequest, response) => {
-    markNotificationRead(db, String(request.params.notificationId));
+    const id = String(request.params.notificationId);
+    const notification = db.prepare('SELECT board_id FROM notifications WHERE id = ? AND user_id = ?').get(id, request.auth!.user.id) as { board_id: string } | undefined;
+    if (!notification) { response.status(404).json({ code: 'RESOURCE_UNAVAILABLE', message: 'Notification unavailable.' }); return; }
+    db.transaction(() => {
+      markNotificationRead(db, id);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'board', scopeId: notification.board_id, action: 'notification.read', outcome: 'success', metadata: { notificationId: id } });
+    })();
     response.json({ success: true });
   });
 
   router.post('/read-all', requireAuth, (request: AuthenticatedRequest, response) => {
-    markAllNotificationsRead(db, request.auth!.user.id);
+    db.transaction(() => {
+      markAllNotificationsRead(db, request.auth!.user.id);
+      createAuditEvent(db, { actorUserId: request.auth!.user.id, scopeType: 'auth', action: 'notification.read_all', outcome: 'success' });
+    })();
     response.json({ success: true });
   });
 

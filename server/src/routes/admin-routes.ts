@@ -11,33 +11,33 @@ import { audit } from '../audit/audit-log';
 import { requireAuth, type AuthenticatedRequest } from '../http/auth-middleware';
 import { canAccessAdminPanel, canManageUserBoard, canManageUserPlatform } from '../rbac/policies';
 
-const assignmentSchema = z.object({
+export const assignmentSchema = z.object({
   workspaceAdminWorkspaceIds: z.array(z.string().min(1)).default([]),
   boardAdminBoardIds: z.array(z.string().min(1)).default([]),
   boardMemberships: z.array(z.object({ boardId: z.string().min(1), role: z.enum(['member', 'observer']) })).default([]),
 });
-const userSchema = z.object({
+export const userSchema = z.object({
   name: z.string().trim().min(1), initials: z.string().trim().min(1).max(4), color: z.string().min(4),
   username: z.string().trim().min(1), platformRole: z.enum(['system_admin', 'user']).default('user'),
   active: z.boolean().default(true), expectedUpdatedAt: z.string().datetime().nullable().optional(),
 }).and(assignmentSchema);
-const userPatchSchema = z.object({
+export const userPatchSchema = z.object({
   name: z.string().trim().min(1).optional(), initials: z.string().trim().min(1).max(4).optional(), color: z.string().min(4).optional(),
   username: z.string().trim().min(1).optional(), platformRole: z.enum(['system_admin', 'user']).optional(), active: z.boolean().optional(),
   expectedUpdatedAt: z.string().datetime().nullable().optional(),
 }).and(assignmentSchema);
-const pageSchema = z.object({
+export const pageSchema = z.object({
   query: z.string().max(100).default('').transform(value => value.trim()),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
-const resourceSchema = pageSchema.extend({
+export const resourceSchema = pageSchema.extend({
   kind: z.enum(['workspace', 'board']),
   workspaceId: z.string().optional(),
   selectedIds: z.string().max(4000).optional().transform(value => value ? value.split(',').filter(Boolean) : []).refine(ids => ids.length <= 100),
 });
-const membershipSchema = z.object({ role: z.enum(['member', 'observer']) });
-const labelPolicySchema = z.object({ maxLabelsPerBoard: z.number().int().min(1).max(100) }).strict();
+export const membershipSchema = z.object({ role: z.enum(['member', 'observer']) });
+export const labelPolicySchema = z.object({ maxLabelsPerBoard: z.number().int().min(1).max(100) }).strict();
 
 function errorResponse(response: Response, error: unknown) {
   const message = error instanceof Error ? error.message : 'Unable to complete request.';
@@ -99,7 +99,7 @@ export function createAdminRoutes(db: Database.Database) {
         return user;
       })();
       if (!created) { response.status(500).json({ message: 'Unable to create user.' }); return; }
-      response.status(201).json({ user: created, inviteToken });
+      response.status(201).json({ user: getAdminUserDetail(db, request.auth!, created.id), inviteToken });
     } catch (error) { errorResponse(response, error); }
   });
 
@@ -114,7 +114,7 @@ export function createAdminRoutes(db: Database.Database) {
       const deletedCount = deleteSessionsForUser(db, userId);
       if (userId === request.auth.user.id && updated.active) createUserSession(db,userId,request,response);
       audit(db, { actorUserId: request.auth.user.id, targetUserId: userId, scopeType: 'platform', action: 'admin.session_invalidation', outcome: 'success', metadata: { reason: 'access_or_account_change', sessionsInvalidated: deletedCount } });
-      response.json({ user: updated });
+      response.json({ user: getAdminUserDetail(db, request.auth!, updated.id) });
     } catch (error) { errorResponse(response, error); }
   });
 

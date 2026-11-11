@@ -70,7 +70,7 @@ export function listAdminUsersPage(db: Database.Database, actor: AuthContextValu
           derivedCount=Number((db.prepare(`SELECT COUNT(DISTINCT boards.workspace_id) AS count FROM board_memberships JOIN boards ON boards.id=board_memberships.board_id WHERE board_memberships.user_id=? AND board_memberships.board_id IN (${placeholders})`).get(userId,...scopedBoards) as {count:number}).count);
         }else{membershipCount=0;derivedCount=0}
       }
-      const mayViewOwnAuthority=actor.user.platformRole==='system_admin'||actor.user.id===userId;
+      const mayViewOwnAuthority=actor.user.platformRole==='system_admin'||(!actor.credential && actor.user.id===userId);
       return {
         id:userId,name:String(row.name),initials:String(row.initials),color:String(row.color),username:String(row.username),
         platformRole:row.platform_role==='system_admin'?'system_admin' as const:'user' as const,
@@ -93,8 +93,8 @@ export function getAdminUserDetail(db: Database.Database, actor: AuthContextValu
     id: user.id, name: user.name, initials: user.initials, color: user.color, username: user.username,
     platformRole: user.platformRole, active: user.active, mustChangePassword: user.mustChangePassword,
     createdAt: user.createdAt, updatedAt: user.updatedAt,
-    workspaceAdminGrants: systemAdmin||own?getWorkspaceAdminGrantsForUser(db,userId):[],
-    boardAdminGrants: systemAdmin||own?getBoardAdminGrantsForUser(db,userId):[],
+    workspaceAdminGrants: systemAdmin||own?getWorkspaceAdminGrantsForUser(db,userId).filter(item=>!actor.credential||actor.workspaceAdminGrants.some(grant=>grant.workspaceId===item.workspaceId)):[],
+    boardAdminGrants: systemAdmin||own?getBoardAdminGrantsForUser(db,userId).filter(item=>!actor.credential||actor.boardAdminGrants.some(grant=>grant.boardId===item.boardId)):[],
     boardMemberships: memberships,
     derivedWorkspaceIds:[...new Set(memberships.map(item=>(db.prepare('SELECT workspace_id AS workspaceId FROM boards WHERE id=?').get(item.boardId) as {workspaceId:string}).workspaceId))],
   };

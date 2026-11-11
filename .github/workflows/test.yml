@@ -15,12 +15,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Install Chromium and browser dependencies
-        run: |
-          # The hosted runner's HTTP Ubuntu mirror can stall fetching fonts.
-          # Keep the same mirror and APT signature verification over HTTPS.
-          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
-            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
-          fi
-          npx playwright install --with-deps chromium
+      # The Ubuntu runner already includes Chromium's shared libraries.
+      # Install the lockfile-selected browser without fetching extra system fonts.
+      - run: npx playwright install chromium
       - run: npm run check

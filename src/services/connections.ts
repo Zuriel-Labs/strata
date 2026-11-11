@@ -10,7 +10,7 @@ export interface ConsentRequest { id:string;kind:'device'|'code';name:string;cli
 const intent = {'X-Strata-Intent':'connections'};
 export const fetchConnections = () => apiRequest<{items:Connection[]}>('/api/connections');
 export interface KeyInput {name:string;actions:string[];resources:string[];expiresInDays:number;confirmation:'CREATE'}
-export interface ConnectionCatalog { resources:{id:string;label:string;actions:string[]}[]; actions:{id:string;label:string;level:string}[]; expiries:number[] }
+export interface ConnectionCatalog { resources:{id:string;label:string;actions:string[]}[]; actions:{id:string;label:string;level:string}[]; levels:string[]; expiries:number[] }
 export interface ServiceAccount { id:string;name:string;resources:string[];actions:string[];key:Pick<Connection,'expiresAt'|'lastUsedAt'|'revokedAt'>|null }
 export const fetchConnectionCatalog = (service=false) => apiRequest<ConnectionCatalog>(`/api/connections/catalog${service?'?service=1':''}`);
 export const createConnection = (input:KeyInput) => apiRequest<{connection:Connection;token:string}>('/api/connections',{method:'POST',headers:intent,body:JSON.stringify(input)});

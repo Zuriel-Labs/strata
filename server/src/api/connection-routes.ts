@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import { requireContentAuth, safeContentErrors, type AuthenticatedRequest } from '../http/auth-middleware';
 import { createGrant, issueToken, readGrant, revokeGrant } from './credentials';
 import { grantSchema, keySchema, KEY_EXPIRIES, ApiAuthorizationError } from './contract';
-import { actionCatalog, permitsAction, resourceCatalog, verifyActions } from './actions';
+import { ACCESS_LEVELS, actionCatalog, permitsAction, resourceCatalog, verifyActions } from './actions';
 import { serviceAccountRoutes } from './service-accounts';
 import { rateLimit, requireTls } from './rate-limit';
 
@@ -26,7 +26,7 @@ export function createConnectionRoutes(db: Database.Database) {
     const resources = resourceCatalog(db,request.auth!,service).map(resource => ({
       id:resource.id,label:resource.label,actions:actions.filter(item=>permitsAction(resource,item)).map(item=>item.id),
     }));
-    response.json({ resources, actions:actions.map(({id,label,level})=>({id,label,level})), expiries:KEY_EXPIRIES });
+    response.json({ resources, actions:actions.map(({id,label,level})=>({id,label,level})), levels:ACCESS_LEVELS, expiries:KEY_EXPIRIES });
   });
   router.get('/', (request: AuthenticatedRequest, response) => {
     const ids = db.prepare("SELECT id FROM api_grants WHERE user_id = ? AND service_account_id IS NULL ORDER BY (revoked_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) DESC, created_at DESC, id LIMIT 200").all(request.auth!.user.id) as { id: string }[];

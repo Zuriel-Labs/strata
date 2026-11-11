@@ -15,6 +15,7 @@ export function KeyWizard({account,service=false,submit,onDone,onBusy,links}:{
   const [name,setName]=useState(account?.name??'');
   const [resources,setResources]=useState(account?.resources??[]);
   const [actions,setActions]=useState(account?.actions??[]);
+  const [preset,setPreset]=useState('');
   const [days,setDays]=useState(7);
   const [query,setQuery]=useState('');
   const [group,setGroup]=useState('');
@@ -35,14 +36,29 @@ export function KeyWizard({account,service=false,submit,onDone,onBusy,links}:{
   const available=catalog?.resources.filter(item=>resources.includes(item.id))??[];
   const eligible=catalog?.actions.filter(action=>available.length>0&&available.every(item=>item.actions.includes(action.id)))??[];
   const selected=eligible.filter(action=>actions.includes(action.id));
-  const groups=[...new Set(eligible.map(item=>item.level))];
+  const levels=catalog?.levels??[];
+  const groups=levels.filter(level=>eligible.some(item=>item.level===level));
   const filtered=eligible.filter(item=>(!group||group===item.level)&&item.label.toLowerCase().includes(query.trim().toLowerCase()));
+  const allShownSelected=filtered.length>0&&filtered.every(item=>actions.includes(item.id));
   const ready=name.trim()&&resources.length>0&&resources.length===available.length&&selected.length>0&&selected.length===actions.length;
   function go(next:number){setError('');setQuery('');setGroup('');setStep(next)}
   function toggleResource(id:string){
     const next=resources.includes(id)?resources.filter(item=>item!==id):id==='account'||id==='platform'?[id]:[...resources.filter(item=>item!=='account'&&item!=='platform'),id];
     setResources(next);
+    setPreset('');
     setActions(previous=>previous.filter(action=>next.length>0&&next.every(value=>catalog?.resources.find(item=>item.id===value)?.actions.includes(action))));
+  }
+  function applyPreset(level:string){
+    setPreset(level);
+    if(!level)return;
+    const included=level==='Account'?['Account']:levels.slice(0,levels.indexOf(level)+1).filter(item=>item!=='Account');
+    setActions(eligible.filter(item=>included.includes(item.level)).map(item=>item.id));
+    setQuery('');setGroup('');
+  }
+  function toggleShown(){
+    const shown=filtered.map(item=>item.id);
+    setPreset('');
+    setActions(previous=>allShownSelected?previous.filter(id=>!shown.includes(id)):[...new Set([...previous,...shown])]);
   }
   async function save(){
     if(!ready||pending.current)return;
@@ -71,17 +87,21 @@ export function KeyWizard({account,service=false,submit,onDone,onBusy,links}:{
           {catalog.resources.filter(item=>item.label.toLowerCase().includes(query.trim().toLowerCase())).map(item=><label key={item.id} className="flex min-h-11 cursor-pointer items-center gap-2 border-b px-2 text-sm last:border-0"><input type="checkbox" checked={resources.includes(item.id)} onChange={()=>toggleResource(item.id)}/><span className="break-words">{item.label}</span></label>)}
           {!catalog.resources.some(item=>item.label.toLowerCase().includes(query.trim().toLowerCase()))&&<p className="p-2 text-sm">No matching resources.</p>}
         </fieldset>
-        {resources.length!==available.length&&<Button variant="outline" type="button" onClick={()=>{setResources(available.map(item=>item.id));setActions([])}}>Clear unavailable resources</Button>}</>}
+        {resources.length!==available.length&&<Button variant="outline" type="button" onClick={()=>{setResources(available.map(item=>item.id));setActions([]);setPreset('')}}>Clear unavailable resources</Button>}</>}
     </div>}
     {step===2&&<div className="space-y-2">
+      {groups.length>0&&<label className="block text-sm">Role preset<select className={optionClass} value={preset} onChange={event=>applyPreset(event.target.value)}><option value="">Custom</option>{groups.map(level=><option key={level}>{level}</option>)}</select></label>}
       <label className="block text-sm">Find a permission<Input className="mt-2 min-h-11" type="search" value={query} onChange={event=>setQuery(event.target.value)}/></label>
       {groups.length>1&&<label className="block text-sm">Access level<select className={optionClass} value={group} onChange={event=>setGroup(event.target.value)}><option value="">All levels</option>{groups.map(level=><option key={level}>{level}</option>)}</select></label>}
-      <p className="text-xs" role="status">{selected.length} selected</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs" role="status">{selected.length} selected</p>
+        <Button className="min-h-11" type="button" variant="outline" disabled={!filtered.length} onClick={toggleShown}>{allShownSelected?'Clear shown':'Select all shown'}</Button>
+      </div>
       <fieldset className="max-h-56 overflow-y-auto rounded-md border px-2"><legend className="sr-only">Permissions</legend>
-        {filtered.map(item=><label key={item.id} className="flex min-h-11 cursor-pointer items-center gap-2 border-b px-2 text-sm last:border-0"><input type="checkbox" checked={actions.includes(item.id)} onChange={()=>setActions(choose(actions,item.id))}/><span>{item.label}</span></label>)}
+        {filtered.map(item=><label key={item.id} className="flex min-h-11 cursor-pointer items-center gap-2 border-b px-2 text-sm last:border-0"><input type="checkbox" checked={actions.includes(item.id)} onChange={()=>{setPreset('');setActions(previous=>choose(previous,item.id))}}/><span>{item.label}</span></label>)}
         {!filtered.length&&<p className="p-2 text-sm">No matching permissions.</p>}
       </fieldset>
-      {actions.length!==selected.length&&<Button variant="outline" type="button" onClick={()=>setActions(selected.map(item=>item.id))}>Clear unavailable permissions</Button>}
+      {actions.length!==selected.length&&<Button variant="outline" type="button" onClick={()=>{setPreset('');setActions(selected.map(item=>item.id))}}>Clear unavailable permissions</Button>}
     </div>}
     {step===3&&<label className="block text-sm">Expires after<select name="expiry-days" className={optionClass} value={days} onChange={event=>setDays(Number(event.target.value))}>{catalog?.expiries.map(day=><option key={day} value={day}>{day} {day===1?'day':'days'}</option>)}</select></label>}
     {step===4&&<dl className="max-h-56 space-y-3 overflow-y-auto rounded-md border p-3 text-sm">

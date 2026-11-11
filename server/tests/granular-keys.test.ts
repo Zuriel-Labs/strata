@@ -84,6 +84,20 @@ describe('granular keys and service accounts',()=>{
     expect((await request(app).get('/api/v1/admin/audit').set('Authorization',bearer(audit.body.token))).body.auditEvents.length).toBeGreaterThan(0);
   });
 
+  it('accepts all listed platform permissions in a single key',async()=>{
+    db.prepare("UPDATE users SET must_change_password=0 WHERE id='u1'").run();
+    const admin=await login('admin','ChangeMe123!');
+    const {body,status}=await admin.get(`${api}/catalog`);
+    expect(status).toBe(200);
+    const {actions}=body.resources.find((item:{id:string})=>item.id==='platform');
+    const issued=await admin.post(api).set(intent,'connections').send(key('All listed permissions',actions,['platform']));
+    expect(issued.status).toBe(201);
+    expect(issued.body.connection.actions).toEqual(actions);
+    for(const path of ['/api/v1/me','/api/v1/cards','/api/v1/admin/audit']){
+      expect((await request(app).get(path).set('Authorization',bearer(issued.body.token))).status).toBe(200);
+    }
+  });
+
   it('uses the same endpoints, audits the agent, and revokes old access on an ownership transfer',async()=>{
     const owner=await login('alex','WorkspaceAdmin123!');
     const successor=await login('marcus','BoardAdmin123!');

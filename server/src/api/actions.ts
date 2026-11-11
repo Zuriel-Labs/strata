@@ -4,8 +4,8 @@ import { canAccessBoard, canAccessWorkspace, canEditBoardCards, canManageBoard, 
 import { API_OPERATIONS, type ApiOperation } from './operations';
 import { ApiAuthorizationError, type ApiScope } from './contract';
 
-const levels = ['Account', 'Viewer', 'Basic User', 'Board Admin', 'Workspace Admin', 'System Admin'] as const;
-type Level = typeof levels[number];
+export const ACCESS_LEVELS = ['Account', 'Viewer', 'Basic User', 'Board Admin', 'Workspace Admin', 'System Admin'] as const;
+type Level = typeof ACCESS_LEVELS[number];
 export interface Action { id: string; label: string; level: Level; personal: boolean; resourceBound?: boolean; scopes: ApiScope[] }
 interface Resource { id: string; label: string; level: Level }
 
@@ -121,7 +121,7 @@ export function resourceCatalog(db: Database.Database, actor: AuthContextValue, 
 export function permitsAction(resource: Resource, action: Action) {
   return action.personal && !action.resourceBound
     ? resource.id === 'account' || resource.id === 'platform'
-    : resource.id !== 'account' && levels.indexOf(resource.level) >= levels.indexOf(action.level);
+    : resource.id !== 'account' && ACCESS_LEVELS.indexOf(resource.level) >= ACCESS_LEVELS.indexOf(action.level);
 }
 
 export function verifyActions(db: Database.Database, actor: AuthContextValue, ids: string[], resources: string[], service: boolean) {
